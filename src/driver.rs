@@ -37,9 +37,7 @@ impl Driver {
 
     pub fn tick(&mut self) {
         
-        for entity in self.world.iter_entities_mut() {
-            entity.lifetime += 1;
-        }
+        
 
     }
 

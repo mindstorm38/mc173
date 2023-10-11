@@ -5,15 +5,14 @@ use glam::{DVec3, IVec3, Vec2};
 use crate::rand::JavaRandom;
 use crate::world::World;
 
+pub mod falling_block;
+
 
 /// Base trait for implementing entity behaviors.
 pub trait Entity {
 
     /// Tick this entity and update its internal components.
-    fn tick(&mut self, world: &World);
-
-    /// Return the base entity component.
-    fn base(&self) -> &BaseEntity;
+    fn tick(&mut self, world: &mut World);
 
 }
 
@@ -35,12 +34,45 @@ pub struct BaseEntity {
     pub lifetime: u32,
     /// The health.
     pub health: u32,
+    /// Is this entity responding to block's collisions.
+    pub no_clip: bool,
     /// The random number generator used for this entity.
     pub random: JavaRandom,
-    /// Specialized kind of entity.
-    pub kind: EntityKind,
 }
 
+impl BaseEntity {
+
+    pub fn new(id: u32, pos: DVec3) -> Self {
+        Self {
+            id,
+            pos,
+            vel: DVec3::ZERO,
+            look: Vec2::ZERO,
+            rider_id: None,
+            lifetime: 0,
+            health: 1,
+            no_clip: false,
+            random: JavaRandom::new_seeded(),
+        }
+    }
+
+}
+
+
+/// Common tick function to apply the given gravity on the entity and move it, while
+/// managing block collisions.
+pub fn tick_gravity(base: &mut BaseEntity, world: &mut World) {
+
+    base.vel.y -= 0.04;
+
+    base.vel *= 0.98;
+
+}
+
+
+
+
+/*
 #[derive(Debug, Default)]
 pub enum EntityKind {
     #[default]
@@ -132,3 +164,4 @@ pub enum LivingKind {
 pub struct PlayerEntity {
     pub username: String,
 }
+*/
