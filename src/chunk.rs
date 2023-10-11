@@ -3,28 +3,36 @@
 use std::io::{self, Write};
 
 use smallvec::SmallVec;
+use glam::IVec3;
 
 use crate::block::AIR;
 
 
+/// Chunk size in both X and Z coordinates.
 pub const CHUNK_WIDTH: usize = 16;
+/// Chunk height.
 pub const CHUNK_HEIGHT: usize = 128;
-pub const CHUNK_SIZE: usize = CHUNK_HEIGHT * CHUNK_WIDTH * CHUNK_WIDTH;
+/// Internal chunk size, in number of elements per chunk.
+const CHUNK_SIZE: usize = CHUNK_HEIGHT * CHUNK_WIDTH * CHUNK_WIDTH;
 
 
 /// Calculate the index in the chunk's arrays for the given chunk-local position. This
-/// is the same layout used by Minecraft's code `_xxx xzzz zyyy yyyy`.
+/// is the same layout used by Minecraft's code `_xxx xzzz zyyy yyyy`. Only firsts 
+/// relevant bits are taken in each coordinate component.
 #[inline]
-fn calc_index(x: usize, y: usize, z: usize) -> usize {
-    debug_assert!(x < CHUNK_WIDTH && z < CHUNK_WIDTH && y < CHUNK_HEIGHT);
+fn calc_index(pos: IVec3) -> usize {
+    debug_assert!(pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32);
+    let x = pos.x as usize & 0b1111;
+    let z = pos.z as usize & 0b1111;
+    let y = pos.y as usize & 0b1111111;
     (x << 11) | (z << 7) | (y << 0)
 }
 
 /// Calculate the chunk position corresponding to the given block position. 
 /// This also returns chunk-local coordinates in this chunk.
 #[inline]
-pub fn calc_chunk_pos(x: i32, z: i32) -> (i32, i32) {
-    (x / CHUNK_WIDTH as i32, z / CHUNK_WIDTH as i32)
+pub fn calc_chunk_pos(pos: IVec3) -> (i32, i32) {
+    (pos.x / CHUNK_WIDTH as i32, pos.z / CHUNK_WIDTH as i32)
 }
 
 
@@ -58,58 +66,69 @@ impl Chunk {
     }
 
     /// Get block id at the given chunk-local position.
-    pub fn block(&self, x: usize, y: usize, z: usize) -> u8 {
-        self.block[calc_index(x, y, z)]
+    #[inline]
+    pub fn block(&self, pos: IVec3) -> u8 {
+        self.block[calc_index(pos)]
     }
 
     /// Get block metadata at the given chunk-local position.
-    pub fn metadata(&self, x: usize, y: usize, z: usize) -> u8 {
-        self.metadata.get(calc_index(x, y, z))
+    #[inline]
+    pub fn metadata(&self, pos: IVec3) -> u8 {
+        self.metadata.get(calc_index(pos))
+    }
+
+    #[inline]
+    pub fn block_and_metadata(&self, pos: IVec3) -> (u8, u8) {
+        let index = calc_index(pos);
+        (self.block[index], self.metadata.get(index))
     }
 
     /// Get block light level at the given chunk-local position.
-    pub fn block_light(&self, x: usize, y: usize, z: usize) -> u8 {
-        self.block_light.get(calc_index(x, y, z))
+    #[inline]
+    pub fn block_light(&self, pos: IVec3) -> u8 {
+        self.block_light.get(calc_index(pos))
     }
 
     /// Get sky light level at the given chunk-local position.
-    pub fn sky_light(&self, x: usize, y: usize, z: usize) -> u8 {
-        self.sky_light.get(calc_index(x, y, z))
+    #[inline]
+    pub fn sky_light(&self, pos: IVec3) -> u8 {
+        self.sky_light.get(calc_index(pos))
     }
 
     /// Set block id at the given chunk-local position.
-    pub fn set_block(&mut self, x: usize, y: usize, z: usize, id: u8) {
-        self.block[calc_index(x, y, z)] = id;
+    #[inline]
+    pub fn set_block(&mut self, pos: IVec3, id: u8) {
+        self.block[calc_index(pos)] = id;
     }
 
     /// Set block metadata at the given chunk-local position.
-    pub fn set_metadata(&mut self, x: usize, y: usize, z: usize, metadata: u8) {
-        self.metadata.set(calc_index(x, y, z), metadata)
+    #[inline]
+    pub fn set_metadata(&mut self, pos: IVec3, metadata: u8) {
+        self.metadata.set(calc_index(pos), metadata)
     }
 
     /// Get block light level at the given chunk-local position.
-    pub fn set_block_light(&mut self, x: usize, y: usize, z: usize, level: u8) {
-        self.block_light.set(calc_index(x, y, z), level);
+    #[inline]
+    pub fn set_block_light(&mut self, pos: IVec3, level: u8) {
+        self.block_light.set(calc_index(pos), level);
     }
 
     /// Get sky light level at the given chunk-local position.
-    pub fn set_sky_light(&mut self, x: usize, y: usize, z: usize, level: u8) {
-        self.sky_light.set(calc_index(x, y, z), level);
+    pub fn set_sky_light(&mut self, pos: IVec3, level: u8) {
+        self.sky_light.set(calc_index(pos), level);
     }
 
     /// Fill the given chunk area with given block id and metadata.
     pub fn fill_block_and_metadata(&mut self, 
-        x: usize, y: usize, z: usize,
-        x_size: usize, y_size: usize, z_size: usize,
+        start: IVec3,
+        size: IVec3,
         id: u8, metadata: u8
     ) {
 
-        for x in x..x + x_size {
-            for z in z..z + z_size {
-
-                let mut index = calc_index(x, y, z);
-
-                for _ in y..y + y_size {
+        for x in start.x..start.x + size.x {
+            for z in start.z..start.z + size.z {
+                let mut index = calc_index(IVec3::new(x, start.y, z));
+                for _ in start.y..start.y + size.y {
 
                     self.block[index] = id;
                     self.metadata.set(index, metadata);
@@ -118,7 +137,6 @@ impl Chunk {
                     index += 1;
 
                 }
-
             }
         }
 

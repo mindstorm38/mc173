@@ -7,7 +7,7 @@ macro_rules! items {
         $($name:ident / $id:literal : $init:expr),* $(,)?
     ) => {
 
-        pub static BLOCKS: [Item; 256] = {
+        static ITEMS: [Item; 256] = {
             let mut arr = [Item::new("undefined"); 256];
             $(arr[$id as usize] = $init;)*
             arr
@@ -23,6 +23,11 @@ items! {
     IRON_PICKAXE/1:     Item::new("iron_pickaxe"),
     IRON_AXE/2:         Item::new("iron_axe"),
     FLINT_AND_STEEL/3:  Item::new("flint_and_steel"),
+}
+
+/// Get an item from its numeric id.
+pub fn item_from_id(id: u16) -> &'static Item {
+    &ITEMS[id as usize]
 }
 
 

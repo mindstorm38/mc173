@@ -175,6 +175,7 @@ struct Client {
     /// The client's stream.
     stream: TcpStream,
     /// The client's remote socket address.
+    #[allow(unused)]
     addr: SocketAddr,
     /// Writable state.
     writable: FunctionState,

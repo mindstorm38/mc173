@@ -20,7 +20,7 @@ impl FallingBlockEntity {
 
     pub fn new(id: u32, pos: DVec3, block_id: u8) -> Self {
         Self {
-            base: BaseEntity::new(id, pos),
+            base: BaseEntity::new(id, pos, 1.0, 1.0),
             fall_ticks: 0,
             block_id,
         }
@@ -33,9 +33,17 @@ impl Entity for FallingBlockEntity {
     fn tick(&mut self, world: &mut World) {
         
         self.fall_ticks += 1;
+        self.base.apply_gravity(world);
 
-        super::tick_gravity(&mut self.base, world);
+        if self.base.on_ground {
+            // TODO: Place block and destroy falling block.
+            let _ = self.block_id;
+        }
 
+    }
+
+    fn base(&self) -> &BaseEntity {
+        &self.base
     }
 
 }

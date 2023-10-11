@@ -1,44 +1,14 @@
 //! The overworld chunk source.
 
+use glam::IVec3;
+
 use crate::chunk::{Chunk, CHUNK_WIDTH};
-use crate::driver::{Source, Event};
 use crate::block::{STONE, GRASS};
-use crate::world::World;
 
-
-/// The source for generating an overworld dimension.
-pub struct OverworldSource {
-    chunks: Vec<(i32, i32, Box<Chunk>)>,
-}
-
-impl OverworldSource {
-
-    pub fn new() -> Self {
-        Self {
-            chunks: Vec::new(),
-        }
-    }
-
-}
-
-
-impl Source for OverworldSource {
-
-    fn tick(&mut self, world: &mut World, events: &mut Vec<Event>) {
-        for (cx, cz, chunk) in self.chunks.drain(..) {
-            world.insert_chunk(cx, cz, chunk);
-            events.push(Event::ChunkLoaded { cx, cz });
-        }
-    }
-
-    fn request_chunk(&mut self, cx: i32, cz: i32) {
-        
-        let mut chunk = Chunk::new();
-        chunk.fill_block_and_metadata(0, 0, 0, CHUNK_WIDTH, 61, CHUNK_WIDTH, STONE, 0);
-        chunk.fill_block_and_metadata(0, 61, 0, CHUNK_WIDTH, 3, CHUNK_WIDTH, GRASS, 0);
-
-        self.chunks.push((cx, cz, chunk));
-
-    }
-
+/// A temporary development function to generate a new flat overworld chunk.
+pub fn new_overworld_chunk() -> Box<Chunk> {
+    let mut chunk = Chunk::new();
+    chunk.fill_block_and_metadata(IVec3::new(0, 0, 0), IVec3::new(CHUNK_WIDTH as _, 61, CHUNK_WIDTH as _), STONE, 0);
+    chunk.fill_block_and_metadata(IVec3::new(0, 61, 0), IVec3::new(CHUNK_WIDTH as _, 3, CHUNK_WIDTH as _), GRASS, 0);
+    chunk
 }

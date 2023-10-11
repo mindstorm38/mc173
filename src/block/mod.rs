@@ -1,15 +1,23 @@
 //! Block enumeration and behaviors.
 
+use crate::util::bb::BoundingBox;
+
+
 /// Internal macro to easily define blocks registry.
 macro_rules! blocks {
     (
         $($name:ident / $id:literal : $init:expr),* $(,)?
     ) => {
 
-        pub static BLOCKS: [Block; 256] = {
-            let mut arr = [Block::new("undefined", Material::Air, 0.0, 0.0); 256];
+        static BLOCKS: [Block; 256] = {
+
+            const DEFAULT: Block = Block::new("undefined", Material::Air, 0.0, 0.0)
+                .set_no_collide();
+
+            let mut arr = [DEFAULT; 256];
             $(arr[$id as usize] = $init;)*
             arr
+
         };
 
         $(pub const $name: u8 = $id;)*
@@ -18,7 +26,7 @@ macro_rules! blocks {
 }
 
 blocks! {
-    AIR/0:              Block::new("air", Material::Air, 0.0, 0.0),
+    AIR/0:              Block::new("air", Material::Air, 0.0, 0.0).set_no_collide(),
     STONE/1:            Block::new("stone", Material::Rock, 1.5, 30.0),
     GRASS/2:            Block::new("grass", Material::Grass, 0.6, 0.0),
     DIRT/3:             Block::new("dirt", Material::Ground, 0.5, 0.0),
@@ -68,6 +76,12 @@ blocks! {
     BOOKSHELF/47:       Block::new("bookshelf", Material::Wood, 1.5, 0.0),
 }
 
+/// Get a block from its numeric id.
+pub fn block_from_id(id: u8) -> &'static Block {
+    &BLOCKS[id as usize]
+}
+
+
 /// This structure describe a block.
 #[derive(Debug, Clone, Copy)]
 pub struct Block {
@@ -85,6 +99,10 @@ pub struct Block {
     pub light_opacity: u8,
     /// Light emission.
     pub light_emission: u8,
+    /// This function is used to get the bounding box list of this block, given its 
+    /// metadata. By default, this function just return a full block, the bounding box
+    /// also needs to have its origin at 0/0/0, it will be offset when doing computations.
+    pub fn_bounding_boxes: fn(u8) -> &'static [BoundingBox],
 }
 
 impl Block {
@@ -98,7 +116,23 @@ impl Block {
             slipperiness: 0.6,
             light_opacity: 255,
             light_emission: 0,
+            fn_bounding_boxes: |_| &[BoundingBox::CUBE],
         }
+    }
+    
+    const fn set_no_collide(self) -> Self {
+        self.set_fn_bounding_boxes(|_| &[])
+    }
+
+    const fn set_fn_bounding_boxes(mut self, func: fn(u8) -> &'static [BoundingBox]) -> Self {
+        self.fn_bounding_boxes = func;
+        self
+    }
+
+    /// Get bounding boxes for this block and given metadata.
+    #[inline]
+    pub fn bounding_boxes(&self, metadata: u8) -> &'static [BoundingBox] {
+        (self.fn_bounding_boxes)(metadata)
     }
 
 }
