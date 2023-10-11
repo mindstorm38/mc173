@@ -10,11 +10,10 @@ use flate2::Compression;
 
 use glam::{DVec3, Vec2};
 
-use crate::entity::{EntityKind, LivingEntity, LivingKind, PlayerEntity};
-use crate::chunk::{calc_chunk_pos, CHUNK_WIDTH, CHUNK_HEIGHT};
-use crate::overworld::OverworldSource;
-use crate::world::{World, Dimension};
-use crate::driver::Driver;
+use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT};
+use crate::entity::player::PlayerEntity;
+use crate::overworld::new_overworld;
+use crate::world::World;
 
 use crate::proto::{PacketServer, ServerPacket, ClientPacket, ClientId, 
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, PlayerSpawnPositionPacket, 
@@ -37,7 +36,7 @@ struct InnerServer {
     /// The player manager.
     player_manager: PlayerManager,
     /// The game driver.
-    overworld_driver: Driver,
+    overworld_dim: World,
 }
 
 impl Server {
@@ -51,7 +50,7 @@ impl Server {
                     players: HashMap::new(),
                     runtime_players: HashMap::new(),
                 },
-                overworld_driver: Driver::new(World::new(Dimension::Overworld), Box::new(OverworldSource::new())),
+                overworld_dim: new_overworld(),
             },
             packets: Packets::new(),
         })
@@ -66,7 +65,7 @@ impl Server {
             self.inner.handle(client_id, packet);
         }
 
-        self.inner.overworld_driver.tick();
+        self.inner.overworld_dim.tick();
 
         Ok(())
 
@@ -86,16 +85,19 @@ impl InnerServer {
                 self.handle_login(client_id, packet.protocol_version, packet.username)
             }
             ServerPacket::PlayerPosition(packet) => self.handle_move(
+                client_id,
                 Some(PlayerPosition { pos: packet.pos, stance: packet.stance }),
                 None,
                 packet.on_ground
             ),
             ServerPacket::PlayerLook(packet) => self.handle_move(
+                client_id,
                 None, 
                 Some(PlayerLook { look: packet.look }), 
                 packet.on_ground
             ),
             ServerPacket::PlayerPositionLook(packet) => self.handle_move(
+                client_id,
                 Some(PlayerPosition { pos: packet.pos, stance: packet.stance }), 
                 Some(PlayerLook { look: packet.look }),
                 packet.on_ground
@@ -126,37 +128,30 @@ impl InnerServer {
         }
 
         let player = self.player_manager.connect_player(username.clone()).unwrap();
-        let entity = self.overworld_driver.world_mut();
 
-        let entity = self.world_manager.new_entity(world_id);
-
-        entity.kind = EntityKind::Living(LivingEntity {
-            kind: LivingKind::Player(PlayerEntity {
-                username: username.clone(),
-            }),
-        });
+        let entity_id = self.overworld_dim.spawn_entity(Box::new(PlayerEntity::new(
+            DVec3::new(8.5, 66.0, 8.5), 
+            username.clone()
+        )));
 
         self.player_manager.runtime_players.insert(client_id, RuntimePlayer { 
-            entity_id: entity.id,
+            entity_id,
             sent_chunks: HashSet::new(),
             last_position: None,
         });
 
-        self.packet_server.send(self.client_id, &ClientPacket::Login(ClientLoginPacket {
-            entity_id: entity.id as i32,
+        self.packet_server.send(client_id, &ClientPacket::Login(ClientLoginPacket {
+            entity_id: entity_id as i32,
             random_seed: 0,
-            dimension: match dimension {
-                Dimension::Overworld => 0,
-                Dimension::Nether => -1,
-            },
+            dimension: 0,
         }))?;
 
-        self.packet_server.send(self.client_id, &ClientPacket::PlayerSpawnPosition(PlayerSpawnPositionPacket {
-            pos: spawn_pos,
+        self.packet_server.send(client_id, &ClientPacket::PlayerSpawnPosition(PlayerSpawnPositionPacket {
+            pos: self.overworld_dim.spawn_pos(),
         }))?;
 
-        self.packet_server.send(self.client_id, &ClientPacket::UpdateTime(UpdateTimePacket {
-            time
+        self.packet_server.send(client_id, &ClientPacket::UpdateTime(UpdateTimePacket {
+            time: self.overworld_dim.time(),
         }))?;
 
         let join_message = ClientPacket::Chat(ChatPacket {
@@ -173,36 +168,42 @@ impl InnerServer {
 
     /// This function handles various positioning packets.
     fn handle_move(&mut self, 
+        client_id: ClientId,
         pos: Option<PlayerPosition>, 
         look: Option<PlayerLook>, 
         on_ground: bool
     ) -> io::Result<()> {
 
-        let player = self.player_manager.runtime_players.get_mut(&self.client_id).unwrap();
-        let entity = self.world_manager.entity_mut(player.entity_id).unwrap();
+        let player = self.player_manager.runtime_players.get_mut(&client_id).unwrap();
 
-        let world_id = entity.world_id;
-        let chunk_pos = calc_chunk_pos(entity.pos.as_ivec3()).0;
+        // let chunk_pos = calc_chunk_pos(entity.pos.as_ivec3()).0;
 
         if let None = player.last_position {
-            self.packet_server.send(self.client_id, &ClientPacket::PlayerPositionLook(PlayerPositionLookPacket {
+            
+            self.packet_server.send(client_id, &ClientPacket::PlayerPositionLook(PlayerPositionLookPacket {
                 pos: DVec3::new(8.5, 66.0, 8.5),
                 look: Vec2::ZERO,
                 stance: 67.62,
                 on_ground: false,
             }))?;
+
+            player.last_position = Some(PlayerPosition {
+                pos: DVec3::new(8.5, 66.0, 8.5),
+                stance: 67.16,
+            });
+
         }
 
-        if let Some(pos) = &pos {
-            entity.pos = pos.pos;
-            player.last_position = Some(pos.clone());
-        }
+        // if let Some(pos) = &pos {
+        //     entity.pos = pos.pos;
+        //     player.last_position = Some(pos.clone());
+        // }
 
-        if let Some(look) = &look {
-            entity.look = look.look;
-        }
+        // if let Some(look) = &look {
+        //     entity.look = look.look;
+        // }
 
-        let world = self.world_manager.world_mut(world_id).unwrap();
+        // let world = self.world_manager.world_mut(world_id).unwrap();
 
         let mut map_chunk_packet = ClientPacket::MapChunk(MapChunkPacket {
             x: 0, y: 0, z: 0, 
@@ -210,13 +211,13 @@ impl InnerServer {
             compressed_data: Vec::new(),
         });
 
-        for cx in chunk_pos.x - 2..chunk_pos.x + 2 {
-            for cz in chunk_pos.y - 2..chunk_pos.y + 2 {
+        for cx in -2..2 {
+            for cz in -2..2 {
 
-                if let Some(chunk) = world.request_chunk(cx, cz) {
+                if let Some(chunk) = self.overworld_dim.chunk(cx, cz) {
                     if player.sent_chunks.insert((cx, cz)) {
 
-                        self.packet_server.send(self.client_id, &ClientPacket::PreChunk(PreChunkPacket {
+                        self.packet_server.send(client_id, &ClientPacket::PreChunk(PreChunkPacket {
                             cx, cz, init: true
                         }))?;
 
@@ -234,7 +235,7 @@ impl InnerServer {
                             unreachable!();
                         }
 
-                        self.packet_server.send(self.client_id, &map_chunk_packet)?;
+                        self.packet_server.send(client_id, &map_chunk_packet)?;
 
                     }
                 }

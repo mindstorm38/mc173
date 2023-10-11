@@ -1,3 +1,5 @@
+//! Falling block entity implementation.
+
 use glam::DVec3;
 
 use crate::world::World;
@@ -18,9 +20,9 @@ pub struct FallingBlockEntity {
 
 impl FallingBlockEntity {
 
-    pub fn new(id: u32, pos: DVec3, block_id: u8) -> Self {
+    pub fn new(pos: DVec3, block_id: u8) -> Self {
         Self {
-            base: BaseEntity::new(id, pos, 1.0, 1.0),
+            base: BaseEntity::new(pos, 1.0, 1.0),
             fall_ticks: 0,
             block_id,
         }
@@ -30,6 +32,10 @@ impl FallingBlockEntity {
 
 impl Entity for FallingBlockEntity {
 
+    fn init(&mut self, id: u32) {
+        self.base.id = id;
+    }
+    
     fn tick(&mut self, world: &mut World) {
         
         self.fall_ticks += 1;

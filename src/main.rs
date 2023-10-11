@@ -12,17 +12,17 @@ pub mod proto;
 
 pub mod overworld;
 
-// pub mod server;
+pub mod server;
 
 
 fn main() {
 
-    // use server::Server;
+    use server::Server;
 
-    // let mut server = Server::bind("127.0.0.1:25565".parse().unwrap()).unwrap();
+    let mut server = Server::bind("127.0.0.1:25565".parse().unwrap()).unwrap();
 
-    // loop {
-    //     server.tick().unwrap();
-    // }
+    loop {
+        server.tick().unwrap();
+    }
 
 }

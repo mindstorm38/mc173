@@ -7,22 +7,26 @@ use crate::util::bb::BoundingBox;
 use crate::world::World;
 
 pub mod falling_block;
+pub mod player;
 
 
 /// Base trait for implementing entity behaviors.
 pub trait Entity {
+
+    /// Init the entity when it was spawned in a world.
+    fn init(&mut self, id: u32);
 
     /// Tick this entity and update its internal components.
     fn tick(&mut self, world: &mut World);
 
     /// Get the base entity component that should be part of every entity.
     fn base(&self) -> &BaseEntity;
-
+    
 }
 
 
 /// Base class for entity.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BaseEntity {
     /// The internal entity id.
     pub id: u32,
@@ -59,9 +63,9 @@ pub struct BaseEntity {
 
 impl BaseEntity {
 
-    pub fn new(id: u32, pos: DVec3, width: f32, height: f32) -> Self {
+    pub fn new(pos: DVec3, width: f32, height: f32) -> Self {
         Self {
-            id,
+            id: 0,
             pos,
             vel: DVec3::ZERO,
             look: Vec2::ZERO,
@@ -181,6 +185,12 @@ impl BaseEntity {
 
     }
 
+}
+
+/// Base class for living entity.
+#[derive(Debug, Default)]
+pub struct LivingEntity {
+    
 }
 
 

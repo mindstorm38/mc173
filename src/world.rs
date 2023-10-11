@@ -36,6 +36,8 @@ pub struct World {
     entities: Vec<Option<Box<dyn Entity>>>,
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
+    /// Next entity id apply to a newly spawned entity.
+    next_entity_id: u32,
 }
 
 impl World {
@@ -48,6 +50,7 @@ impl World {
             chunks: HashMap::new(),
             entities: Vec::new(),
             entities_map: HashMap::new(),
+            next_entity_id: 0,
         }
     }
 
@@ -88,11 +91,15 @@ impl World {
     }
 
     /// Spawn an entity in this world.
-    pub fn spawn_entity(&mut self, entity: Box<dyn Entity>) -> u32 {
+    pub fn spawn_entity(&mut self, mut entity: Box<dyn Entity>) -> u32 {
 
-        let id = entity.base().id;
+        let id = self.next_entity_id;
+        self.next_entity_id = self.next_entity_id.checked_add(1)
+            .expect("entity id overflow");
+
+        entity.init(id);
+
         let index = self.entities.len();
-
         self.entities.push(Some(entity));
         self.entities_map.insert(id, index);
 
