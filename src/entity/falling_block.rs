@@ -6,23 +6,12 @@ use crate::world::World;
 use super::{EntityBehavior, Base};
 
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct FallingBlock {
     /// Number of ticks since this block is falling.
     pub fall_ticks: u32,
     /// The falling block id.
     pub block_id: u8,
-}
-
-impl FallingBlock {
-
-    pub fn new(block_id: u8) -> Self {
-        Self {
-            fall_ticks: 0,
-            block_id,
-        }
-    }
-
 }
 
 /// A falling block entity.

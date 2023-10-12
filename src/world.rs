@@ -7,7 +7,7 @@ use std::ops::Add;
 
 use glam::{IVec3, DVec3};
 
-use crate::chunk::{Chunk, calc_chunk_pos};
+use crate::chunk::{Chunk, calc_chunk_pos, CHUNK_HEIGHT};
 use crate::entity::{self, EntityBehavior};
 use crate::util::bb::BoundingBox;
 use crate::block::block_from_id;
@@ -100,21 +100,26 @@ impl World {
     }
 
     /// Get block and metadata at given position in the world, if the chunk is not
-    /// loaded, zeros are returned.
-    pub fn block_and_metadata(&self, pos: IVec3) -> (u8, u8) {
-        // FIXME: Check for y < 0 || y >= 128
-        let (cx, cz) = calc_chunk_pos(pos);
-        match self.chunk(cx, cz) {
-            Some(chunk) => chunk.block_and_metadata(pos),
-            None => (0, 0),
+    /// loaded, none is returned.
+    pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {
+        if pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32 {
+            let (cx, cz) = calc_chunk_pos(pos);
+            let chunk = self.chunk(cx, cz)?;
+            Some(chunk.block_and_metadata(pos))
+        } else {
+            None
         }
     }
 
-    pub fn set_block_and_metadata(&mut self, pos: IVec3, id: u8, metadata: u8) {
-        // FIXME: Check for y < 0 || y >= 128
-        let (cx, cz) = calc_chunk_pos(pos);
-        let chunk = self.chunk_mut(cx, cz).unwrap();
-        chunk.set_block_and_metadata(pos, id, metadata);
+    pub fn set_block_and_metadata(&mut self, pos: IVec3, id: u8, metadata: u8) -> bool {
+        if pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32 {
+            let (cx, cz) = calc_chunk_pos(pos);
+            if let Some(chunk) = self.chunk_mut(cx, cz) {
+                chunk.set_block_and_metadata(pos, id, metadata);
+                return true;
+            }
+        }
+        false
     }
 
     /// Internal function to ensure monomorphization and reduce bloat of the 

@@ -1,5 +1,6 @@
 //! Block enumeration and behaviors.
 
+use crate::item::Item;
 use crate::util::bb::BoundingBox;
 
 
@@ -76,6 +77,7 @@ blocks! {
     BOOKSHELF/47:       Block::new("bookshelf", Material::Wood, 1.5, 0.0),
 }
 
+
 /// Get a block from its numeric id.
 pub fn block_from_id(id: u8) -> &'static Block {
     &BLOCKS[id as usize]
@@ -99,6 +101,8 @@ pub struct Block {
     pub light_opacity: u8,
     /// Light emission.
     pub light_emission: u8,
+    /// The item corresponding to this block.
+    pub item: Item,
     /// This function is used to get the bounding box list of this block, given its 
     /// metadata. By default, this function just return a full block, the bounding box
     /// also needs to have its origin at 0/0/0, it will be offset when doing computations.
@@ -116,6 +120,10 @@ impl Block {
             slipperiness: 0.6,
             light_opacity: 255,
             light_emission: 0,
+            item: Item {
+                name,
+                max_stack: 64,
+            },
             fn_bounding_boxes: |_| &[BoundingBox::CUBE],
         }
     }

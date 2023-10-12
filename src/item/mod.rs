@@ -1,5 +1,7 @@
 //! Item enumeration and behaviors.
 
+use crate::block::block_from_id;
+
 
 /// Internal macro to easily define blocks registry.
 macro_rules! items {
@@ -13,7 +15,7 @@ macro_rules! items {
             arr
         };
 
-        $(pub const $name: u8 = $id;)*
+        $(pub const $name: u16 = $id + 256;)*
 
     };
 }
@@ -25,9 +27,14 @@ items! {
     FLINT_AND_STEEL/3:  Item::new("flint_and_steel"),
 }
 
+
 /// Get an item from its numeric id.
 pub fn item_from_id(id: u16) -> &'static Item {
-    &ITEMS[id as usize]
+    if id < 256 {
+        &block_from_id(id as u8).item
+    } else {
+        &ITEMS[(id - 256) as usize]
+    }
 }
 
 
@@ -36,6 +43,7 @@ pub fn item_from_id(id: u16) -> &'static Item {
 pub struct Item {
     /// The name of the item, used for debug purpose.
     pub name: &'static str,
+    /// Maximum stack size for this item.
     pub max_stack: u16,
 }
 
@@ -51,7 +59,7 @@ impl Item {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ItemStack {
     pub id: u8,
     pub damage: u8,

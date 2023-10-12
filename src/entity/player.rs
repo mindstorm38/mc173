@@ -11,7 +11,6 @@ pub struct Player {
     pub username: String,
 }
 
-
 /// A player entity.
 pub type PlayerEntity = Base<Living<Player>>;
 

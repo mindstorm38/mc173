@@ -15,14 +15,14 @@ use anyhow::Result as AnyResult;
 
 use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
 use crate::overworld::new_overworld;
-use crate::entity::PlayerEntity;
 use crate::world::{World, Event};
+use crate::entity::{PlayerEntity, ItemEntity};
 
 use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, PlayerSpawnPositionPacket, 
-    UpdateTimePacket, ChatPacket, PlayerPositionLookPacket, MapChunkPacket, 
-    PreChunkPacket, PlayerBreakBlockPacket, BlockChangePacket};
+    UpdateTimePacket, ChatPacket, PlayerPositionLookPacket, ChunkDataPacket, 
+    ChunkStatePacket, PlayerBreakBlockPacket, BlockChangePacket};
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -112,7 +112,20 @@ impl Server {
         self.resources.overworld_events.extend(self.resources.overworld_dim.drain_events());
         for event in self.resources.overworld_events.drain(..) {
             match event {
-                Event::EntitySpawn { id: _ } => {}
+                Event::EntitySpawn { id } => {
+
+                    let entity = self.resources.overworld_dim.entity(id).unwrap();
+
+                    if let Some(item_entity) = entity.downcast_ref::<ItemEntity>() {
+
+                        let pos = item_entity.pos.as_ivec3();
+                        for player in self.players.iter_aware_players(pos) {
+                            self.resources.tcp_server.send(client_id, packet)
+                        }
+
+                    }
+
+                }
                 Event::BlockChange { pos, new_block: new_id, new_metadata, .. } => {
 
                     let block_change_packet = ClientPacket::BlockChange(BlockChangePacket {
@@ -244,22 +257,22 @@ impl Player {
                 self.handle_login(res, packet.protocol_version, packet.username),
             ServerPacket::Chat(packet) =>
                 self.handle_chat(res, packet.message),
-            ServerPacket::PlayerPosition(packet) => 
+            ServerPacket::Position(packet) => 
                 self.handle_move(res,
                     Some(PlayerPosition { pos: packet.pos, stance: packet.stance }),
                     None,
                     packet.on_ground),
-            ServerPacket::PlayerLook(packet) => 
+            ServerPacket::Look(packet) => 
                 self.handle_move(res,
                     None, 
                     Some(PlayerLook { look: packet.look }), 
                     packet.on_ground),
-            ServerPacket::PlayerPositionLook(packet) => 
+            ServerPacket::PositionLook(packet) => 
                 self.handle_move(res,
                     Some(PlayerPosition { pos: packet.pos, stance: packet.stance }), 
                     Some(PlayerLook { look: packet.look }),
                     packet.on_ground),
-            ServerPacket::PlayerBreakBlock(packet) =>
+            ServerPacket::BreakBlock(packet) =>
                 self.handle_break_block(res, packet),
             _ => Ok(())
         }
@@ -305,7 +318,7 @@ impl Player {
             dimension: 0,
         }))?;
 
-        res.tcp_server.send(self.client_id, &ClientPacket::PlayerSpawnPosition(PlayerSpawnPositionPacket {
+        res.tcp_server.send(self.client_id, &ClientPacket::SpawnPosition(PlayerSpawnPositionPacket {
             pos: res.overworld_dim.spawn_pos(),
         }))?;
 
@@ -348,7 +361,7 @@ impl Player {
 
         if !playing.initialized {
             
-            res.tcp_server.send(self.client_id, &ClientPacket::PlayerPositionLook(PlayerPositionLookPacket {
+            res.tcp_server.send(self.client_id, &ClientPacket::PositionLook(PlayerPositionLookPacket {
                 pos: self.last_pos,
                 look: self.last_look,
                 stance: self.last_pos.y + 1.62,
@@ -369,7 +382,7 @@ impl Player {
 
         // let world = self.world_manager.world_mut(world_id).unwrap();
 
-        let mut map_chunk_packet = ClientPacket::MapChunk(MapChunkPacket {
+        let mut map_chunk_packet = ClientPacket::ChunkData(ChunkDataPacket {
             x: 0, y: 0, z: 0, 
             x_size: CHUNK_WIDTH as u8, y_size: CHUNK_HEIGHT as u8, z_size: CHUNK_WIDTH as u8,
             compressed_data: Vec::new(),
@@ -381,11 +394,11 @@ impl Player {
                 if let Some(chunk) = res.overworld_dim.chunk(cx, cz) {
                     if playing.sent_chunks.insert((cx, cz)) {
 
-                        res.tcp_server.send(self.client_id, &ClientPacket::PreChunk(PreChunkPacket {
+                        res.tcp_server.send(self.client_id, &ClientPacket::ChunkState(ChunkStatePacket {
                             cx, cz, init: true
                         }))?;
 
-                        if let ClientPacket::MapChunk(packet) = &mut map_chunk_packet {
+                        if let ClientPacket::ChunkData(packet) = &mut map_chunk_packet {
 
                             packet.x = cx * CHUNK_WIDTH as i32;
                             packet.z = cz * CHUNK_WIDTH as i32;
@@ -425,7 +438,7 @@ impl Player {
             // Start breaking.
             0 => {
 
-                let (block, _metadata) = res.overworld_dim.block_and_metadata(pos);
+                let (block, _metadata) = res.overworld_dim.block_and_metadata(pos).expect("invalid chunk");
                 playing.breaking_block = Some(BreakingBlock {
                     time: res.overworld_dim.time(),
                     pos,
@@ -438,13 +451,13 @@ impl Player {
 
                 if let Some(breaking_block) = playing.breaking_block.take() {
                     if breaking_block.pos == pos {
-                        let (block, metadata) = res.overworld_dim.block_and_metadata(pos);
+                        let (block, metadata) = res.overworld_dim.block_and_metadata(pos).expect("invalid chunk");
                         if breaking_block.block == block {
                             
                             // TODO: Check time
                             res.overworld_dim.set_block_and_metadata(pos, 0, 0);
                             res.overworld_dim.push_event(Event::BlockChange { 
-                                pos, 
+                                pos,
                                 prev_block: block, 
                                 prev_metadata: metadata, 
                                 new_block: 0, 

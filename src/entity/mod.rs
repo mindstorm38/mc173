@@ -8,9 +8,11 @@ use crate::world::World;
 
 mod falling_block;
 mod player;
+mod item;
 
 pub use falling_block::FallingBlockEntity;
 pub use player::PlayerEntity;
+pub use item::ItemEntity;
 
 
 /// Base trait for implementing entity behaviors.
@@ -210,8 +212,12 @@ pub struct Size {
 
 impl Size {
 
-    pub const fn new(width: f32, height: f32) -> Self {
+    pub fn new(width: f32, height: f32) -> Self {
         Self { width, height, height_center: 0.0, step_height: 0.0 }
+    }
+
+    pub fn new_centered(width: f32, height: f32) -> Self {
+        Self { width, height, height_center: height / 2.0, step_height: 0.0 }
     }
 
 }

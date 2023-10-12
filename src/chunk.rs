@@ -65,66 +65,81 @@ impl Chunk {
         })
     }
 
-    /// Get block id at the given chunk-local position.
+    /// Get block id at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn block(&self, pos: IVec3) -> u8 {
         self.block[calc_index(pos)]
     }
 
-    /// Get block metadata at the given chunk-local position.
+    /// Get block metadata at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn metadata(&self, pos: IVec3) -> u8 {
         self.metadata.get(calc_index(pos))
     }
 
+    /// Get block id and metadata at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn block_and_metadata(&self, pos: IVec3) -> (u8, u8) {
         let index = calc_index(pos);
         (self.block[index], self.metadata.get(index))
     }
 
-    /// Get block light level at the given chunk-local position.
+    /// Get block light level at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn block_light(&self, pos: IVec3) -> u8 {
         self.block_light.get(calc_index(pos))
     }
 
-    /// Get sky light level at the given chunk-local position.
+    /// Get sky light level at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn sky_light(&self, pos: IVec3) -> u8 {
         self.sky_light.get(calc_index(pos))
     }
 
-    /// Set block id at the given chunk-local position.
+    /// Set block id at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn set_block(&mut self, pos: IVec3, block: u8) {
         self.block[calc_index(pos)] = block;
     }
 
-    /// Set block metadata at the given chunk-local position.
+    /// Set block id and metadata at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
-    pub fn set_metadata(&mut self, pos: IVec3, metadata: u8) {
-        self.metadata.set(calc_index(pos), metadata);
-    }
-
     pub fn set_block_and_metadata(&mut self, pos: IVec3, block: u8, metadata: u8) {
         let index = calc_index(pos);
         self.block[index] = block;
         self.metadata.set(index, metadata);
     }
 
-    /// Get block light level at the given chunk-local position.
+    /// Set block metadata at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
+    #[inline]
+    pub fn set_metadata(&mut self, pos: IVec3, metadata: u8) {
+        self.metadata.set(calc_index(pos), metadata);
+    }
+
+    /// Get block light level at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn set_block_light(&mut self, pos: IVec3, level: u8) {
         self.block_light.set(calc_index(pos), level);
     }
 
-    /// Get sky light level at the given chunk-local position.
+    /// Get sky light level at the given global position (rebased to chunk-local).
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
+    #[inline]
     pub fn set_sky_light(&mut self, pos: IVec3, level: u8) {
         self.sky_light.set(calc_index(pos), level);
     }
 
     /// Fill the given chunk area with given block id and metadata.
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
     pub fn fill_block_and_metadata(&mut self, 
         start: IVec3,
         size: IVec3,
