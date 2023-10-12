@@ -29,6 +29,8 @@ pub struct World {
     spawn_pos: IVec3,
     /// The world time, increasing at each tick.
     time: u64,
+    /// Pending events queue.
+    events: Vec<Event>,
     /// Mapping of chunks to their coordinates.
     chunks: HashMap<(i32, i32), Box<Chunk>>,
     /// The entities are stored inside an option, this has no overhead because of niche 
@@ -48,6 +50,7 @@ impl World {
             dimension,
             spawn_pos: IVec3::ZERO,
             time: 0,
+            events: Vec::new(),
             chunks: HashMap::new(),
             entities: Vec::new(),
             entities_map: HashMap::new(),
@@ -75,6 +78,11 @@ impl World {
         self.time = time;
     }
 
+    /// Push an event in this world.
+    pub fn push_event(&mut self, event: Event) {
+        self.events.push(event);
+    }
+
     pub fn chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
         self.chunks.get(&(cx, cz)).map(|c| &**c)
     }
@@ -91,6 +99,26 @@ impl World {
         self.chunks.remove(&(cx, cz))
     }
 
+    /// Internal function to ensure monomorphization and reduce bloat of the 
+    /// generic [`spawn_entity`].
+    #[inline(never)]
+    fn next_entity_id(&mut self) -> u32 {
+        let id = self.next_entity_id;
+        self.next_entity_id = self.next_entity_id.checked_add(1)
+            .expect("entity id overflow");
+        id
+    }
+
+    /// Internal function to ensure monomorphization and reduce bloat of the 
+    /// generic [`spawn_entity`].
+    #[inline(never)]
+    fn add_entity(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
+        let index = self.entities.len();
+        self.entities.push(Some(entity));
+        self.entities_map.insert(id, index);
+        self.push_event(Event::EntitySpawn { id });
+    }
+
     /// Spawn an entity in this world, this function.
     #[inline(always)]
     pub fn spawn_entity<I>(&mut self, entity: entity::Base<I>) -> u32
@@ -104,40 +132,43 @@ impl World {
         id
     }
 
-    #[inline(never)]
-    fn next_entity_id(&mut self) -> u32 {
-        let id = self.next_entity_id;
-        self.next_entity_id = self.next_entity_id.checked_add(1)
-            .expect("entity id overflow");
-        id
-    }
-
-    #[inline(never)]
-    fn add_entity(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
-        let index = self.entities.len();
-        self.entities.push(Some(entity));
-        self.entities_map.insert(id, index);
-    }
-
+    /// Get a generic entity from its unique id. This generic entity can later be checked
+    /// for being of a particular type.
+    #[track_caller]
     pub fn entity(&self, id: u32) -> Option<&dyn EntityGeneric> {
-        match self.entities_map.get(&id) {
-            Some(&index) => self.entities[index].as_deref(),
-            None => None,
-        }
+        let index = *self.entities_map.get(&id)?;
+        Some(self.entities[index].as_deref().expect("entity is being updated"))
     }
 
+    /// Get an entity of a given type from its unique id. If an entity exists with this id
+    /// but is not of the right type, none is returned.
+    #[track_caller]
+    pub fn entity_downcast<E: EntityGeneric>(&self, id: u32) -> Option<&E> {
+        self.entity(id)?.downcast_ref()
+    }
+
+    /// Get a generic entity from its unique id. This generic entity can later be checked
+    /// for being of a particular type.
+    #[track_caller]
     pub fn entity_mut(&mut self, id: u32) -> Option<&mut dyn EntityGeneric> {
-        match self.entities_map.get(&id) {
-            Some(&index) => self.entities[index].as_deref_mut(),
-            None => None,
-        }
+        let index = *self.entities_map.get(&id)?;
+        Some(self.entities[index].as_deref_mut().expect("entity is being updated"))
+    }
+
+    /// Get an entity of a given type from its unique id. If an entity exists with this id
+    /// but is not of the right type, none is returned.
+    #[track_caller]
+    pub fn entity_downcast_mut<E: EntityGeneric>(&mut self, id: u32) -> Option<&mut E> {
+        self.entity_mut(id)?.downcast_mut()
     }
 
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {
 
+        self.time += 1;
+
         // For each entity, we take the box from its slot (moving 64 * 2 bits), therefore
-        // taking the ownership, before ticking it with the mutable world.
+        // taking the ownership, this allows us ticking it with the whole mutable world.
         for i in 0..self.entities.len() {
             
             // We unwrap because all entities should be present except updated one.
@@ -149,7 +180,12 @@ impl World {
         }
 
     }
-    
+
+    /// Iterate and remove all events.
+    pub fn drain_events(&mut self) -> impl Iterator<Item = Event> + '_ {
+        self.events.drain(..)
+    }
+
     /// Iterate over all blocks in the given area.
     /// Min is inclusive and max is exclusive.
     #[must_use]
@@ -189,6 +225,29 @@ pub enum Dimension {
     Nether,
 }
 
+/// An event that happened in the world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Event {
+    /// A new entity has been spawned.
+    EntitySpawn {
+        /// The unique id of the spawned entity.
+        id: u32,
+    },
+    /// A block has been changed in the world.
+    BlockChange {
+        /// The block position.
+        pos: IVec3,
+        /// Previous block id.
+        prev_id: u8,
+        /// Previous block metadata.
+        prev_metadata: u8,
+        /// The new block id.
+        new_id: u8,
+        /// The new block metadata.
+        new_metadata: u8,
+    },
+}
+
 
 /// A trait used internally in the world to allow checking actual type of the entity.
 pub trait EntityGeneric: EntityBehavior + Any {
@@ -204,6 +263,9 @@ pub trait EntityGeneric: EntityBehavior + Any {
 
     /// Get the entity unique id.
     fn id(&self) -> u32;
+
+    /// Get the position of the entity.
+    fn pos(&self) -> DVec3;
 
 }
 
@@ -246,6 +308,10 @@ where
 
     fn id(&self) -> u32 {
         self.id
+    }
+
+    fn pos(&self) -> DVec3 {
+        self.pos
     }
 
 }

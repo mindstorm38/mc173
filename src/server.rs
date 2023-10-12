@@ -13,7 +13,7 @@ use glam::{DVec3, Vec2};
 use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT};
 use crate::overworld::new_overworld;
 use crate::entity::PlayerEntity;
-use crate::world::World;
+use crate::world::{World, Event};
 
 use crate::proto::{PacketServer, ServerPacket, ClientPacket, ClientId, 
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, PlayerSpawnPositionPacket, 
@@ -37,6 +37,8 @@ struct InnerServer {
     player_manager: PlayerManager,
     /// The game driver.
     overworld_dim: World,
+    /// Temporary queue of overworld events.
+    overworld_events: Vec<Event>,
 }
 
 impl Server {
@@ -51,6 +53,7 @@ impl Server {
                     runtime_players: HashMap::new(),
                 },
                 overworld_dim: new_overworld(),
+                overworld_events: Vec::new(),
             },
             packets: Packets::new(),
         })
@@ -65,15 +68,45 @@ impl Server {
             self.inner.handle(client_id, packet)?;
         }
 
-        self.inner.overworld_dim.tick();
-
-        Ok(())
+        self.inner.tick()
 
     }
 
 }
 
 impl InnerServer {
+
+    fn tick(&mut self) -> io::Result<()> {
+
+        self.overworld_dim.tick();
+
+        // Send time every second.
+        let time = self.overworld_dim.time();
+        if time % 20 == 0 {
+            let time_packet = ClientPacket::UpdateTime(UpdateTimePacket { time });
+            for &client_id in self.player_manager.runtime_players.keys() {
+                self.packet_server.send(client_id, &time_packet)?;
+            }
+        }
+
+        // NOTE: In the future it could be much better to just take the events from the
+        // dimension and swap it with another events queue. This will avoid repeatedly 
+        // copying.
+        self.overworld_events.extend(self.overworld_dim.drain_events());
+        for event in self.overworld_events.drain(..) {
+            match event {
+                Event::EntitySpawn { id } => {
+
+                }
+                Event::BlockChange { pos,  new_id, new_metadata, .. } => {
+                    
+                }
+            }
+        }
+
+        Ok(())
+
+    }
 
     /// Handle a server side packet received by this client.
     fn handle(&mut self, client_id: ClientId, packet: ServerPacket) -> io::Result<()> {
