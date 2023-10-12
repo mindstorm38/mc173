@@ -5,6 +5,7 @@ use std::ops::AddAssign;
 use glam::DVec3;
 
 
+/// An axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoundingBox {
     pub min: DVec3,

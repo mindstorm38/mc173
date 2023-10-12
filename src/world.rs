@@ -189,7 +189,7 @@ impl World {
     /// Iterate over all blocks in the given area.
     /// Min is inclusive and max is exclusive.
     #[must_use]
-    pub fn iter_area_blocks(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (u8, u8)> + FusedIterator + '_ {
+    pub fn iter_area_blocks(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + FusedIterator + '_ {
         WorldAreaBlocks {
             world: self,
             chunk: None,
@@ -203,7 +203,10 @@ impl World {
     /// Min is inclusive and max is exclusive.
     #[must_use]
     pub fn iter_area_bounding_boxes(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
-        self.iter_area_blocks(min, max).flat_map(|(id, metadata)| block_from_id(id).bounding_boxes(metadata).iter().copied())
+        self.iter_area_blocks(min, max).flat_map(|(pos, id, metadata)| {
+            let pos = pos.as_dvec3();
+            block_from_id(id).bounding_boxes(metadata).iter().map(move |bb| bb.offset(pos))
+        })
     }
 
     #[must_use]
@@ -335,7 +338,7 @@ struct WorldAreaBlocks<'a> {
 impl<'a> FusedIterator for WorldAreaBlocks<'a> {}
 impl<'a> Iterator for WorldAreaBlocks<'a> {
 
-    type Item = (u8, u8);
+    type Item = (IVec3, u8, u8);
 
     fn next(&mut self) -> Option<Self::Item> {
         
@@ -354,11 +357,13 @@ impl<'a> Iterator for WorldAreaBlocks<'a> {
         }
 
         // If there is no chunk at the position, defaults to (id = 0, metadata = 0).
-        let mut ret = (0, 0);
+        let mut ret = (self.cursor, 0, 0);
 
         // If a chunk exists for the current column.
         if let Some((_, _, Some(chunk))) = self.chunk {
-            ret = chunk.block_and_metadata(self.cursor);
+            let (id, metadata) = chunk.block_and_metadata(self.cursor);
+            ret.1 = id;
+            ret.2 = metadata;
         }
 
         self.cursor.y += 1;

@@ -8,11 +8,11 @@ pub mod entity;
 
 pub mod chunk;
 pub mod world;
-pub mod proto;
 
 pub mod overworld;
 
 pub mod server;
+pub mod proto;
 
 
 fn main() {
