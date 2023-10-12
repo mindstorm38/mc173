@@ -9,11 +9,11 @@ use std::io;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 
-use glam::{DVec3, Vec2};
+use glam::{DVec3, Vec2, IVec3};
 
 use anyhow::Result as AnyResult;
 
-use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT};
+use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
 use crate::overworld::new_overworld;
 use crate::entity::PlayerEntity;
 use crate::world::{World, Event};
@@ -22,7 +22,7 @@ use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, PlayerSpawnPositionPacket, 
     UpdateTimePacket, ChatPacket, PlayerPositionLookPacket, MapChunkPacket, 
-    PreChunkPacket};
+    PreChunkPacket, PlayerBreakBlockPacket, BlockChangePacket};
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -45,36 +45,6 @@ struct Resources {
     overworld_dim: World,
     /// Temporary queue of overworld events.
     overworld_events: Vec<Event>,
-}
-
-struct Players {
-    /// List of connected players.
-    players: Vec<Box<Player>>,
-    /// Mapping of client id to the runtime player.
-    players_client_map: HashMap<usize, usize>,
-}
-
-/// A handle for a player connected to the server.
-#[derive(Debug)]
-struct Player {
-    /// The packet client id.
-    client_id: usize,
-    /// Initial player position, as sent when first joining.
-    last_pos: DVec3,
-    /// Initial player look, as sent when first joining.
-    last_look: Vec2,
-    /// Present if the player has logged in and is bound to an entity.
-    playing: Option<PlayingPlayer>,
-}
-
-#[derive(Debug)]
-struct PlayingPlayer {
-    /// The entity id linked to this player, set when player is connected.
-    entity_id: u32,
-    /// Indicates if the player's pos and look has been sent for initialization.
-    initialized: bool,
-    /// List of chunks that should be loaded by the client.
-    sent_chunks: HashSet<(i32, i32)>,
 }
 
 impl Server {
@@ -140,12 +110,41 @@ impl Server {
         // dimension and swap it with another events queue. This will avoid repeatedly 
         // copying.
         self.resources.overworld_events.extend(self.resources.overworld_dim.drain_events());
-        self.resources.overworld_events.clear();
+        for event in self.resources.overworld_events.drain(..) {
+            match event {
+                Event::EntitySpawn { id: _ } => {}
+                Event::BlockChange { pos, new_block: new_id, new_metadata, .. } => {
+
+                    let block_change_packet = ClientPacket::BlockChange(BlockChangePacket {
+                        x: pos.x,
+                        y: pos.y as i8,
+                        z: pos.z,
+                        block: new_id,
+                        metadata: new_metadata,
+                    });
+
+                    for player in self.players.iter_aware_players(pos) {
+                        self.resources.tcp_server.send(player.client_id, &block_change_packet)?;
+                    }
+
+                }
+            }
+            println!("[OVERWORLD] Event: {event:?}");
+        }
 
         Ok(())
 
     }
 
+}
+
+
+/// Internal structure for storing players and keeping internal coherency.
+struct Players {
+    /// List of connected players.
+    players: Vec<Box<Player>>,
+    /// Mapping of client id to the runtime player.
+    players_client_map: HashMap<usize, usize>,
 }
 
 impl Players {
@@ -189,6 +188,49 @@ impl Players {
 
     }
 
+    /// Iterate over players that are aware of a given world's position.
+    fn iter_aware_players(&self, pos: IVec3) -> impl Iterator<Item = &Player> {
+        let (cx, cz) = calc_chunk_pos(pos);
+        self.players.iter()
+            .map(|player| &**player)
+            .filter(move |player| {
+                if let Some(playing) = &player.playing {
+                    playing.sent_chunks.contains(&(cx, cz))
+                } else {
+                    false
+                }
+            })
+    }
+
+}
+
+
+/// A handle for a player connected to the server.
+#[derive(Debug)]
+struct Player {
+    /// The packet client id.
+    client_id: usize,
+    /// Initial player position, as sent when first joining.
+    last_pos: DVec3,
+    /// Initial player look, as sent when first joining.
+    last_look: Vec2,
+    /// Present if the player has logged in and is bound to an entity.
+    playing: Option<PlayingPlayer>,
+}
+
+/// A handle for a player connected to the server and playing in a world.
+#[derive(Debug, Default)]
+struct PlayingPlayer {
+    /// The entity id linked to this player, set when player is connected.
+    entity_id: u32,
+    /// The player's username.
+    username: String,
+    /// Indicates if the player's pos and look has been sent for initialization.
+    initialized: bool,
+    /// List of chunks that should be loaded by the client.
+    sent_chunks: HashSet<(i32, i32)>,
+    /// Breaking block state of the player.
+    breaking_block: Option<BreakingBlock>,
 }
 
 impl Player {
@@ -200,6 +242,8 @@ impl Player {
                 self.handle_handshake(res, packet.username),
             ServerPacket::Login(packet) =>
                 self.handle_login(res, packet.protocol_version, packet.username),
+            ServerPacket::Chat(packet) =>
+                self.handle_chat(res, packet.message),
             ServerPacket::PlayerPosition(packet) => 
                 self.handle_move(res,
                     Some(PlayerPosition { pos: packet.pos, stance: packet.stance }),
@@ -215,6 +259,8 @@ impl Player {
                     Some(PlayerPosition { pos: packet.pos, stance: packet.stance }), 
                     Some(PlayerLook { look: packet.look }),
                     packet.on_ground),
+            ServerPacket::PlayerBreakBlock(packet) =>
+                self.handle_break_block(res, packet),
             _ => Ok(())
         }
     }
@@ -249,8 +295,8 @@ impl Player {
 
         self.playing = Some(PlayingPlayer {
             entity_id,
-            initialized: false,
-            sent_chunks: HashSet::new(),
+            username: username.clone(),
+            ..Default::default()
         });
 
         res.tcp_server.send(self.client_id, &ClientPacket::Login(ClientLoginPacket {
@@ -271,6 +317,20 @@ impl Player {
             message: format!("{username} joined the game."),
         }));
 
+        Ok(())
+
+    }
+
+    /// This function handles char packets.
+    fn handle_chat(&mut self, res: &mut Resources, message: String) -> io::Result<()> {
+        
+        let Some(playing) = &mut self.playing else { return Ok(()); };
+
+        // Directly broadcast the message!
+        res.broadcast_packets.push(ClientPacket::Chat(ChatPacket {
+            message: format!("<{}> {message}", playing.username)
+        }));
+        
         Ok(())
 
     }
@@ -351,9 +411,59 @@ impl Player {
 
     }
 
+    /// This function handles various positioning packets.
+    fn handle_break_block(&mut self, 
+        res: &mut Resources, 
+        packet: PlayerBreakBlockPacket
+    ) -> io::Result<()> {
+
+        let Some(playing) = &mut self.playing else { return Ok(()); };
+
+        let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
+
+        match packet.status {
+            // Start breaking.
+            0 => {
+
+                let (block, _metadata) = res.overworld_dim.block_and_metadata(pos);
+                playing.breaking_block = Some(BreakingBlock {
+                    time: res.overworld_dim.time(),
+                    pos,
+                    block,
+                });
+
+            }
+            // Stop breaking.
+            2 => {
+
+                if let Some(breaking_block) = playing.breaking_block.take() {
+                    if breaking_block.pos == pos {
+                        let (block, metadata) = res.overworld_dim.block_and_metadata(pos);
+                        if breaking_block.block == block {
+                            
+                            // TODO: Check time
+                            res.overworld_dim.set_block_and_metadata(pos, 0, 0);
+                            res.overworld_dim.push_event(Event::BlockChange { 
+                                pos, 
+                                prev_block: block, 
+                                prev_metadata: metadata, 
+                                new_block: 0, 
+                                new_metadata: 0,
+                            });
+
+                        }
+                    }
+                }
+
+            }
+            _ => {}
+        }
+
+        Ok(())
+
+    }
+
 }
-
-
 
 
 #[derive(Debug, Clone)]
@@ -365,4 +475,11 @@ struct PlayerPosition {
 #[derive(Debug, Clone)]
 struct PlayerLook {
     look: Vec2,
+}
+
+#[derive(Debug, Clone)]
+struct BreakingBlock {
+    time: u64,
+    pos: IVec3,
+    block: u8,
 }

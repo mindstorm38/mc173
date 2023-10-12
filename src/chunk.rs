@@ -97,14 +97,20 @@ impl Chunk {
 
     /// Set block id at the given chunk-local position.
     #[inline]
-    pub fn set_block(&mut self, pos: IVec3, id: u8) {
-        self.block[calc_index(pos)] = id;
+    pub fn set_block(&mut self, pos: IVec3, block: u8) {
+        self.block[calc_index(pos)] = block;
     }
 
     /// Set block metadata at the given chunk-local position.
     #[inline]
     pub fn set_metadata(&mut self, pos: IVec3, metadata: u8) {
-        self.metadata.set(calc_index(pos), metadata)
+        self.metadata.set(calc_index(pos), metadata);
+    }
+
+    pub fn set_block_and_metadata(&mut self, pos: IVec3, block: u8, metadata: u8) {
+        let index = calc_index(pos);
+        self.block[index] = block;
+        self.metadata.set(index, metadata);
     }
 
     /// Get block light level at the given chunk-local position.
@@ -191,6 +197,7 @@ impl ChunkNibbleArray {
         Self { inner: [init; CHUNK_SIZE / 2] }
     }
 
+    #[inline]
     fn get(&self, index: usize) -> u8 {
         let slot = self.inner[index >> 1];
         if index & 1 == 0 {
@@ -200,6 +207,7 @@ impl ChunkNibbleArray {
         }
     }
 
+    #[inline]
     fn set(&mut self, index: usize, value: u8) {
         debug_assert!(value <= 0x0F);
         let slot = &mut self.inner[index >> 1];

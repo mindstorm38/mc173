@@ -99,6 +99,24 @@ impl World {
         self.chunks.remove(&(cx, cz))
     }
 
+    /// Get block and metadata at given position in the world, if the chunk is not
+    /// loaded, zeros are returned.
+    pub fn block_and_metadata(&self, pos: IVec3) -> (u8, u8) {
+        // FIXME: Check for y < 0 || y >= 128
+        let (cx, cz) = calc_chunk_pos(pos);
+        match self.chunk(cx, cz) {
+            Some(chunk) => chunk.block_and_metadata(pos),
+            None => (0, 0),
+        }
+    }
+
+    pub fn set_block_and_metadata(&mut self, pos: IVec3, id: u8, metadata: u8) {
+        // FIXME: Check for y < 0 || y >= 128
+        let (cx, cz) = calc_chunk_pos(pos);
+        let chunk = self.chunk_mut(cx, cz).unwrap();
+        chunk.set_block_and_metadata(pos, id, metadata);
+    }
+
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
@@ -162,30 +180,6 @@ impl World {
         self.entity_mut(id)?.downcast_mut()
     }
 
-    /// Tick the world, this ticks all entities.
-    pub fn tick(&mut self) {
-
-        self.time += 1;
-
-        // For each entity, we take the box from its slot (moving 64 * 2 bits), therefore
-        // taking the ownership, this allows us ticking it with the whole mutable world.
-        for i in 0..self.entities.len() {
-            
-            // We unwrap because all entities should be present except updated one.
-            let mut entity = self.entities[i].take().unwrap();
-            entity.delegate_tick(&mut *self);
-            // After tick, we re-add the entity.
-            self.entities[i] = Some(entity);
-
-        }
-
-    }
-
-    /// Iterate and remove all events.
-    pub fn drain_events(&mut self) -> impl Iterator<Item = Event> + '_ {
-        self.events.drain(..)
-    }
-
     /// Iterate over all blocks in the given area.
     /// Min is inclusive and max is exclusive.
     #[must_use]
@@ -216,6 +210,30 @@ impl World {
         self.iter_area_bounding_boxes(min, max).filter(move |block_bb| block_bb.intersects(bb))
     }
 
+    /// Tick the world, this ticks all entities.
+    pub fn tick(&mut self) {
+
+        self.time += 1;
+
+        // For each entity, we take the box from its slot (moving 64 * 2 bits), therefore
+        // taking the ownership, this allows us ticking it with the whole mutable world.
+        for i in 0..self.entities.len() {
+            
+            // We unwrap because all entities should be present except updated one.
+            let mut entity = self.entities[i].take().unwrap();
+            entity.delegate_tick(&mut *self);
+            // After tick, we re-add the entity.
+            self.entities[i] = Some(entity);
+
+        }
+
+    }
+
+    /// Iterate and remove all events.
+    pub fn drain_events(&mut self) -> impl Iterator<Item = Event> + '_ {
+        self.events.drain(..)
+    }
+
 }
 
 
@@ -241,11 +259,11 @@ pub enum Event {
         /// The block position.
         pos: IVec3,
         /// Previous block id.
-        prev_id: u8,
+        prev_block: u8,
         /// Previous block metadata.
         prev_metadata: u8,
         /// The new block id.
-        new_id: u8,
+        new_block: u8,
         /// The new block metadata.
         new_metadata: u8,
     },
@@ -361,8 +379,8 @@ impl<'a> Iterator for WorldAreaBlocks<'a> {
 
         // If a chunk exists for the current column.
         if let Some((_, _, Some(chunk))) = self.chunk {
-            let (id, metadata) = chunk.block_and_metadata(self.cursor);
-            ret.1 = id;
+            let (block, metadata) = chunk.block_and_metadata(self.cursor);
+            ret.1 = block;
             ret.2 = metadata;
         }
 

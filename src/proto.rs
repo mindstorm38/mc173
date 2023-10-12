@@ -49,6 +49,7 @@ pub enum ClientPacket {
     EntityAnimation(EntityAnimationPacket),
     PreChunk(PreChunkPacket),
     MapChunk(MapChunkPacket),
+    BlockChange(BlockChangePacket),
     /// Sent to a client to force disconnect it from the server.
     Disconnect(DisconnectPacket),
 }
@@ -158,6 +159,15 @@ pub struct MapChunkPacket {
     pub y_size: u8,
     pub z_size: u8,
     pub compressed_data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockChangePacket {
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub block: u8,
+    pub metadata: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -339,6 +349,14 @@ impl TcpClientPacket for ClientPacket {
                 write.write_java_byte((packet.z_size - 1) as i8)?;
                 write.write_java_int(packet.compressed_data.len() as i32)?;
                 write.write_all(&packet.compressed_data)?;
+            }
+            ClientPacket::BlockChange(packet) => {
+                write.write_u8(53)?;
+                write.write_java_int(packet.x)?;
+                write.write_java_byte(packet.y)?;
+                write.write_java_int(packet.z)?;
+                write.write_java_byte(packet.block as i8)?;
+                write.write_java_byte(packet.metadata as i8)?;
             }
             ClientPacket::Disconnect(packet) => {
                 write.write_u8(255)?;
