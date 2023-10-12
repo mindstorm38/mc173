@@ -1,5 +1,6 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::iter::FusedIterator;
 use std::ops::Add;
@@ -7,9 +8,9 @@ use std::ops::Add;
 use glam::{IVec3, DVec3};
 
 use crate::chunk::{Chunk, calc_chunk_pos};
+use crate::entity::{self, EntityBehavior};
 use crate::util::bb::BoundingBox;
 use crate::block::block_from_id;
-use crate::entity::Entity;
 
 
 /// Calculate the chunk position corresponding to the given block position. 
@@ -33,7 +34,7 @@ pub struct World {
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
     /// therefore avoiding borrowing issues.
-    entities: Vec<Option<Box<dyn Entity>>>,
+    entities: Vec<Option<Box<dyn EntityGeneric>>>,
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
     /// Next entity id apply to a newly spawned entity.
@@ -90,21 +91,46 @@ impl World {
         self.chunks.remove(&(cx, cz))
     }
 
-    /// Spawn an entity in this world.
-    pub fn spawn_entity(&mut self, mut entity: Box<dyn Entity>) -> u32 {
+    /// Spawn an entity in this world, this function.
+    #[inline(always)]
+    pub fn spawn_entity<I>(&mut self, entity: entity::Base<I>) -> u32
+    where
+        entity::Base<I>: EntityGeneric + Any,
+    {
+        let mut entity = Box::new(entity);
+        let id = self.next_entity_id();
+        entity.id = id;
+        self.add_entity(id, entity);
+        id
+    }
 
+    #[inline(never)]
+    fn next_entity_id(&mut self) -> u32 {
         let id = self.next_entity_id;
         self.next_entity_id = self.next_entity_id.checked_add(1)
             .expect("entity id overflow");
+        id
+    }
 
-        entity.init(id);
-
+    #[inline(never)]
+    fn add_entity(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
         let index = self.entities.len();
         self.entities.push(Some(entity));
         self.entities_map.insert(id, index);
+    }
 
-        id
+    pub fn entity(&self, id: u32) -> Option<&dyn EntityGeneric> {
+        match self.entities_map.get(&id) {
+            Some(&index) => self.entities[index].as_deref(),
+            None => None,
+        }
+    }
 
+    pub fn entity_mut(&mut self, id: u32) -> Option<&mut dyn EntityGeneric> {
+        match self.entities_map.get(&id) {
+            Some(&index) => self.entities[index].as_deref_mut(),
+            None => None,
+        }
     }
 
     /// Tick the world, this ticks all entities.
@@ -116,7 +142,7 @@ impl World {
             
             // We unwrap because all entities should be present except updated one.
             let mut entity = self.entities[i].take().unwrap();
-            entity.tick(&mut *self);
+            entity.delegate_tick(&mut *self);
             // After tick, we re-add the entity.
             self.entities[i] = Some(entity);
 
@@ -153,6 +179,7 @@ impl World {
 
 }
 
+
 /// Types of dimensions, used for ambient effects in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Dimension {
@@ -160,6 +187,67 @@ pub enum Dimension {
     Overworld,
     /// The creepy nether dimension.
     Nether,
+}
+
+
+/// A trait used internally in the world to allow checking actual type of the entity.
+pub trait EntityGeneric: EntityBehavior + Any {
+
+    /// Get this entity as any type, this allows checking its real type.
+    fn any(&self) -> &dyn Any;
+
+    /// Get this entity as mutable any type.
+    fn any_mut(&mut self) -> &mut dyn Any;
+
+    /// Delegate to the real entity's tick.
+    fn delegate_tick(&mut self, world: &mut World);
+
+    /// Get the entity unique id.
+    fn id(&self) -> u32;
+
+}
+
+impl dyn EntityGeneric {
+
+    /// Check if this entity is of the given type.
+    #[inline]
+    pub fn is<E: EntityGeneric>(&self) -> bool {
+        self.any().is::<E>()
+    }
+
+    #[inline]
+    pub fn downcast_ref<E: EntityGeneric>(&self) -> Option<&E> {
+        self.any().downcast_ref::<E>()
+    }
+
+    #[inline]
+    pub fn downcast_mut<E: EntityGeneric>(&mut self) -> Option<&mut E> {
+        self.any_mut().downcast_mut::<E>()
+    }
+
+}
+
+impl<I> EntityGeneric for entity::Base<I>
+where
+    entity::Base<I>: EntityBehavior + Any,
+{
+
+    fn any(&self) -> &dyn Any {
+        self
+    }
+
+    fn any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+   
+    fn delegate_tick(&mut self, world: &mut World) {
+        EntityBehavior::tick(self, world)
+    }
+
+    fn id(&self) -> u32 {
+        self.id
+    }
+
 }
 
 

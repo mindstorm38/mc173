@@ -11,8 +11,8 @@ use flate2::Compression;
 use glam::{DVec3, Vec2};
 
 use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT};
-use crate::entity::player::PlayerEntity;
 use crate::overworld::new_overworld;
+use crate::entity::PlayerEntity;
 use crate::world::World;
 
 use crate::proto::{PacketServer, ServerPacket, ClientPacket, ClientId, 
@@ -62,7 +62,7 @@ impl Server {
         self.inner.packet_server.poll(&mut self.packets, Some(Duration::from_secs_f32(1.0 / 20.0)))?;
 
         for (client_id, packet) in self.packets.drain() {
-            self.inner.handle(client_id, packet);
+            self.inner.handle(client_id, packet)?;
         }
 
         self.inner.overworld_dim.tick();
@@ -129,10 +129,10 @@ impl InnerServer {
 
         let player = self.player_manager.connect_player(username.clone()).unwrap();
 
-        let entity_id = self.overworld_dim.spawn_entity(Box::new(PlayerEntity::new(
-            DVec3::new(8.5, 66.0, 8.5), 
-            username.clone()
-        )));
+        let mut entity = PlayerEntity::new(DVec3::new(8.5, 66.0, 8.5));
+        entity.base.living.username = username.clone();
+        
+        let entity_id = self.overworld_dim.spawn_entity(entity);
 
         self.player_manager.runtime_players.insert(client_id, RuntimePlayer { 
             entity_id,

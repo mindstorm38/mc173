@@ -6,28 +6,25 @@ use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 use crate::world::World;
 
-pub mod falling_block;
-pub mod player;
+mod falling_block;
+mod player;
+
+pub use falling_block::FallingBlockEntity;
+pub use player::PlayerEntity;
 
 
 /// Base trait for implementing entity behaviors.
-pub trait Entity {
-
-    /// Init the entity when it was spawned in a world.
-    fn init(&mut self, id: u32);
+pub trait EntityBehavior {
 
     /// Tick this entity and update its internal components.
     fn tick(&mut self, world: &mut World);
-
-    /// Get the base entity component that should be part of every entity.
-    fn base(&self) -> &BaseEntity;
     
 }
 
 
 /// Base class for entity.
 #[derive(Debug)]
-pub struct BaseEntity {
+pub struct Base<I> {
     /// The internal entity id.
     pub id: u32,
     /// The current entity position.
@@ -40,15 +37,15 @@ pub struct BaseEntity {
     pub no_clip: bool,
     /// Is this entity currently on ground.
     pub on_ground: bool,
-    /// The width of the entity's bounding box.
-    pub width: f32,
-    /// The height of the entity's bounding box.
-    pub height: f32,
-    /// Mark the center of the entity's bounding box in height.
-    pub height_center: f32,
-    /// The maximum step that can be taken by this entity when hitting a block 
-    /// horizontally.
-    pub step_height: f32,
+    // /// The width of the entity's bounding box.
+    // pub width: f32,
+    // /// The height of the entity's bounding box.
+    // pub height: f32,
+    // /// Mark the center of the entity's bounding box in height.
+    // pub height_center: f32,
+    // /// The maximum step that can be taken by this entity when hitting a block 
+    // /// horizontally.
+    // pub step_height: f32,
     /// Total fall distance, will be used upon contact to calculate damages to deal.
     pub fall_distance: f32,
     /// If this entity is ridden, this contains its entity id.
@@ -59,11 +56,13 @@ pub struct BaseEntity {
     pub health: u32,
     /// The random number generator used for this entity.
     pub random: JavaRandom,
+    /// Inner implementation of the entity.
+    pub base: I,
 }
 
-impl BaseEntity {
+impl<I: Default> Base<I> {
 
-    pub fn new(pos: DVec3, width: f32, height: f32) -> Self {
+    pub fn new(pos: DVec3) -> Self {
         Self {
             id: 0,
             pos,
@@ -71,24 +70,29 @@ impl BaseEntity {
             look: Vec2::ZERO,
             no_clip: false,
             on_ground: false,
-            width,
-            height,
-            height_center: 0.0,
-            step_height: 0.0,
+            // width,
+            // height,
+            // height_center: 0.0,
+            // step_height: 0.0,
             fall_distance: 0.0,
             rider_id: None,
             lifetime: 0,
             health: 1,
             random: JavaRandom::new_seeded(),
+            base: I::default(),
         }
     }
 
+}
+
+impl<I> Base<I> {
+
     /// Calculate the bounding box of this entity, depending on its position, width and
     /// height and height offset.
-    pub fn bounding_box(&self) -> BoundingBox {
-        let half_width = (self.width / 2.0) as f64;
-        let height = self.height as f64;
-        let height_center = self.height_center as f64;
+    pub fn bounding_box(&self, size: Size) -> BoundingBox {
+        let half_width = (size.width / 2.0) as f64;
+        let height = size.height as f64;
+        let height_center = size.height_center as f64;
         BoundingBox {
             min: self.pos - DVec3::new(half_width, height_center, half_width),
             max: self.pos + DVec3::new(half_width, height + height_center, half_width),
@@ -97,14 +101,14 @@ impl BaseEntity {
 
     /// Common tick function to apply the given gravity on the entity and move it, while
     /// managing block collisions.
-    pub fn apply_gravity(&mut self, world: &mut World) {
+    pub fn apply_gravity(&mut self, world: &mut World, size: Size) {
         self.vel.y -= 0.04;
-        self.move_entity(world, self.vel);
+        self.move_entity(world, size, self.vel);
         self.vel *= 0.98;
     }
 
     /// Common method for moving an entity by a given amount while checking collisions.
-    pub fn move_entity(&mut self, world: &mut World, delta: DVec3) {
+    pub fn move_entity(&mut self, world: &mut World, size: Size, delta: DVec3) {
 
         if self.no_clip {
             self.pos += delta;
@@ -118,7 +122,7 @@ impl BaseEntity {
 
             // TODO: Sneaking on ground
 
-            let mut bb = self.bounding_box();
+            let mut bb = self.bounding_box(size);
             let colliding_bbs: Vec<BoundingBox> = world.iter_colliding_bounding_boxes(bb.expand(delta))
                 .collect();
 
@@ -153,7 +157,7 @@ impl BaseEntity {
             let on_ground = collided_y && delta.y < 0.0; // || self.on_ground
 
             // Apply step if relevant.
-            if self.step_height > 0.0 && on_ground && (collided_x || collided_z) {
+            if size.step_height > 0.0 && on_ground && (collided_x || collided_z) {
                 todo!("handle step motion");
             }
 
@@ -187,10 +191,29 @@ impl BaseEntity {
 
 }
 
+
 /// Base class for living entity.
 #[derive(Debug, Default)]
-pub struct LivingEntity {
-    
+pub struct Living<I> {
+    pub living: I,
+}
+
+
+/// Size of an entity, used when computing collisions and calculating new position.
+#[derive(Debug, Clone, Copy)]
+pub struct Size {
+    pub width: f32,
+    pub height: f32,
+    pub height_center: f32,
+    pub step_height: f32,
+}
+
+impl Size {
+
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height, height_center: 0.0, step_height: 0.0 }
+    }
+
 }
 
 

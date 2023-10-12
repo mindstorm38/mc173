@@ -1,28 +1,23 @@
 //! Falling block entity implementation.
 
-use glam::DVec3;
-
+use crate::entity::Size;
 use crate::world::World;
 
-use super::{BaseEntity, Entity};
+use super::{EntityBehavior, Base};
 
 
-/// An item entity.
 #[derive(Debug)]
-pub struct FallingBlockEntity {
-    /// Base entity data.
-    base: BaseEntity,
+pub struct FallingBlock {
     /// Number of ticks since this block is falling.
-    fall_ticks: u32,
+    pub fall_ticks: u32,
     /// The falling block id.
-    block_id: u8,
+    pub block_id: u8,
 }
 
-impl FallingBlockEntity {
+impl FallingBlock {
 
-    pub fn new(pos: DVec3, block_id: u8) -> Self {
+    pub fn new(block_id: u8) -> Self {
         Self {
-            base: BaseEntity::new(pos, 1.0, 1.0),
             fall_ticks: 0,
             block_id,
         }
@@ -30,26 +25,21 @@ impl FallingBlockEntity {
 
 }
 
-impl Entity for FallingBlockEntity {
+/// A falling block entity.
+pub type FallingBlockEntity = Base<FallingBlock>;
 
-    fn init(&mut self, id: u32) {
-        self.base.id = id;
-    }
-    
+impl EntityBehavior for FallingBlockEntity {
+
     fn tick(&mut self, world: &mut World) {
         
-        self.fall_ticks += 1;
-        self.base.apply_gravity(world);
+        self.base.fall_ticks += 1;
+        self.apply_gravity(world, Size::new(1.0, 1.0));
 
-        if self.base.on_ground {
+        if self.on_ground {
             // TODO: Place block and destroy falling block.
-            let _ = self.block_id;
+            let _ = self.base.block_id;
         }
 
-    }
-
-    fn base(&self) -> &BaseEntity {
-        &self.base
     }
 
 }

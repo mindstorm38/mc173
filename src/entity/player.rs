@@ -1,47 +1,24 @@
 //! Player entity implementation.
 
-use glam::DVec3;
-
 use crate::world::World;
 
-use super::{BaseEntity, LivingEntity, Entity};
+use super::{EntityBehavior, Base, Living};
 
 
-#[derive(Debug)]
-pub struct PlayerEntity {
-    /// Base entity data.
-    base: BaseEntity,
-    /// Living entity data.
-    living: LivingEntity,
+#[derive(Debug, Default)]
+pub struct Player {
     /// The player username.
-    username: String,
+    pub username: String,
 }
 
-impl PlayerEntity {
 
-    pub fn new(pos: DVec3, username: String) -> Self {
-        Self {
-            base: BaseEntity::new(pos, 0.6, 1.8),
-            living: LivingEntity::default(),
-            username,
-        }
-    }
+/// A player entity.
+pub type PlayerEntity = Base<Living<Player>>;
 
-}
-
-impl Entity for PlayerEntity {
-
-    fn init(&mut self, id: u32) {
-        self.base.id = id;
-    }
+impl EntityBehavior for PlayerEntity {
     
     fn tick(&mut self, world: &mut World) {
         
-
-    }
-
-    fn base(&self) -> &BaseEntity {
-        &self.base
     }
 
 }
