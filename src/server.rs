@@ -14,15 +14,15 @@ use glam::{DVec3, Vec2, IVec3};
 use anyhow::Result as AnyResult;
 
 use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
+use crate::entity::{EntityGeneric, PlayerEntity, ItemEntity};
 use crate::overworld::new_overworld;
 use crate::world::{World, Event};
-use crate::entity::{PlayerEntity, ItemEntity};
 
 use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, SpawnPositionPacket, 
     UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
-    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket};
+    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket, PlayerSpawnPacket};
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -77,7 +77,7 @@ impl Server {
                 TcpEventKind::Accepted => {}
                 TcpEventKind::Lost(err) => {
                     println!("[{}] Lost ({err:?})", event.client_id);
-                    self.players.remove_player(event.client_id);
+                    self.players.remove_player(event.client_id).handle_lost(&mut self.resources);
                 }
                 TcpEventKind::Packet(packet) => {
                     // println!("[{}] Received {packet:?}", event.client_id);
@@ -117,14 +117,9 @@ impl Server {
 
                     let entity = self.resources.overworld_dim.entity(id).unwrap();
                     let pos = entity.pos().as_ivec3();
-                    let spawn_packet;
+                    let spawn_packet = entity_spawn_packet(entity);
 
-                    if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
-                        spawn_packet = ClientPacket::ItemSpawn(ItemSpawnPacket::from_entity(entity));
-                    } else {
-                        continue;
-                    }
-
+                    // FIXME: Do not spawn player for itself.
                     for player in self.players.iter_aware_players(pos) {
                         self.resources.tcp_server.send(player.client_id, &spawn_packet)?;
                     }
@@ -189,10 +184,10 @@ impl Players {
     }
 
     /// Remove a connected player while ensuring internal coherency.
-    fn remove_player(&mut self, client_id: usize) {
+    fn remove_player(&mut self, client_id: usize) -> Box<Player> {
 
         let index = self.players_client_map.remove(&client_id).expect("unknown client id");
-        let _player = self.players.swap_remove(index);
+        let player = self.players.swap_remove(index);
 
         // We need to update the player that was swapped with the removed one, because
         // its index within the players list changed
@@ -201,6 +196,8 @@ impl Players {
             let old_index = self.players_client_map.insert(player.client_id, index);
             debug_assert_eq!(old_index, Some(self.players.len()));
         }
+
+        player
 
     }
 
@@ -252,6 +249,16 @@ struct PlayingPlayer {
 }
 
 impl Player {
+
+    /// Called to drop the player when connection was lost.
+    fn handle_lost(self, res: &mut Resources) {
+        
+        let Some(playing) = self.playing else { return };
+
+        res.overworld_dim.kill_entity(playing.entity_id);
+        
+
+    }
 
     /// Handle a server side packet received by this client.
     fn handle_packet(&mut self, res: &mut Resources, packet: ServerPacket) -> io::Result<()> {
@@ -396,6 +403,8 @@ impl Player {
         for cx in -2..2 {
             for cz in -2..2 {
 
+                let mut send_chunk_entities = false;
+
                 if let Some(chunk) = res.overworld_dim.chunk(cx, cz) {
                     if playing.sent_chunks.insert((cx, cz)) {
 
@@ -418,7 +427,15 @@ impl Player {
                         }
 
                         res.tcp_server.send(self.client_id, &map_chunk_packet)?;
+                        send_chunk_entities = true;
 
+                    }
+                }
+
+                if send_chunk_entities {
+                    for entity in res.overworld_dim.iter_chunk_entities(cx, cz) {
+                        let spawn_packet = entity_spawn_packet(entity);
+                        res.tcp_server.send(self.client_id, &spawn_packet)?;
                     }
                 }
 
@@ -490,4 +507,15 @@ struct BreakingBlock {
     time: u64,
     pos: IVec3,
     block: u8,
+}
+
+
+fn entity_spawn_packet(entity: &dyn EntityGeneric) -> ClientPacket {
+    if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
+        ClientPacket::ItemSpawn(ItemSpawnPacket::from_entity(entity))
+    } else if let Some(entity) = entity.downcast_ref::<PlayerEntity>() {
+        ClientPacket::PlayerSpawn(PlayerSpawnPacket::from_entity(entity))
+    } else {
+        todo!("entity_spawn_packet: {}", entity.type_name());
+    }
 }

@@ -232,6 +232,10 @@ pub trait EntityGeneric: Any {
 
     /// Get this entity as mutable any type.
     fn any_mut(&mut self) -> &mut dyn Any;
+
+    /// Debug-purpose underlying type name.
+    fn type_name(&self) -> &'static str;
+
 }
 
 impl dyn EntityGeneric {
@@ -276,6 +280,10 @@ impl<I: 'static> EntityGeneric for Base<I> {
         self
     }
 
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
+    
 }
 
 

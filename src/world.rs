@@ -108,7 +108,7 @@ impl World {
 
                     let entity = self.entities[entity_index]
                         .as_deref_mut()
-                        .expect("cannot insert chunk while updating entity");
+                        .expect("insert chunk while updating entity");
                     
                     // If the entity is in the newly added chunk.
                     let entity_chunk = entity.chunk_mut();
@@ -141,9 +141,19 @@ impl World {
     /// will be transferred to the orphan entities list to be later picked up by another
     /// chunk.
     pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Box<Chunk>> {
+        
         let chunk = self.chunks.remove(&(cx, cz))?;
+        for &entity_index in &chunk.entities {
+            self.entities[entity_index]
+                .as_deref_mut()
+                .expect("remove chunk while updating entity")
+                .chunk_mut()
+                .orphan = true;
+        }
+
         self.orphan_entities.extend_from_slice(&chunk.entities);
         Some(chunk.inner)
+
     }
 
     /// Get block and metadata at given position in the world, if the chunk is not
@@ -192,7 +202,8 @@ impl World {
 
     }
 
-    /// Spawn an entity in this world, this function.
+    /// Spawn an entity in this world, this function gives it a unique id and ensure 
+    /// coherency with chunks cache.
     #[inline]
     pub fn spawn_entity<B>(&mut self, entity: entity::Base<B>) -> u32
     where
@@ -208,6 +219,40 @@ impl World {
         entity.inner.id = id;
         self.add_entity(id, entity);
         id
+
+    }
+
+    /// Kill an entity given its id, this function ensure coherency with chunks cache.
+    pub fn kill_entity(&mut self, id: u32) -> bool {
+
+        let Some(entity_index) = self.entities_map.remove(&id) else { return false };
+        self.entities.swap_remove(entity_index).expect("kill an updating entity");
+
+        // Because we used swap remove, this may have moved the last entity (if
+        // existing) to the old entity index. We need to update its index in chunk
+        // or orphan entities.
+        if let Some(entity) = self.entities.get(entity_index) {
+            // Check if the swapped entity is not updating, if not, get its chunk info.
+            let entity_chunk = entity.as_ref()
+                .expect("swap updating entity")
+                .chunk();
+            // Get the correct entities list depending on the entity being orphan or not.
+            let chunk_entities = if entity_chunk.orphan {
+                &mut self.orphan_entities[..]
+            } else {
+                &mut self.chunks.get_mut(&(entity_chunk.cx, entity_chunk.cz))
+                    .expect("non-orphan entity referencing a non-existing chunk")
+                    .entities[..]
+            };
+            // The swapped entity was at the end, so the new length.
+            let previous_index = self.entities.len();
+            // Find where the index is located in the array and modify it.
+            let entity_index_index = chunk_entities.iter().position(|&index| index == previous_index)
+                .expect("entity index not found where it belongs");
+            chunk_entities[entity_index_index] = entity_index;
+        }
+
+        true
 
     }
 
@@ -246,15 +291,13 @@ impl World {
     }
 
     /// Iterate over all blocks in the given area.
-    /// Min is inclusive and max is exclusive.
-    #[must_use]
+    /// *Min is inclusive and max is exclusive.*
     pub fn iter_area_blocks(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + FusedIterator + '_ {
         WorldAreaBlocks::new(self, min, max)
     }
 
     /// Iterate over all bounding boxes in the given area.
-    /// Min is inclusive and max is exclusive.
-    #[must_use]
+    /// *Min is inclusive and max is exclusive.*
     pub fn iter_area_bounding_boxes(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
         self.iter_area_blocks(min, max).flat_map(|(pos, id, metadata)| {
             let pos = pos.as_dvec3();
@@ -262,11 +305,35 @@ impl World {
         })
     }
 
-    #[must_use]
+    /// Iterate over all bounding boxes in the given area that are colliding with the 
+    /// given one. *Min is inclusive and max is exclusive.*
     pub fn iter_colliding_bounding_boxes(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
         let min = bb.min.floor().as_ivec3();
         let max = bb.max.add(1.0).floor().as_ivec3();
         self.iter_area_bounding_boxes(min, max).filter(move |block_bb| block_bb.intersects(bb))
+    }
+
+    /// Iterate over all entities of the given chunk. This is legal for non-existing 
+    /// chunks, in such case this will search for orphan entities.
+    pub fn iter_chunk_entities(&self, cx: i32, cz: i32) -> impl Iterator<Item = &dyn EntityGeneric> {
+        
+        let (entities, orphan) = self.chunks.get(&(cx, cz))
+            .map(|c| (&c.entities[..], false))
+            .unwrap_or((&self.orphan_entities, true));
+
+        entities.iter()
+            .filter_map(move |&entity_index| {
+                let entity = self.entities[entity_index].as_deref()?;
+                // If we are iterating the orphan entities, check the chunk.
+                if orphan {
+                    let entity_chunk = entity.chunk();
+                    if (entity_chunk.cx, entity_chunk.cz) != (cx, cz) {
+                        return None;
+                    }
+                }
+                Some(entity.entity())
+            })
+
     }
 
     /// Break a block naturally and drop its items. This function will generate an event 
@@ -405,6 +472,9 @@ trait WorldEntityGeneric {
     /// Return the underlying generic entity as mutable.
     fn entity_mut(&mut self) -> &mut dyn EntityGeneric;
 
+    /// Get access to the underlying entity chunk information.
+    fn chunk(&self) -> &WorldEntityChunk;
+
     /// Get mutable access to the underlying entity chunk information.
     fn chunk_mut(&mut self) -> &mut WorldEntityChunk;
 
@@ -425,6 +495,10 @@ where
 
     fn entity_mut(&mut self) -> &mut dyn EntityGeneric {
         &mut self.inner
+    }
+
+    fn chunk(&self) -> &WorldEntityChunk {
+        &self.chunk
     }
 
     fn chunk_mut(&mut self) -> &mut WorldEntityChunk {
@@ -494,7 +568,7 @@ impl<'a> Iterator for WorldAreaBlocks<'a> {
         if cursor.y == self.min.y {
             // NOTE: Unchecked because the Y value is clamped in the constructor.
             let (cx, cz) = calc_chunk_pos_unchecked(cursor);
-            if !matches!(self.chunk, Some((ccx, ccz, _)) if ccx == cx && ccz == cz) {
+            if !matches!(self.chunk, Some((ccx, ccz, _)) if (ccx, ccz) == (cx, cz)) {
                 self.chunk = Some((cx, cz, self.world.chunk(cx, cz)));
             }
         }
