@@ -59,9 +59,9 @@ impl Item {
 }
 
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ItemStack {
-    pub id: u8,
-    pub damage: u8,
-    pub stack: u16,
+    pub id: u16,
+    pub size: u8,
+    pub damage: u16,
 }

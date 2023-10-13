@@ -7,6 +7,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
+use crate::item::ItemStack;
 use crate::util::tcp::{TcpServerPacket, TcpClientPacket};
 use crate::util::io::{ReadPacketExt, WritePacketExt};
 
@@ -23,35 +24,37 @@ pub enum ServerPacket {
     /// A chat message.
     Chat(ChatPacket),
     /// The client's player interact with an entity.
-    Interact(()),
+    Interact(InteractPacket),
     /// The client's player want to respawn after being dead.
-    Respawn(()),
+    Respawn(RespawnPacket),
     /// The client's player is not moving/rotating.
-    Flying(PlayerFlyingPacket),
+    Flying(FlyingPacket),
     /// The client's player is moving but not rotating.
-    Position(PlayerPositionPacket),
+    Position(PositionPacket),
     /// The client's player is rotating but not moving.
-    Look(PlayerLookPacket),
+    Look(LookPacket),
     /// The client's player is moving and rotating.
-    PositionLook(PlayerPositionLookPacket),
+    PositionLook(PositionLookPacket),
     /// The client's player break a block.
-    BreakBlock(PlayerBreakBlockPacket),
+    BreakBlock(BreakBlockPacket),
     /// The client's player place a block.
-    PlaceBlock(()),
+    PlaceBlock(PlaceBlockPacket),
     /// The client's player change its hand item.
-    HandItem(()),
+    HandSlot(HandSlotPacket),
     /// The client's player has an animation, vanilla client usually only send swing arm.
     Animation(AnimationPacket),
     /// The player is making an action, like (un)crouch or leave bed.
-    Action(()),
+    Action(ActionPacket),
     /// The client is closing a window.
-    WindowClose(()),
+    WindowClose(WindowClosePacket),
     /// The client clicked a window.
-    WindowClick(()),
+    WindowClick(WindowClickPacket),
     /// Answer to a server transaction rejection.
-    WindowTransaction(()),
+    WindowTransaction(WindowTransactionPacket),
     /// Sent when a player click the "Done" button after placing a sign.
-    UpdateSign(()),
+    UpdateSign(UpdateSignPacket),
+    /// Sent when the player disconnect from the server.
+    Disconnect(DisconnectPacket),
 }
 
 /// A packet to send to a client (client-bound).
@@ -69,65 +72,65 @@ pub enum ClientPacket {
     UpdateTime(UpdateTimePacket),
     /// Sent after a player spawn packet to setup each of the 5 slots (held item and 
     /// armor slots) with the items.
-    PlayerInventory(()),
+    PlayerInventory(PlayerInventoryPacket),
     /// Set the spawn position for the compass to point to.
-    SpawnPosition(PlayerSpawnPositionPacket),
+    SpawnPosition(SpawnPositionPacket),
     /// Update the client's player health.
-    UpdateHealth(()),
+    UpdateHealth(UpdateHealthPacket),
     /// Sent to the client when the player has been successfully respawned.
-    Respawn(()),
+    Respawn(RespawnPacket),
     /// Legal to send but not made in practice.
-    Flying(PlayerFlyingPacket),
+    Flying(FlyingPacket),
     /// Legal to send but not made in practice.
-    Position(PlayerPositionPacket),
+    Position(PositionPacket),
     /// Legal to send but not made in practice.
-    Look(PlayerLookPacket),
+    Look(LookPacket),
     /// Set the client's player position and look.
-    PositionLook(PlayerPositionLookPacket),
+    PositionLook(PositionLookPacket),
     /// Set a given player to sleep in a bed.
-    PlayerSleep(()),
+    PlayerSleep(PlayerSleepPacket),
     /// An entity play an animation.
     EntityAnimation(AnimationPacket),
     /// A player entity to spawn.
-    PlayerSpawn(()),
+    PlayerSpawn(PlayerSpawnPacket),
     /// An item entity to spawn.
-    ItemSpawn(()),
+    ItemSpawn(ItemSpawnPacket),
     /// A player entity has picked up an item entity on ground.
-    PlayerItemPickup(()),
+    PlayerItemPickup(PlayerItemPickupPacket),
     /// An object entity to spawn.
-    ObjectSpawn(()),
+    ObjectSpawn(ObjectSpawnPacket),
     /// A mob entity to spawn.
-    MobSpawn(()),
+    MobSpawn(MobSpawnPacket),
     /// A painting entity to spawn.
-    PaintingSpawn(()),
+    PaintingSpawn(PaintingSpawnPacket),
     /// Update an entity velocity.
-    EntityVelocity(()),
+    EntityVelocity(EntityVelocityPacket),
     /// Kill an entity.
-    EntityKill(()),
+    EntityKill(EntityKillPacket),
     /// Base packet for subsequent entity packets, this packet alone is not sent by the
     /// vanilla server.
-    Entity(()),
+    Entity(EntityPacket),
     /// Move an entity by a given offset.
-    EntityMove(()),
+    EntityMove(EntityMovePacket),
     /// Set an entity' look.
-    EntityLook(()),
+    EntityLook(EntityLookPacket),
     /// Move an entity by a given offset and set its look.
-    EntityMoveAndLook(()),
+    EntityMoveAndLook(EntityMoveAndLookPacket),
     /// Teleport an entity to a position and set its look.
-    EntityPositionAndLook(()),
+    EntityPositionAndLook(EntityPositionAndLookPacket),
     /// Not fully understood.
-    EntityStatus(()),
+    EntityStatus(EntityStatusPacket),
     /// Make an entity ride another one.
-    EntityRide(()),
+    EntityRide(EntityRidePacket),
     /// Modify an entity's metadata.
-    EntityMetadata(()),
+    EntityMetadata(EntityMetadataPacket),
     /// Notify the client of a chunk initialization or deletion, this is required before
     /// sending blocks and chunk data.
     ChunkState(ChunkStatePacket),
     /// A bulk send of chunk data.
     ChunkData(ChunkDataPacket),
     /// Many block changed at the same time.
-    BlockMultiChange(()),
+    BlockMultiChange(BlockMultiChangePacket),
     /// A single block changed.
     BlockChange(BlockChangePacket),
     /// An action to apply to a block, currently only note block and pistons.
@@ -160,19 +163,7 @@ pub enum ClientPacket {
     Disconnect(DisconnectPacket),
 }
 
-#[derive(Debug, Clone)]
-pub struct ServerHandshakePacket {
-    /// Username of the player trying to connect.
-    pub username: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ClientHandshakePacket {
-    /// Server identifier that accepted the player handshake. This equals '-' in 
-    /// offline mode.
-    pub server: String,
-}
-
+/// Packet 1 (server-bound)
 #[derive(Debug, Clone)]
 pub struct ServerLoginPacket {
     /// Current protocol version, should be 14 for this version.
@@ -181,61 +172,113 @@ pub struct ServerLoginPacket {
     pub username: String,
 }
 
+/// Packet 1 (client-bound)
 #[derive(Debug, Clone)]
 pub struct ClientLoginPacket {
     /// The entity id of the player being connected.
-    pub entity_id: i32,
+    pub entity_id: u32,
     /// A random seed sent to the player.
     pub random_seed: i64,
     /// The dimension the player is connected to.
     pub dimension: i8,
 }
 
+/// Packet 2 (server-bound)
+#[derive(Debug, Clone)]
+pub struct ServerHandshakePacket {
+    /// Username of the player trying to connect.
+    pub username: String,
+}
+
+/// Packet 2 (client-bound)
+#[derive(Debug, Clone)]
+pub struct ClientHandshakePacket {
+    /// Server identifier that accepted the player handshake. This equals '-' in 
+    /// offline mode.
+    pub server: String,
+}
+
+/// Packet 3
+#[derive(Debug, Clone)]
+pub struct ChatPacket {
+    pub message: String,
+}
+
+/// Packet 4
 #[derive(Debug, Clone)]
 pub struct UpdateTimePacket {
     /// The world time (in game ticks).
     pub time: u64,
 }
 
+/// Packet 5
 #[derive(Debug, Clone)]
-pub struct ChatPacket {
-    pub message: String,
+pub struct PlayerInventoryPacket {
+    pub entity_id: u32,
+    pub slot: i16,
+    pub item_stack: Option<ItemStack>,
 }
 
+/// Packet 6
 #[derive(Debug, Clone)]
-pub struct PlayerSpawnPositionPacket {
+pub struct SpawnPositionPacket {
     /// The spawn position.
     pub pos: IVec3,
 }
 
+/// Packet 7
 #[derive(Debug, Clone)]
-pub struct PlayerFlyingPacket {
+pub struct InteractPacket {
+    pub player_entity_id: u32,
+    pub target_entity_id: u32,
+    pub left_click: bool,
+}
+
+/// Packet 8
+#[derive(Debug, Clone)]
+pub struct UpdateHealthPacket {
+    pub health: i32,
+}
+
+/// Packet 9
+#[derive(Debug, Clone)]
+pub struct RespawnPacket {
+    pub dimension: i8,
+}
+
+/// Packet 10
+#[derive(Debug, Clone)]
+pub struct FlyingPacket {
     pub on_ground: bool,
 }
 
+/// Packet 11
 #[derive(Debug, Clone)]
-pub struct PlayerPositionPacket {
+pub struct PositionPacket {
     pub pos: DVec3,
     pub stance: f64,
     pub on_ground: bool,
 }
 
+/// Packet 12
 #[derive(Debug, Clone)]
-pub struct PlayerLookPacket {
+pub struct LookPacket {
     pub look: Vec2,
     pub on_ground: bool,
 }
 
+/// Packet 13
 #[derive(Debug, Clone)]
-pub struct PlayerPositionLookPacket {
+pub struct PositionLookPacket {
     pub pos: DVec3,
     pub stance: f64,
     pub look: Vec2,
     pub on_ground: bool,
 }
 
+/// Packet 14
 #[derive(Debug, Clone)]
-pub struct PlayerBreakBlockPacket {
+pub struct BreakBlockPacket {
     pub x: i32,
     pub y: i8,
     pub z: i32,
@@ -243,12 +286,196 @@ pub struct PlayerBreakBlockPacket {
     pub status: u8,
 }
 
+/// Packet 15
+#[derive(Debug, Clone)]
+pub struct PlaceBlockPacket {
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub direction: u8,
+    pub item_stack: Option<ItemStack>,
+}
+
+/// Packet 16
+#[derive(Debug, Clone)]
+pub struct HandSlotPacket {
+    pub slot: i16,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlayerSleepPacket {
+    pub entity_id: u32,
+    pub unused: i8,
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+}
+
+/// Packet 18
 #[derive(Debug, Clone)]
 pub struct AnimationPacket {
     pub entity_id: u32,
     pub animate: u8,
 }
 
+/// Packet 19
+#[derive(Debug, Clone)]
+pub struct ActionPacket {
+    pub entity_id: u32,
+    pub state: u8,
+}
+
+/// Packet 20
+#[derive(Debug, Clone)]
+pub struct PlayerSpawnPacket {
+    pub entity_id: u32,
+    pub username: String,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub yaw: i8,
+    pub pitch: i8,
+    pub current_item: u16,
+}
+
+/// Packet 21
+#[derive(Debug, Clone)]
+pub struct ItemSpawnPacket {
+    pub entity_id: u32,
+    pub item: ItemStack,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub yaw: i8,
+    pub pitch: i8,
+    pub roll: i8,
+}
+
+/// Packet 22
+#[derive(Debug, Clone)]
+pub struct PlayerItemPickupPacket {
+    pub player_entity_id: u32,
+    pub item_entity_id: u32,
+}
+
+/// Packet 23
+#[derive(Debug, Clone)]
+pub struct ObjectSpawnPacket {
+    pub entity_id: u32,
+    pub kind: u8,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    /// For fireball and arrow.
+    pub velocity: Option<(i16, i16, i16)>,
+}
+
+/// Packet 24
+#[derive(Debug, Clone)]
+pub struct MobSpawnPacket {
+    pub entity_id: u32,
+    pub kind: u8,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub yaw: i8,
+    pub pitch: i8,
+    pub metadata: Vec<Metadata>,
+}
+
+/// Packet 25
+#[derive(Debug, Clone)]
+pub struct PaintingSpawnPacket {
+    pub entity_id: u32,
+    pub title: String,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub direction: i32,
+}
+
+/// Packet 28
+#[derive(Debug, Clone)]
+pub struct EntityVelocityPacket {
+    pub entity_id: u32,
+    pub vx: i16,
+    pub vy: i16,
+    pub vz: i16,
+}
+
+/// Packet 29
+#[derive(Debug, Clone)]
+pub struct EntityKillPacket {
+    pub entity_id: u32,
+}
+
+/// Packet 30
+#[derive(Debug, Clone)]
+pub struct EntityPacket {
+    pub entity_id: u32,
+}
+
+/// Packet 31
+#[derive(Debug, Clone)]
+pub struct EntityMovePacket {
+    pub entity_id: u32,
+    pub dx: i8,
+    pub dy: i8,
+    pub dz: i8,
+}
+
+/// Packet 32
+#[derive(Debug, Clone)]
+pub struct EntityLookPacket {
+    pub entity_id: u32,
+    pub yaw: i8,
+    pub pitch: i8,
+}
+
+/// Packet 33
+#[derive(Debug, Clone)]
+pub struct EntityMoveAndLookPacket {
+    pub entity_id: u32,
+    pub dx: i8,
+    pub dy: i8,
+    pub dz: i8,
+    pub yaw: i8,
+    pub pitch: i8,
+}
+
+/// Packet 34
+#[derive(Debug, Clone)]
+pub struct EntityPositionAndLookPacket {
+    pub entity_id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub yaw: i8,
+    pub pitch: i8,
+}
+
+/// Packet 38
+#[derive(Debug, Clone)]
+pub struct EntityStatusPacket {
+    pub entity_id: u32,
+    pub status: i8,
+}
+
+/// Packet 39
+#[derive(Debug, Clone)]
+pub struct EntityRidePacket {
+    pub entity_id: u32,
+    pub vehicle_entity_id: u32,
+}
+
+/// Packet 40
+#[derive(Debug, Clone)]
+pub struct EntityMetadataPacket {
+    pub entity_id: u32,
+    pub metadata: Vec<Metadata>,
+}
+
+/// Packet 50
 #[derive(Debug, Clone)]
 pub struct ChunkStatePacket {
     pub cx: i32,
@@ -256,6 +483,7 @@ pub struct ChunkStatePacket {
     pub init: bool,
 }
 
+/// Packet 51
 #[derive(Debug, Clone)]
 pub struct ChunkDataPacket {
     pub x: i32,
@@ -267,6 +495,15 @@ pub struct ChunkDataPacket {
     pub compressed_data: Vec<u8>,
 }
 
+/// Packet 52
+#[derive(Debug, Clone)]
+pub struct BlockMultiChangePacket {
+    pub cx: i32,
+    pub cz: i32,
+    pub blocks: Vec<()>,
+}
+
+/// Packet 53
 #[derive(Debug, Clone)]
 pub struct BlockChangePacket {
     pub x: i32,
@@ -276,10 +513,63 @@ pub struct BlockChangePacket {
     pub metadata: u8,
 }
 
+/// Packet 101
+#[derive(Debug, Clone)]
+pub struct WindowClosePacket {
+    pub window_id: u8,
+}
+
+/// Packet 102
+#[derive(Debug, Clone)]
+pub struct WindowClickPacket {
+    pub window_id: u8,
+    pub slot: i16,
+    pub right_click: bool,
+    pub shift_click: bool,
+    pub transaction_id: u16,
+    pub item_stack: Option<ItemStack>,
+}
+
+/// Packet 106
+#[derive(Debug, Clone)]
+pub struct WindowTransactionPacket {
+    pub window_id: u8,
+    pub transaction_id: u16,
+    pub accepted: bool,
+}
+
+/// Packet 130
+#[derive(Debug, Clone)]
+pub struct UpdateSignPacket {
+    pub x: i32,
+    pub y: i16,
+    pub z: i32,
+    pub lines: [String; 4],
+}
+
+/// Packet 255
 #[derive(Debug, Clone)]
 pub struct DisconnectPacket {
     /// The reason for being kicked or disconnection.
     pub reason: String,
+}
+
+/// A metadata for entity.
+#[derive(Debug, Clone)]
+pub struct Metadata {
+    sub: u8,
+    kind: MetadataKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum MetadataKind {
+    Byte(i8),
+    Short(i16),
+    Int(i32),
+    Float(f32),
+    String(String),
+    ItemStack(ItemStack),
+    Position(i32, i32, i32),
 }
 
 
@@ -308,9 +598,15 @@ impl TcpServerPacket for ServerPacket {
             3 => ServerPacket::Chat(ChatPacket { 
                 message: read.read_java_string(119)?,
             }),
-            7 => return Err(new_todo_packet_err("use entity")),
-            9 => return Err(new_todo_packet_err("respawn")),
-            10 => ServerPacket::Flying(PlayerFlyingPacket {
+            7 => ServerPacket::Interact(InteractPacket {
+                player_entity_id: read.read_java_int()? as u32,
+                target_entity_id: read.read_java_int()? as u32,
+                left_click: read.read_java_boolean()?,
+            }),
+            9 => ServerPacket::Respawn(RespawnPacket {
+                dimension: read.read_java_byte()?,
+            }),
+            10 => ServerPacket::Flying(FlyingPacket {
                 on_ground: read.read_java_boolean()?,
             }),
             11 => {
@@ -319,7 +615,7 @@ impl TcpServerPacket for ServerPacket {
                 let stance = read.read_java_double()?;
                 let z = read.read_java_double()?;
                 let on_ground = read.read_java_boolean()?;
-                ServerPacket::Position(PlayerPositionPacket {
+                ServerPacket::Position(PositionPacket {
                     pos: DVec3::new(x, y, z),
                     stance,
                     on_ground,
@@ -329,7 +625,7 @@ impl TcpServerPacket for ServerPacket {
                 let yaw = read.read_java_float()?;
                 let pitch = read.read_java_float()?;
                 let on_ground = read.read_java_boolean()?;
-                ServerPacket::Look(PlayerLookPacket {
+                ServerPacket::Look(LookPacket {
                     look: Vec2::new(yaw, pitch), 
                     on_ground,
                 })
@@ -342,33 +638,69 @@ impl TcpServerPacket for ServerPacket {
                 let yaw = read.read_java_float()?;
                 let pitch = read.read_java_float()?;
                 let on_ground = read.read_java_boolean()?;
-                ServerPacket::PositionLook(PlayerPositionLookPacket {
+                ServerPacket::PositionLook(PositionLookPacket {
                     pos: DVec3::new(x, y, z),
                     look: Vec2::new(yaw, pitch),
                     stance,
                     on_ground,
                 })
             }
-            14 => ServerPacket::BreakBlock(PlayerBreakBlockPacket {
+            14 => ServerPacket::BreakBlock(BreakBlockPacket {
                 status: read.read_java_byte()? as u8,
                 x: read.read_java_int()?,
                 y: read.read_java_byte()?,
                 z: read.read_java_int()?,
                 face: read.read_java_byte()? as u8,
             }),
-            15 => return Err(new_todo_packet_err("place block")),
-            16 => return Err(new_todo_packet_err("block item switch")),
+            15 => ServerPacket::PlaceBlock(PlaceBlockPacket {
+                x: read.read_java_int()?,
+                y: read.read_java_byte()?,
+                z: read.read_java_int()?,
+                direction: read.read_java_byte()? as u8,
+                item_stack: read_item_stack(read)?,
+            }),
+            16 => ServerPacket::HandSlot(HandSlotPacket {
+                slot: read.read_java_short()?,
+            }),
             18 => ServerPacket::Animation(AnimationPacket {
                 entity_id: read.read_java_int()? as u32,
                 animate: read.read_java_byte()? as u8,
             }),
-            19 => return Err(new_todo_packet_err("entity action")),
-            27 => return Err(new_todo_packet_err("position??")),
-            101 => return Err(new_todo_packet_err("close window")),
-            102 => return Err(new_todo_packet_err("click window")),
-            106 => return Err(new_todo_packet_err("transaction")),
-            130 => return Err(new_todo_packet_err("update sign")),
-            255 => return Err(new_todo_packet_err("kick/disconnect")),
+            19 => ServerPacket::Action(ActionPacket {
+                entity_id: read.read_java_int()? as u32,
+                state: read.read_java_byte()? as u8,
+            }),
+            // 27 => return Err(new_todo_packet_err("position??")),
+            101 => ServerPacket::WindowClose(WindowClosePacket {
+                window_id: read.read_java_byte()? as u8,
+            }),
+            102 => ServerPacket::WindowClick(WindowClickPacket {
+                window_id: read.read_java_byte()? as u8,
+                slot: read.read_java_short()?,
+                right_click: read.read_java_boolean()?,
+                transaction_id: read.read_java_short()? as u16,
+                shift_click: read.read_java_boolean()?,
+                item_stack: read_item_stack(read)?,
+            }),
+            106 => ServerPacket::WindowTransaction(WindowTransactionPacket {
+                window_id: read.read_java_byte()? as u8,
+                transaction_id: read.read_java_short()? as u16,
+                accepted: read.read_java_boolean()?,
+            }),
+            130 => ServerPacket::UpdateSign(UpdateSignPacket {
+                x: read.read_java_int()?,
+                y: read.read_java_short()?,
+                z: read.read_java_int()?,
+                lines: [
+                    read.read_java_string(15)?,
+                    read.read_java_string(15)?,
+                    read.read_java_string(15)?,
+                    read.read_java_string(15)?,
+                ],
+            }),
+            255 => ServerPacket::Disconnect(DisconnectPacket {
+                reason: read.read_java_string(100)?,
+            }),
             id => return Err(new_invalid_packet_err(format_args!("unknown id {id}"))),
         })
     }
@@ -383,7 +715,7 @@ impl TcpClientPacket for ClientPacket {
             ClientPacket::KeepAlive => write.write_u8(0)?,
             ClientPacket::Login(packet) => {
                 write.write_u8(1)?;
-                write.write_java_int(packet.entity_id)?;
+                write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string("")?; // No username it sent to the client.
                 write.write_java_long(packet.random_seed)?;
                 write.write_java_byte(packet.dimension)?;
@@ -400,11 +732,31 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(4)?;
                 write.write_java_long(packet.time as i64)?;
             }
+            ClientPacket::PlayerInventory(packet) => {
+                write.write_u8(5)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_short(packet.slot)?;
+                if let Some(item) = packet.item_stack {
+                    write.write_java_short(item.id as i16)?;
+                    write.write_java_short(item.damage as i16)?;
+                } else {
+                    write.write_java_short(-1)?;
+                    write.write_java_short(0)?;
+                }
+            }
             ClientPacket::SpawnPosition(packet)=> {
                 write.write_u8(6)?;
                 write.write_java_int(packet.pos.x)?;
                 write.write_java_int(packet.pos.y)?;
                 write.write_java_int(packet.pos.z)?;
+            }
+            ClientPacket::UpdateHealth(packet) => {
+                write.write_u8(8)?;
+                write.write_java_int(packet.health)?;
+            }
+            ClientPacket::Respawn(packet) => {
+                write.write_u8(9)?;
+                write.write_java_byte(packet.dimension)?;
             }
             ClientPacket::Flying(packet) => {
                 write.write_u8(10)?;
@@ -434,10 +786,142 @@ impl TcpClientPacket for ClientPacket {
                 write.write_java_float(packet.look.y)?;
                 write.write_java_boolean(packet.on_ground)?;
             }
+            ClientPacket::PlayerSleep(packet) => {
+                write.write_u8(17)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.unused)?;
+                write.write_java_int(packet.x)?;
+                write.write_java_byte(packet.y)?;
+                write.write_java_int(packet.z)?;
+            }
             ClientPacket::EntityAnimation(packet) => {
                 write.write_u8(18)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.animate as i8)?;
+            }
+            ClientPacket::PlayerSpawn(packet) => {
+                write.write_u8(20)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_string(&packet.username)?;
+                write.write_java_int(packet.x);
+                write.write_java_int(packet.y);
+                write.write_java_int(packet.z);
+                write.write_java_byte(packet.yaw)?;
+                write.write_java_byte(packet.pitch)?;
+                write.write_java_short(packet.current_item as i16)?;
+            }
+            ClientPacket::ItemSpawn(packet) => {
+                write.write_u8(21)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_short(packet.item.id as i16)?;
+                write.write_java_byte(packet.item.size as i8)?;
+                write.write_java_short(packet.item.damage as i16)?;
+                write.write_java_int(packet.x);
+                write.write_java_int(packet.y);
+                write.write_java_int(packet.z);
+                write.write_java_byte(packet.yaw)?;
+                write.write_java_byte(packet.pitch)?;
+                write.write_java_byte(packet.roll)?;
+            }
+            ClientPacket::PlayerItemPickup(packet) => {
+                write.write_u8(22)?;
+                write.write_java_int(packet.item_entity_id as i32)?;
+                write.write_java_int(packet.player_entity_id as i32)?;
+            }
+            ClientPacket::ObjectSpawn(packet) => {
+                write.write_u8(23)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.kind as i8)?;
+                write.write_java_int(packet.x);
+                write.write_java_int(packet.y);
+                write.write_java_int(packet.z);
+                write.write_java_boolean(packet.velocity.is_some())?;
+                if let Some((vx, vy, vz)) = packet.velocity {
+                    write.write_java_short(vx)?;
+                    write.write_java_short(vy)?;
+                    write.write_java_short(vz)?;
+                }
+            }
+            ClientPacket::MobSpawn(packet) => {
+                write.write_u8(24)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.kind as i8)?;
+                write.write_java_int(packet.x);
+                write.write_java_int(packet.y);
+                write.write_java_int(packet.z);
+                write.write_java_byte(packet.yaw)?;
+                write.write_java_byte(packet.pitch)?;
+                write_metadata_list(write, &packet.metadata)?;
+            }
+            ClientPacket::PaintingSpawn(packet) => {
+                write.write_u8(25)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_string(&packet.title)?;
+                write.write_java_int(packet.x);
+                write.write_java_int(packet.y);
+                write.write_java_int(packet.z);
+                write.write_java_int(packet.direction);
+            }
+            ClientPacket::EntityVelocity(packet) => {
+                write.write_u8(28)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_short(packet.vx)?;
+                write.write_java_short(packet.vy)?;
+                write.write_java_short(packet.vz)?;
+            }
+            ClientPacket::EntityKill(packet) => {
+                write.write_u8(29)?;
+                write.write_java_int(packet.entity_id as i32)?;
+            }
+            ClientPacket::Entity(packet) => {
+                write.write_u8(30)?;
+                write.write_java_int(packet.entity_id as i32)?;
+            }
+            ClientPacket::EntityMove(packet) => {
+                write.write_u8(31)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.dx)?;
+                write.write_java_byte(packet.dy)?;
+                write.write_java_byte(packet.dz)?;
+            }
+            ClientPacket::EntityLook(packet) => {
+                write.write_u8(32)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.yaw)?;
+                write.write_java_byte(packet.pitch)?;
+            }
+            ClientPacket::EntityMoveAndLook(packet) => {
+                write.write_u8(33)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.dx)?;
+                write.write_java_byte(packet.dy)?;
+                write.write_java_byte(packet.dz)?;
+                write.write_java_byte(packet.yaw)?;
+                write.write_java_byte(packet.pitch)?;
+            }
+            ClientPacket::EntityPositionAndLook(packet) => {
+                write.write_u8(34)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_int(packet.x)?;
+                write.write_java_int(packet.y)?;
+                write.write_java_int(packet.z)?;
+                write.write_java_byte(packet.yaw)?;
+                write.write_java_byte(packet.pitch)?;
+            }
+            ClientPacket::EntityStatus(packet) => {
+                write.write_u8(38)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_byte(packet.status)?;
+            }
+            ClientPacket::EntityRide(packet) => {
+                write.write_u8(39)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write.write_java_int(packet.vehicle_entity_id as i32)?;
+            }
+            ClientPacket::EntityMetadata(packet) => {
+                write.write_u8(40)?;
+                write.write_java_int(packet.entity_id as i32)?;
+                write_metadata_list(write, &packet.metadata)?;
             }
             ClientPacket::ChunkState(packet) => {
                 write.write_u8(50)?;
@@ -455,6 +939,12 @@ impl TcpClientPacket for ClientPacket {
                 write.write_java_byte((packet.z_size - 1) as i8)?;
                 write.write_java_int(packet.compressed_data.len() as i32)?;
                 write.write_all(&packet.compressed_data)?;
+            }
+            ClientPacket::BlockMultiChange(packet) => {
+                write.write_u8(52)?;
+                write.write_java_int(packet.cx)?;
+                write.write_java_int(packet.cz)?;
+                // TODO: write packet.blocks
             }
             ClientPacket::BlockChange(packet) => {
                 write.write_u8(53)?;
@@ -484,4 +974,58 @@ fn new_invalid_packet_err(format: Arguments) -> io::Error {
 
 fn new_todo_packet_err(name: &'static str) -> io::Error {
     new_invalid_packet_err(format_args!("todo({name})"))
+}
+
+fn read_item_stack(read: &mut impl Read) -> io::Result<Option<ItemStack>> {
+    let id = read.read_java_short()?;
+    Ok(if id >= 0 {
+        Some(ItemStack {
+            id: id as u16,
+            size: read.read_java_byte()? as u8,
+            damage: read.read_java_short()? as u16,
+        })
+    } else {
+        None
+    })
+}
+
+fn write_metadata(write: &mut impl Write, metadata: &Metadata) -> io::Result<()> {
+    
+    let kind_index: u8 = match metadata.kind {
+        MetadataKind::Byte(_) => 0,
+        MetadataKind::Short(_) => 1,
+        MetadataKind::Int(_) => 2,
+        MetadataKind::Float(_) => 3,
+        MetadataKind::String(_) => 4,
+        MetadataKind::ItemStack(_) => 5,
+        MetadataKind::Position(_, _, _) => 6,
+    };
+
+    write.write_u8((kind_index << 5) | (metadata.sub & 31))?;
+
+    match metadata.kind {
+        MetadataKind::Byte(n) => write.write_java_byte(n),
+        MetadataKind::Short(n) => write.write_java_short(n),
+        MetadataKind::Int(n) => write.write_java_int(n),
+        MetadataKind::Float(n) => write.write_java_float(n),
+        MetadataKind::String(ref s) => write.write_java_string(&s),
+        MetadataKind::ItemStack(i) => {
+            write.write_java_short(i.id as i16)?;
+            write.write_java_byte(i.size as i8)?;
+            write.write_java_short(i.damage as i16)
+        }
+        MetadataKind::Position(x, y, z) => {
+            write.write_java_int(x)?;
+            write.write_java_int(y)?;
+            write.write_java_int(z)
+        }
+    }
+
+}
+
+fn write_metadata_list(write: &mut impl Write, list: &[Metadata]) -> io::Result<()> {
+    for metadata in list {
+        write_metadata(write, metadata)?;
+    }
+    write.write_java_byte(127)
 }

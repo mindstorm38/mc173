@@ -20,9 +20,9 @@ use crate::entity::{PlayerEntity, ItemEntity};
 
 use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
-    ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, PlayerSpawnPositionPacket, 
-    UpdateTimePacket, ChatPacket, PlayerPositionLookPacket, ChunkDataPacket, 
-    ChunkStatePacket, PlayerBreakBlockPacket, BlockChangePacket};
+    ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, SpawnPositionPacket, 
+    UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
+    ChunkStatePacket, BreakBlockPacket, BlockChangePacket};
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -318,7 +318,7 @@ impl Player {
             dimension: 0,
         }))?;
 
-        res.tcp_server.send(self.client_id, &ClientPacket::SpawnPosition(PlayerSpawnPositionPacket {
+        res.tcp_server.send(self.client_id, &ClientPacket::SpawnPosition(SpawnPositionPacket {
             pos: res.overworld_dim.spawn_pos(),
         }))?;
 
@@ -361,7 +361,7 @@ impl Player {
 
         if !playing.initialized {
             
-            res.tcp_server.send(self.client_id, &ClientPacket::PositionLook(PlayerPositionLookPacket {
+            res.tcp_server.send(self.client_id, &ClientPacket::PositionLook(PositionLookPacket {
                 pos: self.last_pos,
                 look: self.last_look,
                 stance: self.last_pos.y + 1.62,
@@ -427,7 +427,7 @@ impl Player {
     /// This function handles various positioning packets.
     fn handle_break_block(&mut self, 
         res: &mut Resources, 
-        packet: PlayerBreakBlockPacket
+        packet: BreakBlockPacket
     ) -> io::Result<()> {
 
         let Some(playing) = &mut self.playing else { return Ok(()); };
