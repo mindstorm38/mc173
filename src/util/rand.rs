@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{UNIX_EPOCH, SystemTime};
 use std::num::Wrapping;
 
+use glam::{Vec3, DVec3};
+
 
 const MULTIPLIER: Wrapping<i64> = Wrapping(0x5DEECE66D);
 const ADDEND: Wrapping<i64> = Wrapping(0xB);
@@ -121,14 +123,32 @@ impl JavaRandom {
         ((self.next(32) as i64) << 32).wrapping_add(self.next(32) as i64)
     }
 
+    /// Get the next pseudo-random single-precision float.
     pub fn next_float(&mut self) -> f32 {
         self.next(24) as f32 / FLOAT_DIV
     }
 
+    /// Get the next pseudo-random double-precision float.
     pub fn next_double(&mut self) -> f64 {
         let high = (self.next(26) as i64) << 27;
         let low = self.next(27) as i64;
         (high.wrapping_add(low) as f64) / DOUBLE_DIV
+    }
+    
+    pub fn next_vec3(&mut self) -> Vec3 {
+        Vec3 { 
+            x: self.next_float(), 
+            y: self.next_float(),
+            z: self.next_float(),
+        }
+    }
+
+    pub fn next_dvec3(&mut self) -> DVec3 {
+        DVec3 {
+            x: self.next_double(), 
+            y: self.next_double(),
+            z: self.next_double(),
+        }
     }
 
 }

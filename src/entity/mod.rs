@@ -20,7 +20,7 @@ pub trait EntityBehavior {
 
     /// Tick this entity and update its internal components.
     fn tick(&mut self, world: &mut World);
-    
+
 }
 
 

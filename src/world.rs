@@ -1,24 +1,17 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
-use std::any::Any;
 use std::collections::HashMap;
 use std::iter::FusedIterator;
-use std::ops::Add;
+use std::ops::{Add, Mul};
+use std::any::Any;
 
 use glam::{IVec3, DVec3};
 
-use crate::chunk::{Chunk, calc_chunk_pos, CHUNK_HEIGHT};
-use crate::entity::{self, EntityBehavior};
+use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, CHUNK_HEIGHT};
+use crate::entity::{self, EntityBehavior, ItemEntity};
+use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 use crate::block::block_from_id;
-
-
-/// Calculate the chunk position corresponding to the given block position. 
-/// This also returns chunk-local coordinates in this chunk.
-#[inline]
-pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
-    calc_chunk_pos(pos.as_ivec3())
-}
 
 
 /// Data structure for a whole world.
@@ -29,6 +22,8 @@ pub struct World {
     spawn_pos: IVec3,
     /// The world time, increasing at each tick.
     time: u64,
+    /// The world's global random number generator.
+    rand: JavaRandom,
     /// Pending events queue.
     events: Vec<Event>,
     /// Mapping of chunks to their coordinates.
@@ -50,6 +45,7 @@ impl World {
             dimension,
             spawn_pos: IVec3::ZERO,
             time: 0,
+            rand: JavaRandom::new_seeded(),
             events: Vec::new(),
             chunks: HashMap::new(),
             entities: Vec::new(),
@@ -102,18 +98,13 @@ impl World {
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.
     pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {
-        if pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32 {
-            let (cx, cz) = calc_chunk_pos(pos);
-            let chunk = self.chunk(cx, cz)?;
-            Some(chunk.block_and_metadata(pos))
-        } else {
-            None
-        }
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.chunk(cx, cz)?;
+        Some(chunk.block_and_metadata(pos))
     }
 
     pub fn set_block_and_metadata(&mut self, pos: IVec3, id: u8, metadata: u8) -> bool {
-        if pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32 {
-            let (cx, cz) = calc_chunk_pos(pos);
+        if let Some((cx, cz)) = calc_chunk_pos(pos) {
             if let Some(chunk) = self.chunk_mut(cx, cz) {
                 chunk.set_block_and_metadata(pos, id, metadata);
                 return true;
@@ -189,13 +180,7 @@ impl World {
     /// Min is inclusive and max is exclusive.
     #[must_use]
     pub fn iter_area_blocks(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + FusedIterator + '_ {
-        WorldAreaBlocks {
-            world: self,
-            chunk: None,
-            min,
-            max,
-            cursor: min,
-        }
+        WorldAreaBlocks::new(self, min, max)
     }
 
     /// Iterate over all bounding boxes in the given area.
@@ -213,6 +198,45 @@ impl World {
         let min = bb.min.floor().as_ivec3();
         let max = bb.max.add(1.0).floor().as_ivec3();
         self.iter_area_bounding_boxes(min, max).filter(move |block_bb| block_bb.intersects(bb))
+    }
+
+    /// Break a block naturally and drop its items. This function will generate an event 
+    /// of the block break and the items spawn. This returns true if successful, false
+    /// if the chunk/pos was not valid.
+    pub fn break_block(&mut self, pos: IVec3) -> bool {
+
+        let Some((cx, cz)) = calc_chunk_pos(pos) else { return false };
+        let Some(chunk) = self.chunk_mut(cx, cz) else { return false };
+
+        let (prev_block, prev_metadata) = chunk.block_and_metadata(pos);
+        chunk.set_block_and_metadata(pos, 0, 0);
+
+        self.push_event(Event::BlockChange { 
+            pos,
+            prev_block, 
+            prev_metadata, 
+            new_block: 0, 
+            new_metadata: 0,
+        });
+
+        const SPREAD: f32 = 0.7;
+        let delta = self.rand.next_vec3()
+            .mul(SPREAD)
+            .as_dvec3()
+            .add((1.0 - SPREAD as f64) * 0.5);
+
+        let mut entity = ItemEntity::new(pos.as_dvec3() + delta);
+        entity.vel.x = self.rand.next_double() * 0.2 - 0.1;
+        entity.vel.y = 0.2;
+        entity.vel.z = self.rand.next_double() * 0.2 - 0.1;
+        entity.base.item.id = prev_block as u16;
+        entity.base.item.size = 1;
+        entity.base.time_before_pickup = 10;
+        
+        self.spawn_entity(entity);
+
+        true
+        
     }
 
     /// Tick the world, this ticks all entities.
@@ -358,6 +382,34 @@ struct WorldAreaBlocks<'a> {
     cursor: IVec3,
 }
 
+impl<'a> WorldAreaBlocks<'a> {
+
+    #[inline]
+    fn new(world: &'a World, mut min: IVec3, mut max: IVec3) -> Self {
+
+        debug_assert!(min.x <= max.x && min.y <= max.y && min.z <= max.z);
+
+        min.y = min.y.clamp(0, CHUNK_HEIGHT as i32 - 1);
+        max.y = max.y.clamp(0, CHUNK_HEIGHT as i32 - 1);
+
+        // If one the component is in common, because max is exclusive, there will be no
+        // blocks at all to read, so we set max to min so it will directly ends.
+        if min.x == max.x || min.y == max.y || min.z == max.z {
+            max = min;
+        }
+
+        WorldAreaBlocks {
+            world,
+            chunk: None,
+            min,
+            max,
+            cursor: min,
+        }
+
+    }
+
+}
+
 impl<'a> FusedIterator for WorldAreaBlocks<'a> {}
 impl<'a> Iterator for WorldAreaBlocks<'a> {
 
@@ -373,7 +425,8 @@ impl<'a> Iterator for WorldAreaBlocks<'a> {
 
         // We are at the start of a new column, update the chunk.
         if cursor.y == self.min.y {
-            let (cx, cz) = calc_chunk_pos(cursor);
+            // NOTE: Unchecked because the Y value is clamped in the constructor.
+            let (cx, cz) = calc_chunk_pos_unchecked(cursor);
             if !matches!(self.chunk, Some((ccx, ccz, _)) if ccx == cx && ccz == cz) {
                 self.chunk = Some((cx, cz, self.world.chunk(cx, cz)));
             }

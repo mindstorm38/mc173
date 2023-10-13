@@ -28,10 +28,21 @@ fn calc_index(pos: IVec3) -> usize {
     (x << 11) | (z << 7) | (y << 0)
 }
 
-/// Calculate the chunk position corresponding to the given block position. 
-/// This also returns chunk-local coordinates in this chunk.
+/// Calculate the chunk position corresponding to the given block position. This returns
+/// no position if the Y coordinate is invalid.
 #[inline]
-pub fn calc_chunk_pos(pos: IVec3) -> (i32, i32) {
+pub fn calc_chunk_pos(pos: IVec3) -> Option<(i32, i32)> {
+    if pos.y < 0 || pos.y >= CHUNK_HEIGHT as i32 {
+        None
+    } else {
+        Some(calc_chunk_pos_unchecked(pos))
+    }
+}
+
+/// Calculate the chunk position corresponding to the given block position. The Y 
+/// coordinate is ignored, so it may be invalid.
+#[inline]
+pub fn calc_chunk_pos_unchecked(pos: IVec3) -> (i32, i32) {
     (pos.x / CHUNK_WIDTH as i32, pos.z / CHUNK_WIDTH as i32)
 }
 

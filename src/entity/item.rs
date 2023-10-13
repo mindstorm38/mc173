@@ -9,7 +9,7 @@ use super::{EntityBehavior, Base, Size};
 #[derive(Debug, Default)]
 pub struct Item {
     /// The item stack represented by this entity.
-    pub item_stack: ItemStack,
+    pub item: ItemStack,
     /// Tick count before this item entity can be picked up.
     pub time_before_pickup: u32,
 }

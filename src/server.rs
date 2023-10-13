@@ -22,7 +22,7 @@ use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, SpawnPositionPacket, 
     UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
-    ChunkStatePacket, BreakBlockPacket, BlockChangePacket};
+    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket};
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -80,7 +80,7 @@ impl Server {
                     self.players.remove_player(event.client_id);
                 }
                 TcpEventKind::Packet(packet) => {
-                    println!("[{}] Received {packet:?}", event.client_id);
+                    // println!("[{}] Received {packet:?}", event.client_id);
                     self.players.ensure_player(event.client_id).handle_packet(&mut self.resources, packet)?;
                 }
             }
@@ -111,18 +111,26 @@ impl Server {
         // copying.
         self.resources.overworld_events.extend(self.resources.overworld_dim.drain_events());
         for event in self.resources.overworld_events.drain(..) {
+            println!("[OVERWORLD] Event: {event:?}");
             match event {
                 Event::EntitySpawn { id } => {
 
                     let entity = self.resources.overworld_dim.entity(id).unwrap();
+                    let pos = entity.pos().as_ivec3();
+                    let spawn_packet;
 
-                    if let Some(item_entity) = entity.downcast_ref::<ItemEntity>() {
-
-                        let pos = item_entity.pos.as_ivec3();
+                    if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
+                        spawn_packet = ClientPacket::ItemSpawn(ItemSpawnPacket::from_entity(entity));
+                        let pos = entity.pos.as_ivec3();
                         for player in self.players.iter_aware_players(pos) {
-                            self.resources.tcp_server.send(client_id, packet)
+                            self.resources.tcp_server.send(player.client_id, &spawn_packet)?;
                         }
+                    } else {
+                        continue;
+                    }
 
+                    for player in self.players.iter_aware_players(pos) {
+                        self.resources.tcp_server.send(player.client_id, &spawn_packet)?;
                     }
 
                 }
@@ -142,7 +150,6 @@ impl Server {
 
                 }
             }
-            println!("[OVERWORLD] Event: {event:?}");
         }
 
         Ok(())
@@ -203,15 +210,17 @@ impl Players {
 
     /// Iterate over players that are aware of a given world's position.
     fn iter_aware_players(&self, pos: IVec3) -> impl Iterator<Item = &Player> {
-        let (cx, cz) = calc_chunk_pos(pos);
-        self.players.iter()
-            .map(|player| &**player)
-            .filter(move |player| {
-                if let Some(playing) = &player.playing {
-                    playing.sent_chunks.contains(&(cx, cz))
-                } else {
-                    false
-                }
+        calc_chunk_pos(pos).into_iter()
+            .flat_map(|(cx, cz)| {
+                self.players.iter()
+                    .map(|player| &**player)
+                    .filter(move |player| {
+                        if let Some(playing) = &player.playing {
+                            playing.sent_chunks.contains(&(cx, cz))
+                        } else {
+                            false
+                        }
+                    })
             })
     }
 
@@ -313,7 +322,7 @@ impl Player {
         });
 
         res.tcp_server.send(self.client_id, &ClientPacket::Login(ClientLoginPacket {
-            entity_id: entity_id as i32,
+            entity_id,
             random_seed: 0,
             dimension: 0,
         }))?;
@@ -451,19 +460,9 @@ impl Player {
 
                 if let Some(breaking_block) = playing.breaking_block.take() {
                     if breaking_block.pos == pos {
-                        let (block, metadata) = res.overworld_dim.block_and_metadata(pos).expect("invalid chunk");
+                        let (block, _metadata) = res.overworld_dim.block_and_metadata(pos).expect("invalid chunk");
                         if breaking_block.block == block {
-                            
-                            // TODO: Check time
-                            res.overworld_dim.set_block_and_metadata(pos, 0, 0);
-                            res.overworld_dim.push_event(Event::BlockChange { 
-                                pos,
-                                prev_block: block, 
-                                prev_metadata: metadata, 
-                                new_block: 0, 
-                                new_metadata: 0,
-                            });
-
+                            res.overworld_dim.break_block(pos);
                         }
                     }
                 }

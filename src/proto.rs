@@ -2,14 +2,16 @@
 
 use std::io::{Read, self, Write};
 use std::fmt::Arguments;
+use std::ops::Mul;
 
 use glam::{DVec3, Vec2, IVec3};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
-use crate::item::ItemStack;
 use crate::util::tcp::{TcpServerPacket, TcpClientPacket};
 use crate::util::io::{ReadPacketExt, WritePacketExt};
+use crate::entity::ItemEntity;
+use crate::item::ItemStack;
 
 
 /// A packet received by the server (server-bound).
@@ -218,7 +220,7 @@ pub struct UpdateTimePacket {
 pub struct PlayerInventoryPacket {
     pub entity_id: u32,
     pub slot: i16,
-    pub item_stack: Option<ItemStack>,
+    pub item: Option<ItemStack>,
 }
 
 /// Packet 6
@@ -295,7 +297,7 @@ pub struct PlaceBlockPacket {
     pub y: i8,
     pub z: i32,
     pub direction: u8,
-    pub item_stack: Option<ItemStack>,
+    pub item: Option<ItemStack>,
 }
 
 /// Packet 16
@@ -348,9 +350,31 @@ pub struct ItemSpawnPacket {
     pub x: i32,
     pub y: i32,
     pub z: i32,
-    pub yaw: i8,
-    pub pitch: i8,
-    pub roll: i8,
+    pub vx: i8,
+    pub vy: i8,
+    pub vz: i8,
+}
+
+impl ItemSpawnPacket {
+
+    pub fn from_entity(entity: &ItemEntity) -> Self {
+
+        let pos = entity.pos.mul(32.0).floor().as_ivec3();
+        let vel = entity.vel.mul(128.0).as_ivec3();
+
+        Self {
+            entity_id: entity.id,
+            item: entity.base.item,
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            vx: vel.x as i8,
+            vy: vel.y as i8,
+            vz: vel.z as i8,
+        }
+
+    }
+    
 }
 
 /// Packet 22
@@ -583,7 +607,7 @@ pub struct WindowClickPacket {
     pub right_click: bool,
     pub shift_click: bool,
     pub transaction_id: u16,
-    pub item_stack: Option<ItemStack>,
+    pub item: Option<ItemStack>,
 }
 
 /// Packet 103
@@ -591,7 +615,7 @@ pub struct WindowClickPacket {
 pub struct WindowSetItemPacket {
     pub window_id: u8,
     pub slot: i16,
-    pub item_stack: Option<ItemStack>,
+    pub item: Option<ItemStack>,
 }
 
 /// Packet 104
@@ -599,7 +623,7 @@ pub struct WindowSetItemPacket {
 pub struct WindowItemsPacket {
     pub window_id: u8,
     pub count: i16,
-    pub item_stacks: Vec<Option<ItemStack>>,
+    pub items: Vec<Option<ItemStack>>,
 }
 
 /// Packet 105
@@ -752,7 +776,7 @@ impl TcpServerPacket for ServerPacket {
                 y: read.read_java_byte()?,
                 z: read.read_java_int()?,
                 direction: read.read_java_byte()? as u8,
-                item_stack: read_item_stack(read)?,
+                item: read_item_stack(read)?,
             }),
             16 => ServerPacket::HandSlot(HandSlotPacket {
                 slot: read.read_java_short()?,
@@ -775,7 +799,7 @@ impl TcpServerPacket for ServerPacket {
                 right_click: read.read_java_boolean()?,
                 transaction_id: read.read_java_short()? as u16,
                 shift_click: read.read_java_boolean()?,
-                item_stack: read_item_stack(read)?,
+                item: read_item_stack(read)?,
             }),
             106 => ServerPacket::WindowTransaction(WindowTransactionPacket {
                 window_id: read.read_java_byte()? as u8,
@@ -805,6 +829,8 @@ impl TcpServerPacket for ServerPacket {
 impl TcpClientPacket for ClientPacket {
 
     fn write(&self, write: &mut impl Write) -> io::Result<()> {
+
+        println!("Encode packet: {self:?}");
         
         match self {
             ClientPacket::KeepAlive => write.write_u8(0)?,
@@ -831,7 +857,7 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(5)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_short(packet.slot)?;
-                if let Some(item) = packet.item_stack {
+                if let Some(item) = packet.item {
                     write.write_java_short(item.id as i16)?;
                     write.write_java_short(item.damage as i16)?;
                 } else {
@@ -898,9 +924,9 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(20)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string16(&packet.username)?;
-                write.write_java_int(packet.x);
-                write.write_java_int(packet.y);
-                write.write_java_int(packet.z);
+                write.write_java_int(packet.x)?;
+                write.write_java_int(packet.y)?;
+                write.write_java_int(packet.z)?;
                 write.write_java_byte(packet.yaw)?;
                 write.write_java_byte(packet.pitch)?;
                 write.write_java_short(packet.current_item as i16)?;
@@ -911,12 +937,12 @@ impl TcpClientPacket for ClientPacket {
                 write.write_java_short(packet.item.id as i16)?;
                 write.write_java_byte(packet.item.size as i8)?;
                 write.write_java_short(packet.item.damage as i16)?;
-                write.write_java_int(packet.x);
-                write.write_java_int(packet.y);
-                write.write_java_int(packet.z);
-                write.write_java_byte(packet.yaw)?;
-                write.write_java_byte(packet.pitch)?;
-                write.write_java_byte(packet.roll)?;
+                write.write_java_int(packet.x)?;
+                write.write_java_int(packet.y)?;
+                write.write_java_int(packet.z)?;
+                write.write_java_byte(packet.vx)?;
+                write.write_java_byte(packet.vy)?;
+                write.write_java_byte(packet.vz)?;
             }
             ClientPacket::PlayerItemPickup(packet) => {
                 write.write_u8(22)?;
@@ -927,9 +953,9 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(23)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.kind as i8)?;
-                write.write_java_int(packet.x);
-                write.write_java_int(packet.y);
-                write.write_java_int(packet.z);
+                write.write_java_int(packet.x)?;
+                write.write_java_int(packet.y)?;
+                write.write_java_int(packet.z)?;
                 write.write_java_boolean(packet.velocity.is_some())?;
                 if let Some((vx, vy, vz)) = packet.velocity {
                     write.write_java_short(vx)?;
@@ -941,9 +967,9 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(24)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.kind as i8)?;
-                write.write_java_int(packet.x);
-                write.write_java_int(packet.y);
-                write.write_java_int(packet.z);
+                write.write_java_int(packet.x)?;
+                write.write_java_int(packet.y)?;
+                write.write_java_int(packet.z)?;
                 write.write_java_byte(packet.yaw)?;
                 write.write_java_byte(packet.pitch)?;
                 write_metadata_list(write, &packet.metadata)?;
@@ -952,10 +978,10 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(25)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string16(&packet.title)?;
-                write.write_java_int(packet.x);
-                write.write_java_int(packet.y);
-                write.write_java_int(packet.z);
-                write.write_java_int(packet.direction);
+                write.write_java_int(packet.x)?;
+                write.write_java_int(packet.y)?;
+                write.write_java_int(packet.z)?;
+                write.write_java_int(packet.direction)?;
             }
             ClientPacket::EntityVelocity(packet) => {
                 write.write_u8(28)?;
@@ -1064,7 +1090,7 @@ impl TcpClientPacket for ClientPacket {
                 write.write_java_double(packet.z)?;
                 write.write_java_float(packet.size)?;
                 write.write_java_int(packet.blocks.len() as i32)?;
-                for (dx, dy, dz) in packet.blocks {
+                for &(dx, dy, dz) in &packet.blocks {
                     write.write_java_byte(dx)?;
                     write.write_java_byte(dy)?;
                     write.write_java_byte(dz)?;
@@ -1104,13 +1130,13 @@ impl TcpClientPacket for ClientPacket {
                 write.write_u8(103)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.slot)?;
-                write_item_stack(write, packet.item_stack)?;
+                write_item_stack(write, packet.item)?;
             }
             ClientPacket::WindowItems(packet) => {
                 write.write_u8(104)?;
                 write.write_java_byte(packet.window_id as i8)?;
-                write.write_java_short(packet.item_stacks.len() as i16)?;
-                for item_stack in packet.item_stacks {
+                write.write_java_short(packet.items.len() as i16)?;
+                for &item_stack in &packet.items {
                     write_item_stack(write, item_stack)?;
                 }
             }
@@ -1167,10 +1193,6 @@ impl TcpClientPacket for ClientPacket {
 /// Return an invalid data io error with specific message.
 fn new_invalid_packet_err(format: Arguments) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, format!("invalid packet: {format}"))
-}
-
-fn new_todo_packet_err(name: &'static str) -> io::Error {
-    new_invalid_packet_err(format_args!("todo({name})"))
 }
 
 fn read_item_stack(read: &mut impl Read) -> io::Result<Option<ItemStack>> {
