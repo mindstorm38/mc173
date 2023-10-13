@@ -125,6 +125,9 @@ impl Server {
                     }
 
                 }
+                Event::EntityKill { id } => {
+                    
+                }
                 Event::BlockChange { pos, new_block: new_id, new_metadata, .. } => {
 
                     let block_change_packet = ClientPacket::BlockChange(BlockChangePacket {

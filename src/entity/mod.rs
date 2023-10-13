@@ -216,10 +216,20 @@ impl Size {
 }
 
 
+/// This trait can be used to implement entity logic. It also requires your type to also
+/// implement the [`Any`] trait, this provides downcasts on dynamic pointers to entities.
+pub trait EntityLogic: Any {
+
+    /// Tick this entity and update its internal components.
+    fn tick(&mut self, world: &mut World);
+
+}
+
+
 /// Base trait for [`EntityLogic`] implementors, it is automatically implemented for all
 /// generic type [`Base`] and provides common methods to access base properties of an
 /// entity behind a dynamic reference.
-pub trait EntityGeneric: Any {
+pub trait EntityGeneric: EntityLogic {
 
     /// Get the entity id.
     fn id(&self) -> u32;
@@ -258,7 +268,11 @@ impl dyn EntityGeneric {
 
 }
 
-impl<I: 'static> EntityGeneric for Base<I> {
+impl<I> EntityGeneric for Base<I>
+where
+    I: 'static,
+    Base<I>: EntityLogic,
+{
 
     #[inline]
     fn id(&self) -> u32 {
@@ -280,20 +294,11 @@ impl<I: 'static> EntityGeneric for Base<I> {
         self
     }
 
+    #[inline]
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
     
-}
-
-
-/// This trait can be used to implement entity logic. It also requires your type to also
-/// implement the [`Any`] trait, this provides downcasts on dynamic pointers to entities.
-pub trait EntityLogic: EntityGeneric {
-
-    /// Tick this entity and update its internal components.
-    fn tick(&mut self, world: &mut World);
-
 }
 
 

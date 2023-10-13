@@ -31,11 +31,13 @@ pub struct World {
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
     /// therefore avoiding borrowing issues.
-    entities: Vec<Option<Box<dyn WorldEntityGeneric>>>,
+    entities: Vec<WorldEntity>,
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
     /// List of entities that are not belonging to any chunk at the moment.
     orphan_entities: Vec<usize>,
+    /// Index of the currently updated entity.
+    updating_entity_index: Option<usize>,
     /// Next entity id apply to a newly spawned entity.
     next_entity_id: u32,
 }
@@ -53,6 +55,7 @@ impl World {
             entities: Vec::new(),
             entities_map: HashMap::new(),
             orphan_entities: Vec::new(),
+            updating_entity_index: None,
             next_entity_id: 0,
         }
     }
@@ -105,21 +108,16 @@ impl World {
                 };
 
                 self.orphan_entities.retain(|&entity_index| {
-
-                    let entity = self.entities[entity_index]
-                        .as_deref_mut()
-                        .expect("insert chunk while updating entity");
-                    
+                    let entity = &mut self.entities[entity_index];
                     // If the entity is in the newly added chunk.
-                    let entity_chunk = entity.chunk_mut();
-                    if entity_chunk.cx == cx && entity_chunk.cz == cz {
+                    if (entity.cx, entity.cz) == (cx, cz) {
                         world_chunk.entities.push(entity_index);
-                        entity_chunk.orphan = false;
+                        entity.orphan = false;
+                        // Do not retain entity, remove it from orphan list.
                         false
                     } else {
                         true
                     }
-
                 });
 
                 v.insert(world_chunk);
@@ -144,11 +142,7 @@ impl World {
         
         let chunk = self.chunks.remove(&(cx, cz))?;
         for &entity_index in &chunk.entities {
-            self.entities[entity_index]
-                .as_deref_mut()
-                .expect("remove chunk while updating entity")
-                .chunk_mut()
-                .orphan = true;
+            self.entities[entity_index].orphan = true;
         }
 
         self.orphan_entities.extend_from_slice(&chunk.entities);
@@ -177,25 +171,27 @@ impl World {
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
-    fn add_entity(&mut self, id: u32, mut entity: Box<dyn WorldEntityGeneric>) {
+    fn add_entity(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
 
         let entity_index = self.entities.len();
 
         // Bind the entity to an existing chunk if possible.
-        let (cx, cz) = calc_entity_chunk_pos(entity.entity().pos());
-        let entity_chunk = entity.chunk_mut();
-        entity_chunk.cx = cx;
-        entity_chunk.cz = cz;
+        let (cx, cz) = calc_entity_chunk_pos(entity.pos());
+        let mut world_entity = WorldEntity {
+            inner: Some(entity),
+            cx,
+            cz,
+            orphan: false,
+        };
         
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
             chunk.entities.push(entity_index);
-            entity_chunk.orphan = false;
         } else {
             self.orphan_entities.push(entity_index);
-            entity_chunk.orphan = true;
+            world_entity.orphan = true;
         }
 
-        self.entities.push(Some(entity));
+        self.entities.push(world_entity);
         self.entities_map.insert(id, entity_index);
 
         self.push_event(Event::EntitySpawn { id });
@@ -204,54 +200,66 @@ impl World {
 
     /// Spawn an entity in this world, this function gives it a unique id and ensure 
     /// coherency with chunks cache.
+    /// 
+    /// **This function is legal to call from ticking entities, but such entities will be
+    /// ticked once in the same cycle as the currently ticking entity.**
     #[inline]
     pub fn spawn_entity<B>(&mut self, entity: entity::Base<B>) -> u32
     where
         entity::Base<B>: EntityLogic
     {
-        
-        let mut entity = Box::new(WorldEntity {
-            inner: entity,
-            chunk: WorldEntityChunk::default(),
-        });
-
+        let mut entity = Box::new(entity);
         let id = self.next_entity_id();
-        entity.inner.id = id;
+        entity.id = id;
         self.add_entity(id, entity);
         id
-
     }
 
     /// Kill an entity given its id, this function ensure coherency with chunks cache.
+    /// 
+    /// **This function is legal for entities to call on themselves when ticking.**
     pub fn kill_entity(&mut self, id: u32) -> bool {
 
         let Some(entity_index) = self.entities_map.remove(&id) else { return false };
-        self.entities.swap_remove(entity_index).expect("kill an updating entity");
+        self.entities.swap_remove(entity_index);
+
+        // If we are removing the entity being updated, set its index to none so it will
+        // not placed back into its slot.
+        if self.updating_entity_index == Some(entity_index) {
+            self.updating_entity_index = None;
+        }
 
         // Because we used swap remove, this may have moved the last entity (if
         // existing) to the old entity index. We need to update its index in chunk
         // or orphan entities.
         if let Some(entity) = self.entities.get(entity_index) {
-            // Check if the swapped entity is not updating, if not, get its chunk info.
-            let entity_chunk = entity.as_ref()
-                .expect("swap updating entity")
-                .chunk();
+
             // Get the correct entities list depending on the entity being orphan or not.
-            let chunk_entities = if entity_chunk.orphan {
+            let chunk_entities = if entity.orphan {
                 &mut self.orphan_entities[..]
             } else {
-                &mut self.chunks.get_mut(&(entity_chunk.cx, entity_chunk.cz))
+                &mut self.chunks.get_mut(&(entity.cx, entity.cz))
                     .expect("non-orphan entity referencing a non-existing chunk")
                     .entities[..]
             };
+
             // The swapped entity was at the end, so the new length.
             let previous_index = self.entities.len();
+
+            // The entity that was swapped is the entity being updated, we need to change
+            // its index so it will be placed back into the correct slot.
+            if self.updating_entity_index == Some(previous_index) {
+                self.updating_entity_index = Some(entity_index);
+            }
+
             // Find where the index is located in the array and modify it.
             let entity_index_index = chunk_entities.iter().position(|&index| index == previous_index)
                 .expect("entity index not found where it belongs");
             chunk_entities[entity_index_index] = entity_index;
+
         }
 
+        self.push_event(Event::EntityKill { id });
         true
 
     }
@@ -261,8 +269,8 @@ impl World {
     #[track_caller]
     pub fn entity(&self, id: u32) -> Option<&dyn EntityGeneric> {
         let index = *self.entities_map.get(&id)?;
-        Some(self.entities[index].as_deref()
-            .map(WorldEntityGeneric::entity)
+        Some(self.entities[index].inner
+            .as_deref()
             .expect("entity is being updated"))
     }
 
@@ -278,8 +286,8 @@ impl World {
     #[track_caller]
     pub fn entity_mut(&mut self, id: u32) -> Option<&mut dyn EntityGeneric> {
         let index = *self.entities_map.get(&id)?;
-        Some(self.entities[index].as_deref_mut()
-            .map(WorldEntityGeneric::entity_mut)
+        Some(self.entities[index].inner
+            .as_deref_mut()
             .expect("entity is being updated"))
     }
 
@@ -323,15 +331,15 @@ impl World {
 
         entities.iter()
             .filter_map(move |&entity_index| {
-                let entity = self.entities[entity_index].as_deref()?;
+                let entity = &self.entities[entity_index];
+                debug_assert_eq!(entity.orphan, orphan, "incoherent oprhan entity");
                 // If we are iterating the orphan entities, check the chunk.
                 if orphan {
-                    let entity_chunk = entity.chunk();
-                    if (entity_chunk.cx, entity_chunk.cz) != (cx, cz) {
+                    if (entity.cx, entity.cz) != (cx, cz) {
                         return None;
                     }
                 }
-                Some(entity.entity())
+                entity.inner.as_deref()
             })
 
     }
@@ -380,15 +388,36 @@ impl World {
 
         self.time += 1;
 
-        // For each entity, we take the box from its slot (moving 64 * 2 bits), therefore
-        // taking the ownership, this allows us ticking it with the whole mutable world.
-        for i in 0..self.entities.len() {
-            
+        // NOTE: We don't use a for loop because killed and spawned entities may change
+        // the length of the list.
+        let mut i = 0;
+        while i < self.entities.len() {
+
+            // We keep a reference to the currently updated entity, this allows us to 
+            // react to the following events:
+            // - The updating entity is killed, and another entity is swapped at its 
+            //   index: we don't want to increment the index to tick swapped entity,
+            //   we also don't want to reinsert the entity.
+            // - Another entity was killed, but the updating entity was the last one and
+            //   it swapped with the removed one, its index changed.
+            self.updating_entity_index = Some(i);
+
             // We unwrap because all entities should be present except updated one.
-            let mut entity = self.entities[i].take().unwrap();
+            let mut entity = self.entities[i].inner.take().unwrap();
             entity.tick(&mut *self);
-            // After tick, we re-add the entity.
-            self.entities[i] = Some(entity);
+
+            if let Some(entity_index) = self.updating_entity_index {
+
+                // After tick, we re-add the entity.
+                debug_assert!(self.entities[i].inner.is_none(), "incoherent updating entity");
+                self.entities[i].inner = Some(entity);
+
+                // Only increment if the entity index has not changed.
+                if entity_index == i {
+                    i += 1;
+                }
+
+            }
 
         }
 
@@ -419,6 +448,11 @@ pub enum Event {
         /// The unique id of the spawned entity.
         id: u32,
     },
+    /// An entity has been killed from the world.
+    EntityKill {
+        /// The unique id of the killed entity.
+        id: u32,
+    },
     /// A block has been changed in the world.
     BlockChange {
         /// The block position.
@@ -444,67 +478,16 @@ struct WorldChunk {
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.
-struct WorldEntity<I> {
-    /// Underlying entity.
-    inner: entity::Base<I>,
-    /// Information about the chunk the entity is in when it was last updated.
-    chunk: WorldEntityChunk,
-}
-
-#[derive(Default)]
-struct WorldEntityChunk {
+struct WorldEntity {
+    /// Underlying entity, the none variant is rare and only happen once per tick when
+    /// the chunk is updated.
+    inner: Option<Box<dyn EntityGeneric>>,
     /// The last computed chunk position X.
     cx: i32,
     /// The last computed chunk position Z.
     cz: i32,
     /// Indicate if this entity is orphan and therefore does not belong to any chunk.
     orphan: bool,
-}
-
-trait WorldEntityGeneric {
-
-    /// Delegate tick to actual entity.
-    fn tick(&mut self, world: &mut World);
-
-    /// Return the underlying generic entity. 
-    fn entity(&self) -> &dyn EntityGeneric;
-
-    /// Return the underlying generic entity as mutable.
-    fn entity_mut(&mut self) -> &mut dyn EntityGeneric;
-
-    /// Get access to the underlying entity chunk information.
-    fn chunk(&self) -> &WorldEntityChunk;
-
-    /// Get mutable access to the underlying entity chunk information.
-    fn chunk_mut(&mut self) -> &mut WorldEntityChunk;
-
-}
-
-impl<I> WorldEntityGeneric for WorldEntity<I>
-where
-    entity::Base<I>: EntityLogic 
-{
-    
-    fn tick(&mut self, world: &mut World) {
-        self.inner.tick(world);
-    }
-
-    fn entity(&self) -> &dyn EntityGeneric {
-        &self.inner
-    }
-
-    fn entity_mut(&mut self) -> &mut dyn EntityGeneric {
-        &mut self.inner
-    }
-
-    fn chunk(&self) -> &WorldEntityChunk {
-        &self.chunk
-    }
-
-    fn chunk_mut(&mut self) -> &mut WorldEntityChunk {
-        &mut self.chunk
-    }
-
 }
 
 
