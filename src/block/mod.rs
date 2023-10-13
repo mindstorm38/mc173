@@ -1,7 +1,9 @@
 //! Block enumeration and behaviors.
 
-use crate::item::Item;
 use crate::util::bb::BoundingBox;
+use crate::item::Item;
+
+pub mod fluid;
 
 
 /// Internal macro to easily define blocks registry.

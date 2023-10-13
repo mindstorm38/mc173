@@ -21,8 +21,10 @@ impl EntityLogic for FallingBlockEntity {
 
     fn tick(&mut self, world: &mut World) {
         
+        self.update_entity(world, Size::new(1.0, 1.0));
+
         self.base.fall_ticks += 1;
-        self.apply_gravity(world, Size::new(1.0, 1.0));
+        self.apply_gravity(world, 0.0);
 
         if self.on_ground {
             // TODO: Place block and destroy falling block.

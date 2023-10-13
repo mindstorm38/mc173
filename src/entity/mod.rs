@@ -1,9 +1,11 @@
 //! Entity data structures, no logic is defined here.
 
+use std::ops::Add;
 use std::any::Any;
 
 use glam::{DVec3, Vec2};
 
+use crate::block::{self, block_from_id, Material};
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 use crate::world::World;
@@ -32,15 +34,6 @@ pub struct Base<I> {
     pub no_clip: bool,
     /// Is this entity currently on ground.
     pub on_ground: bool,
-    // /// The width of the entity's bounding box.
-    // pub width: f32,
-    // /// The height of the entity's bounding box.
-    // pub height: f32,
-    // /// Mark the center of the entity's bounding box in height.
-    // pub height_center: f32,
-    // /// The maximum step that can be taken by this entity when hitting a block 
-    // /// horizontally.
-    // pub step_height: f32,
     /// Total fall distance, will be used upon contact to calculate damages to deal.
     pub fall_distance: f32,
     /// If this entity is ridden, this contains its entity id.
@@ -51,6 +44,9 @@ pub struct Base<I> {
     pub health: u32,
     /// The random number generator used for this entity.
     pub random: JavaRandom,
+    /// This bounding box is internally used by tick methods, it is usually initialized
+    /// with [`update_bounding_box`] or [`update_entity`] methods.
+    pub bounding_box: BoundingBox,
     /// Inner implementation of the entity.
     pub base: I,
 }
@@ -65,15 +61,12 @@ impl<I: Default> Base<I> {
             look: Vec2::ZERO,
             no_clip: false,
             on_ground: false,
-            // width,
-            // height,
-            // height_center: 0.0,
-            // step_height: 0.0,
             fall_distance: 0.0,
             rider_id: None,
             lifetime: 0,
             health: 1,
             random: JavaRandom::new_seeded(),
+            bounding_box: BoundingBox::default(),
             base: I::default(),
         }
     }
@@ -82,28 +75,63 @@ impl<I: Default> Base<I> {
 
 impl<I> Base<I> {
 
-    /// Calculate the bounding box of this entity, depending on its position, width and
-    /// height and height offset.
-    pub fn bounding_box(&self, size: Size) -> BoundingBox {
+    /// Update the internal bounding box depending on the entity position and given 
+    /// bounding box size.
+    pub fn update_bounding_box(&mut self, size: Size) {
         let half_width = (size.width / 2.0) as f64;
         let height = size.height as f64;
         let height_center = size.height_center as f64;
-        BoundingBox {
+        self.bounding_box = BoundingBox {
             min: self.pos - DVec3::new(half_width, height_center, half_width),
             max: self.pos + DVec3::new(half_width, height + height_center, half_width),
-        }
+        };
     }
+
+    /// Common method to update entities..
+    pub fn update_entity(&mut self, world: &mut World, size: Size) {
+
+        self.lifetime += 1;
+        self.update_bounding_box(size);
+
+    }
+
+    pub fn calc_fluid_velocity(&mut self, world: &mut World, material: Material) -> DVec3 {
+
+        let fluid_bb = self.bounding_box.inflate(DVec3::new(-0.001, -0.4 - 0.001, -0.001));
+        let min = fluid_bb.min.floor().as_ivec3();
+        let max = fluid_bb.max.add(1.0).floor().as_ivec3();
+
+        for (pos, block, metadata) in world.iter_area_blocks(min, max) {
+            if block_from_id(block).material == material {
+
+                let fluid_height = block::fluid::calc_fluid_height(metadata);
+                let fluid_top_y = ((pos.y + 1) as f32 - fluid_height) as f64;
+
+                if max.y as f64 >= fluid_top_y {
+                    // block::fluid::calc_fluid_velocity(world, pos)
+                }
+
+            }
+        }
+
+        todo!()
+
+    }
+
+
+
+
 
     /// Common tick function to apply the given gravity on the entity and move it, while
     /// managing block collisions.
-    pub fn apply_gravity(&mut self, world: &mut World, size: Size) {
+    pub fn apply_gravity(&mut self, world: &mut World, step_height: f32) {
         self.vel.y -= 0.04;
-        self.move_entity(world, size, self.vel);
+        self.move_entity(world, self.vel, step_height);
         self.vel *= 0.98;
     }
 
     /// Common method for moving an entity by a given amount while checking collisions.
-    pub fn move_entity(&mut self, world: &mut World, size: Size, delta: DVec3) {
+    pub fn move_entity(&mut self, world: &mut World, delta: DVec3, step_height: f32) {
 
         if self.no_clip {
             self.pos += delta;
@@ -117,7 +145,7 @@ impl<I> Base<I> {
 
             // TODO: Sneaking on ground
 
-            let mut bb = self.bounding_box(size);
+            let mut bb = self.bounding_box;
             let colliding_bbs: Vec<BoundingBox> = world.iter_colliding_bounding_boxes(bb.expand(delta))
                 .collect();
 
@@ -152,7 +180,7 @@ impl<I> Base<I> {
             let on_ground = collided_y && delta.y < 0.0; // || self.on_ground
 
             // Apply step if relevant.
-            if size.step_height > 0.0 && on_ground && (collided_x || collided_z) {
+            if step_height > 0.0 && on_ground && (collided_x || collided_z) {
                 todo!("handle step motion");
             }
 
@@ -190,7 +218,20 @@ impl<I> Base<I> {
 /// Base class for living entity.
 #[derive(Debug, Default)]
 pub struct Living<I> {
+    /// The forward motion.
+    pub move_forward: f32,
+    /// The strafing motion.
+    pub move_strafing: f32,
+    /// True if this entity is trying to jump.
+    pub jumping: bool,
+    /// Inner implementation of the living entity.
     pub living: I,
+}
+
+impl<I> Base<Living<I>> {
+
+
+
 }
 
 
@@ -200,17 +241,16 @@ pub struct Size {
     pub width: f32,
     pub height: f32,
     pub height_center: f32,
-    pub step_height: f32,
 }
 
 impl Size {
 
     pub fn new(width: f32, height: f32) -> Self {
-        Self { width, height, height_center: 0.0, step_height: 0.0 }
+        Self { width, height, height_center: 0.0 }
     }
 
     pub fn new_centered(width: f32, height: f32) -> Self {
-        Self { width, height, height_center: height / 2.0, step_height: 0.0 }
+        Self { width, height, height_center: height / 2.0 }
     }
 
 }

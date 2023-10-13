@@ -21,7 +21,7 @@ impl EntityLogic for ItemEntity {
 
     fn tick(&mut self, world: &mut World) {
         
-        // self.apply_gravity(world, Size::new_centered(0.25, 0.25));
+        self.update_entity(world, Size::new_centered(0.25, 0.25));
 
     }
 
