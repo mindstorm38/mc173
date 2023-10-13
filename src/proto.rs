@@ -156,11 +156,11 @@ pub enum ClientPacket {
     /// Information about a window transaction to the client.
     WindowTransaction(WindowTransactionPacket),
     /// A sign is discovered or is created.
-    UpdateSign(()),
+    UpdateSign(UpdateSignPacket),
     /// Complex item data.
-    ItemData(()),
+    ItemData(ItemDataPacket),
     /// Increment a statistic by a given amount.
-    StatisticIncrement(()),
+    StatisticIncrement(StatisticIncrementPacket),
     /// Sent to a client to force disconnect it from the server.
     Disconnect(DisconnectPacket),
 }
@@ -625,6 +625,21 @@ pub struct UpdateSignPacket {
     pub y: i16,
     pub z: i32,
     pub lines: [String; 4],
+}
+
+/// Packet 131
+#[derive(Debug, Clone)]
+pub struct ItemDataPacket {
+    pub id: u16,
+    pub damage: u16,
+    pub data: Vec<u8>,
+}
+
+/// Packet 200
+#[derive(Debug, Clone)]
+pub struct StatisticIncrementPacket {
+    pub statistic_id: u32,
+    pub amount: i8,
 }
 
 /// Packet 255
@@ -1110,6 +1125,31 @@ impl TcpClientPacket for ClientPacket {
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.transaction_id as i16)?;
                 write.write_java_boolean(packet.accepted)?;
+            }
+            ClientPacket::UpdateSign(packet) => {
+                write.write_u8(130)?;
+                write.write_java_int(packet.x)?;
+                write.write_java_short(packet.y)?;
+                write.write_java_int(packet.z)?;
+                for line in &packet.lines {
+                    write.write_java_string16(&line)?;
+                }
+            }
+            ClientPacket::ItemData(packet) => {
+                write.write_u8(131)?;
+                write.write_java_short(packet.id as i16)?;
+                write.write_java_short(packet.damage as i16)?;
+                
+                let len = u8::try_from(packet.data.len())
+                    .map_err(|_| new_invalid_packet_err(format_args!("too much item data")))?;
+
+                write.write_u8(len)?;
+                write.write_all(&packet.data)?;
+            }
+            ClientPacket::StatisticIncrement(packet) => {
+                write.write_u8(200)?;
+                write.write_java_int(packet.statistic_id as i32)?;
+                write.write_java_byte(packet.amount)?;
             }
             ClientPacket::Disconnect(packet) => {
                 write.write_u8(255)?;
