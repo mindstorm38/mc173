@@ -121,10 +121,6 @@ impl Server {
 
                     if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
                         spawn_packet = ClientPacket::ItemSpawn(ItemSpawnPacket::from_entity(entity));
-                        let pos = entity.pos.as_ivec3();
-                        for player in self.players.iter_aware_players(pos) {
-                            self.resources.tcp_server.send(player.client_id, &spawn_packet)?;
-                        }
                     } else {
                         continue;
                     }

@@ -1,14 +1,14 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
 use std::ops::{Add, Mul};
-use std::any::Any;
 
-use glam::{IVec3, DVec3};
+use glam::IVec3;
 
-use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, CHUNK_HEIGHT};
-use crate::entity::{self, EntityBehavior, ItemEntity};
+use crate::chunk::{Chunk, CHUNK_HEIGHT, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos};
+use crate::entity::{self, EntityLogic, ItemEntity, EntityGeneric};
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 use crate::block::block_from_id;
@@ -27,13 +27,15 @@ pub struct World {
     /// Pending events queue.
     events: Vec<Event>,
     /// Mapping of chunks to their coordinates.
-    chunks: HashMap<(i32, i32), Box<Chunk>>,
+    chunks: HashMap<(i32, i32), WorldChunk>,
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
     /// therefore avoiding borrowing issues.
-    entities: Vec<Option<Box<dyn EntityGeneric>>>,
+    entities: Vec<Option<Box<dyn WorldEntityGeneric>>>,
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
+    /// List of entities that are not belonging to any chunk at the moment.
+    orphan_entities: Vec<usize>,
     /// Next entity id apply to a newly spawned entity.
     next_entity_id: u32,
 }
@@ -50,6 +52,7 @@ impl World {
             chunks: HashMap::new(),
             entities: Vec::new(),
             entities_map: HashMap::new(),
+            orphan_entities: Vec::new(),
             next_entity_id: 0,
         }
     }
@@ -80,19 +83,67 @@ impl World {
     }
 
     pub fn chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
-        self.chunks.get(&(cx, cz)).map(|c| &**c)
+        self.chunks.get(&(cx, cz)).map(|c| &*c.inner)
     }
 
     pub fn chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
-        self.chunks.get_mut(&(cx, cz)).map(|c| &mut **c)
+        self.chunks.get_mut(&(cx, cz)).map(|c| &mut *c.inner)
     }
 
+    /// Insert a new chunk into the world. This function also generate an event for a new
+    /// chunk and also take cares of internal coherency with potential orphan entities 
+    /// that are placed in this new chunk.
     pub fn insert_chunk(&mut self, cx: i32, cz: i32, chunk: Box<Chunk>) {
-        self.chunks.insert((cx, cz), chunk);
+        match self.chunks.entry((cx, cz)) {
+            // There was no chunk here, so we check in orphan entities if there are
+            // entities currently in this chunk's position.
+            Entry::Vacant(v) => {
+
+                let mut world_chunk = WorldChunk {
+                    inner: chunk,
+                    entities: Vec::new(),
+                };
+
+                self.orphan_entities.retain(|&entity_index| {
+
+                    let entity = self.entities[entity_index]
+                        .as_deref_mut()
+                        .expect("cannot insert chunk while updating entity");
+                    
+                    // If the entity is in the newly added chunk.
+                    let entity_chunk = entity.chunk_mut();
+                    if entity_chunk.cx == cx && entity_chunk.cz == cz {
+                        world_chunk.entities.push(entity_index);
+                        entity_chunk.orphan = false;
+                        false
+                    } else {
+                        true
+                    }
+
+                });
+
+                v.insert(world_chunk);
+
+            }
+            // The chunk is being replaced, we just transfer all entity to the new one.
+            Entry::Occupied(mut o) => {
+                // Replace the previous chunk and then move all of its entities to it.
+                let prev_chunk = o.insert(WorldChunk {
+                    inner: chunk,
+                    entities: Vec::new(),
+                });
+                o.get_mut().entities = prev_chunk.entities;
+            }
+        }
     }
 
+    /// Remove a chunk that may not exists. If the chunk exists, all of its owned entities 
+    /// will be transferred to the orphan entities list to be later picked up by another
+    /// chunk.
     pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Box<Chunk>> {
-        self.chunks.remove(&(cx, cz))
+        let chunk = self.chunks.remove(&(cx, cz))?;
+        self.orphan_entities.extend_from_slice(&chunk.entities);
+        Some(chunk.inner)
     }
 
     /// Get block and metadata at given position in the world, if the chunk is not
@@ -101,16 +152,6 @@ impl World {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.chunk(cx, cz)?;
         Some(chunk.block_and_metadata(pos))
-    }
-
-    pub fn set_block_and_metadata(&mut self, pos: IVec3, id: u8, metadata: u8) -> bool {
-        if let Some((cx, cz)) = calc_chunk_pos(pos) {
-            if let Some(chunk) = self.chunk_mut(cx, cz) {
-                chunk.set_block_and_metadata(pos, id, metadata);
-                return true;
-            }
-        }
-        false
     }
 
     /// Internal function to ensure monomorphization and reduce bloat of the 
@@ -126,24 +167,48 @@ impl World {
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
-    fn add_entity(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
-        let index = self.entities.len();
+    fn add_entity(&mut self, id: u32, mut entity: Box<dyn WorldEntityGeneric>) {
+
+        let entity_index = self.entities.len();
+
+        // Bind the entity to an existing chunk if possible.
+        let (cx, cz) = calc_entity_chunk_pos(entity.entity().pos());
+        let entity_chunk = entity.chunk_mut();
+        entity_chunk.cx = cx;
+        entity_chunk.cz = cz;
+        
+        if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
+            chunk.entities.push(entity_index);
+            entity_chunk.orphan = false;
+        } else {
+            self.orphan_entities.push(entity_index);
+            entity_chunk.orphan = true;
+        }
+
         self.entities.push(Some(entity));
-        self.entities_map.insert(id, index);
+        self.entities_map.insert(id, entity_index);
+
         self.push_event(Event::EntitySpawn { id });
+
     }
 
     /// Spawn an entity in this world, this function.
-    #[inline(always)]
-    pub fn spawn_entity<I>(&mut self, entity: entity::Base<I>) -> u32
+    #[inline]
+    pub fn spawn_entity<B>(&mut self, entity: entity::Base<B>) -> u32
     where
-        entity::Base<I>: EntityGeneric + Any,
+        entity::Base<B>: EntityLogic
     {
-        let mut entity = Box::new(entity);
+        
+        let mut entity = Box::new(WorldEntity {
+            inner: entity,
+            chunk: WorldEntityChunk::default(),
+        });
+
         let id = self.next_entity_id();
-        entity.id = id;
+        entity.inner.id = id;
         self.add_entity(id, entity);
         id
+
     }
 
     /// Get a generic entity from its unique id. This generic entity can later be checked
@@ -151,7 +216,9 @@ impl World {
     #[track_caller]
     pub fn entity(&self, id: u32) -> Option<&dyn EntityGeneric> {
         let index = *self.entities_map.get(&id)?;
-        Some(self.entities[index].as_deref().expect("entity is being updated"))
+        Some(self.entities[index].as_deref()
+            .map(WorldEntityGeneric::entity)
+            .expect("entity is being updated"))
     }
 
     /// Get an entity of a given type from its unique id. If an entity exists with this id
@@ -166,7 +233,9 @@ impl World {
     #[track_caller]
     pub fn entity_mut(&mut self, id: u32) -> Option<&mut dyn EntityGeneric> {
         let index = *self.entities_map.get(&id)?;
-        Some(self.entities[index].as_deref_mut().expect("entity is being updated"))
+        Some(self.entities[index].as_deref_mut()
+            .map(WorldEntityGeneric::entity_mut)
+            .expect("entity is being updated"))
     }
 
     /// Get an entity of a given type from its unique id. If an entity exists with this id
@@ -250,7 +319,7 @@ impl World {
             
             // We unwrap because all entities should be present except updated one.
             let mut entity = self.entities[i].take().unwrap();
-            entity.delegate_tick(&mut *self);
+            entity.tick(&mut *self);
             // After tick, we re-add the entity.
             self.entities[i] = Some(entity);
 
@@ -299,69 +368,67 @@ pub enum Event {
 }
 
 
-/// A trait used internally in the world to allow checking actual type of the entity.
-pub trait EntityGeneric: EntityBehavior + Any {
+/// Internal type for storing a world chunk with its cached entities.
+struct WorldChunk {
+    /// Underlying chunk.
+    inner: Box<Chunk>,
+    /// Entities belonging to this chunk.
+    entities: Vec<usize>,
+}
 
-    /// Get this entity as any type, this allows checking its real type.
-    fn any(&self) -> &dyn Any;
+/// Internal type for storing a world entity and keep track of its current chunk.
+struct WorldEntity<I> {
+    /// Underlying entity.
+    inner: entity::Base<I>,
+    /// Information about the chunk the entity is in when it was last updated.
+    chunk: WorldEntityChunk,
+}
 
-    /// Get this entity as mutable any type.
-    fn any_mut(&mut self) -> &mut dyn Any;
+#[derive(Default)]
+struct WorldEntityChunk {
+    /// The last computed chunk position X.
+    cx: i32,
+    /// The last computed chunk position Z.
+    cz: i32,
+    /// Indicate if this entity is orphan and therefore does not belong to any chunk.
+    orphan: bool,
+}
 
-    /// Delegate to the real entity's tick.
-    fn delegate_tick(&mut self, world: &mut World);
+trait WorldEntityGeneric {
 
-    /// Get the entity unique id.
-    fn id(&self) -> u32;
+    /// Delegate tick to actual entity.
+    fn tick(&mut self, world: &mut World);
 
-    /// Get the position of the entity.
-    fn pos(&self) -> DVec3;
+    /// Return the underlying generic entity. 
+    fn entity(&self) -> &dyn EntityGeneric;
+
+    /// Return the underlying generic entity as mutable.
+    fn entity_mut(&mut self) -> &mut dyn EntityGeneric;
+
+    /// Get mutable access to the underlying entity chunk information.
+    fn chunk_mut(&mut self) -> &mut WorldEntityChunk;
 
 }
 
-impl dyn EntityGeneric {
-
-    /// Check if this entity is of the given type.
-    #[inline]
-    pub fn is<E: EntityGeneric>(&self) -> bool {
-        self.any().is::<E>()
-    }
-
-    #[inline]
-    pub fn downcast_ref<E: EntityGeneric>(&self) -> Option<&E> {
-        self.any().downcast_ref::<E>()
-    }
-
-    #[inline]
-    pub fn downcast_mut<E: EntityGeneric>(&mut self) -> Option<&mut E> {
-        self.any_mut().downcast_mut::<E>()
-    }
-
-}
-
-impl<I> EntityGeneric for entity::Base<I>
+impl<I> WorldEntityGeneric for WorldEntity<I>
 where
-    entity::Base<I>: EntityBehavior + Any,
+    entity::Base<I>: EntityLogic 
 {
-
-    fn any(&self) -> &dyn Any {
-        self
+    
+    fn tick(&mut self, world: &mut World) {
+        self.inner.tick(world);
     }
 
-    fn any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-   
-    fn delegate_tick(&mut self, world: &mut World) {
-        EntityBehavior::tick(self, world)
+    fn entity(&self) -> &dyn EntityGeneric {
+        &self.inner
     }
 
-    fn id(&self) -> u32 {
-        self.id
+    fn entity_mut(&mut self) -> &mut dyn EntityGeneric {
+        &mut self.inner
     }
 
-    fn pos(&self) -> DVec3 {
-        self.pos
+    fn chunk_mut(&mut self) -> &mut WorldEntityChunk {
+        &mut self.chunk
     }
 
 }

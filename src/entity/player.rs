@@ -2,7 +2,7 @@
 
 use crate::world::World;
 
-use super::{EntityBehavior, Base, Living};
+use super::{EntityLogic, Base, Living};
 
 
 #[derive(Debug, Default)]
@@ -14,7 +14,7 @@ pub struct Player {
 /// A player entity.
 pub type PlayerEntity = Base<Living<Player>>;
 
-impl EntityBehavior for PlayerEntity {
+impl EntityLogic for PlayerEntity {
     
     fn tick(&mut self, world: &mut World) {
         

@@ -1,5 +1,7 @@
 //! Entity data structures, no logic is defined here.
 
+use std::any::Any;
+
 use glam::{DVec3, Vec2};
 
 use crate::util::rand::JavaRandom;
@@ -13,15 +15,6 @@ mod item;
 pub use falling_block::FallingBlockEntity;
 pub use player::PlayerEntity;
 pub use item::ItemEntity;
-
-
-/// Base trait for implementing entity behaviors.
-pub trait EntityBehavior {
-
-    /// Tick this entity and update its internal components.
-    fn tick(&mut self, world: &mut World);
-
-}
 
 
 /// Base class for entity.
@@ -219,6 +212,79 @@ impl Size {
     pub fn new_centered(width: f32, height: f32) -> Self {
         Self { width, height, height_center: height / 2.0, step_height: 0.0 }
     }
+
+}
+
+
+/// Base trait for [`EntityLogic`] implementors, it is automatically implemented for all
+/// generic type [`Base`] and provides common methods to access base properties of an
+/// entity behind a dynamic reference.
+pub trait EntityGeneric: Any {
+
+    /// Get the entity id.
+    fn id(&self) -> u32;
+
+    /// Get the entity position.
+    fn pos(&self) -> DVec3;
+
+    /// Get this entity as any type, this allows checking its real type.
+    fn any(&self) -> &dyn Any;
+
+    /// Get this entity as mutable any type.
+    fn any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl dyn EntityGeneric {
+
+    /// Check if this entity is of the given type.
+    #[inline]
+    pub fn is<E: EntityGeneric>(&self) -> bool {
+        self.any().is::<E>()
+    }
+
+    #[inline]
+    pub fn downcast_ref<E: EntityGeneric>(&self) -> Option<&E> {
+        self.any().downcast_ref::<E>()
+    }
+
+    #[inline]
+    pub fn downcast_mut<E: EntityGeneric>(&mut self) -> Option<&mut E> {
+        self.any_mut().downcast_mut::<E>()
+    }
+
+}
+
+impl<I: 'static> EntityGeneric for Base<I> {
+
+    #[inline]
+    fn id(&self) -> u32 {
+        self.id
+    }
+
+    #[inline]
+    fn pos(&self) -> DVec3 {
+        self.pos
+    }
+
+    #[inline]
+    fn any(&self) -> &dyn Any {
+        self
+    }
+
+    #[inline]
+    fn any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+}
+
+
+/// This trait can be used to implement entity logic. It also requires your type to also
+/// implement the [`Any`] trait, this provides downcasts on dynamic pointers to entities.
+pub trait EntityLogic: EntityGeneric {
+
+    /// Tick this entity and update its internal components.
+    fn tick(&mut self, world: &mut World);
 
 }
 

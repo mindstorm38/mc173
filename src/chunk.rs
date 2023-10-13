@@ -2,8 +2,7 @@
 
 use std::io::{self, Write};
 
-use smallvec::SmallVec;
-use glam::IVec3;
+use glam::{IVec3, DVec3};
 
 use crate::block::AIR;
 
@@ -46,6 +45,15 @@ pub fn calc_chunk_pos_unchecked(pos: IVec3) -> (i32, i32) {
     (pos.x / CHUNK_WIDTH as i32, pos.z / CHUNK_WIDTH as i32)
 }
 
+/// Calculate the chunk position where the given entity should be positioned given its
+/// position.
+#[inline]
+pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
+    // NOTE: Using unchecked because entities don't have limit for Y value.
+    calc_chunk_pos_unchecked(pos.as_ivec3())
+}
+
+
 
 /// Data structure storing every chunk-local data, chunks are a world subdivision of 
 /// 16x16x256 blocks.
@@ -58,9 +66,6 @@ pub struct Chunk {
     block_light: ChunkNibbleArray,
     /// Sky light level for each block.
     sky_light: ChunkNibbleArray,
-    /// Because we store all chunks in boxes, we use a small vec to inline some entities
-    /// into the storage to avoid double indirection for simple cases.
-    entities: SmallVec<[usize; 8]>,
 }
 
 impl Chunk {
@@ -72,7 +77,6 @@ impl Chunk {
             metadata: ChunkNibbleArray::new(0),
             block_light: ChunkNibbleArray::new(15),
             sky_light: ChunkNibbleArray::new(0),
-            entities: SmallVec::new(),
         })
     }
 
@@ -181,28 +185,6 @@ impl Chunk {
         writer.write_all(&self.block_light.inner)?;
         writer.write_all(&self.sky_light.inner)?;
         Ok(())
-    }
-
-    /// Add an entity to this chunk, you must ensure that this entity is not already in
-    /// the chunk.
-    pub fn add_entity(&mut self, entity_index: usize) {
-        self.entities.push(entity_index);
-    }
-
-    /// Remove an entity from this chunk, you must ensure that it already exists in this
-    /// chunk.
-    pub fn remove_entity(&mut self, entity_index: usize) {
-        let position = self.entities.iter().position(|&idx| idx == entity_index).unwrap();
-        self.entities.swap_remove(position);
-    }
-
-    pub fn replace_entity(&mut self, old_entity_index: usize, new_entity_index: usize) {
-        let position = self.entities.iter().position(|&idx| idx == old_entity_index).unwrap();
-        self.entities[position] = new_entity_index;
-    }
-
-    pub fn entities(&self) -> &[usize] {
-        &self.entities
     }
 
 }

@@ -3,7 +3,7 @@
 use crate::item::ItemStack;
 use crate::world::World;
 
-use super::{EntityBehavior, Base, Size};
+use super::{EntityLogic, Base, Size};
 
 
 #[derive(Debug, Default)]
@@ -17,7 +17,7 @@ pub struct Item {
 /// A falling block entity.
 pub type ItemEntity = Base<Item>;
 
-impl EntityBehavior for ItemEntity {
+impl EntityLogic for ItemEntity {
 
     fn tick(&mut self, world: &mut World) {
         
