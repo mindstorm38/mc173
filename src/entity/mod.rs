@@ -140,6 +140,7 @@ impl<I> Base<I> {
         let prev_pos = self.pos;
 
         if self.no_clip {
+            self.bounding_box += delta;
             self.pos += delta;
         } else {
 
@@ -154,10 +155,6 @@ impl<I> Base<I> {
             let mut bb = self.bounding_box;
             let colliding_bbs: Vec<BoundingBox> = world.iter_colliding_bounding_boxes(bb.expand(delta))
                 .collect();
-
-            // println!("== Moving from {}", self.pos);
-            // println!(" = Expanded bb: {:?}", bb.expand(delta));
-            // println!(" = Colliding bbs ({}): {:?}", colliding_bbs.len(), &colliding_bbs[..]);
 
             // Compute a new delta that doesn't collide with above boxes.
             let mut new_delta = delta;
@@ -182,7 +179,7 @@ impl<I> Base<I> {
             }
             
             bb += DVec3::new(0.0, 0.0, new_delta.z);
-            let _ = bb; // No longer used because we calculated the final delta.
+            self.bounding_box = bb;
 
             let collided_x = delta.x != new_delta.x;
             let collided_y = delta.y != new_delta.y;
@@ -229,14 +226,6 @@ impl<I> Base<I> {
             })
         }
 
-    }
-
-    /// Common tick function to apply the given gravity on the entity and move it, while
-    /// managing block collisions.
-    pub fn apply_gravity(&mut self, world: &mut World, step_height: f32) {
-        self.vel.y -= 0.04;
-        self.move_entity(world, self.vel, step_height);
-        self.vel *= 0.98;
     }
 
     pub fn calc_fluid_velocity(&mut self, world: &mut World, material: Material) -> DVec3 {
@@ -342,20 +331,20 @@ impl<I> Base<Living<I>> {
             // TODO: If collided horizontally
         } else {
 
-            let mut factor = 0.91;
+            let mut slipperiness = 0.91;
 
             if self.on_ground {
-                factor = 546.0 * 0.1 * 0.1 * 0.1;
+                slipperiness = 546.0 * 0.1 * 0.1 * 0.1;
                 let ground_pos = self.pos.as_ivec3();
                 if let Some((block, _)) = world.block_and_metadata(ground_pos) {
                     if block != 0 {
-                        factor = block_from_id(block).slipperiness * 0.91;
+                        slipperiness = block_from_id(block).slipperiness * 0.91;
                     }
                 }
             }
 
             self.accel_living_entity(match self.on_ground {
-                true => 0.1 * 0.16277136 / (factor * factor * factor),
+                true => 0.1 * 0.16277136 / (slipperiness * slipperiness * slipperiness),
                 false => 0.02,
             });
             
@@ -366,7 +355,7 @@ impl<I> Base<Living<I>> {
             // TODO: Collided horizontally and on ladder
 
             self.vel.y -= 0.08;
-            self.vel *= DVec3::new(factor as f64, 0.98, factor as f64);
+            self.vel *= DVec3::new(slipperiness as f64, 0.98, slipperiness as f64);
 
         }
 

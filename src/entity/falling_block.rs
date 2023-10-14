@@ -1,5 +1,7 @@
 //! Falling block entity implementation.
 
+use glam::DVec3;
+
 use crate::entity::Size;
 use crate::world::World;
 
@@ -20,15 +22,25 @@ pub type FallingBlockEntity = Base<FallingBlock>;
 impl EntityLogic for FallingBlockEntity {
 
     fn tick(&mut self, world: &mut World) {
-        
-        self.update_entity(world, Size::new(1.0, 1.0));
 
-        self.base.fall_ticks += 1;
-        self.apply_gravity(world, 0.0);
+        if self.base.block_id == 0 {
+            world.kill_entity(self.id);
+            return;
+        }
+
+        self.lifetime += 1;
+        self.update_bounding_box(Size::new(1.0, 1.0));
+        
+        self.vel.y -= 0.04;
+        self.move_entity(world, self.vel, 0.0);
 
         if self.on_ground {
-            // TODO: Place block and destroy falling block.
-            let _ = self.base.block_id;
+            self.vel *= DVec3::new(0.7, -0.5, 0.7);
+            world.kill_entity(self.id);
+            // TODO: Place block or drop item.
+        } else if self.lifetime > 100 {
+            // TODO: Drop item.
+            world.kill_entity(self.id);
         }
 
     }

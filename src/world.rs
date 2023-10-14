@@ -380,7 +380,7 @@ impl World {
         entity.vel.z = self.rand.next_double() * 0.2 - 0.1;
         entity.base.item.id = prev_block as u16;
         entity.base.item.size = 1;
-        entity.base.time_before_pickup = 10;
+        entity.base.frozen_ticks = 10;
         
         self.spawn_entity(entity);
 
