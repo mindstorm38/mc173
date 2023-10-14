@@ -1,23 +1,25 @@
 //! The overworld chunk source.
 
-use glam::IVec3;
+use glam::{IVec3, DVec3};
 
 use crate::chunk::{Chunk, CHUNK_WIDTH};
-use crate::util::rand::JavaRandom;
 use crate::world::{World, Dimension};
+use crate::util::rand::JavaRandom;
 use crate::block::{STONE, GRASS};
+use crate::entity::PigEntity;
 
 
 pub fn new_overworld() -> World {
 
     let mut world = World::new(Dimension::Overworld);
-    let mut rand = JavaRandom::new_seeded();
 
     for cx in -10..10 {
         for cz in -10..10 {
-            world.insert_chunk(cx, cz, new_overworld_chunk(64 + rand.next_int_bounded(3)));
+            world.insert_chunk(cx, cz, new_overworld_chunk(64));
         }
     }
+
+    world.spawn_entity(PigEntity::new(DVec3::new(0.0, 70.0, 0.0)));
 
     world
 

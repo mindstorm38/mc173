@@ -21,10 +21,10 @@ const CHUNK_SIZE: usize = CHUNK_HEIGHT * CHUNK_WIDTH * CHUNK_WIDTH;
 #[inline]
 fn calc_index(pos: IVec3) -> usize {
     debug_assert!(pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32);
-    let x = pos.x as usize & 0b1111;
-    let z = pos.z as usize & 0b1111;
-    let y = pos.y as usize & 0b1111111;
-    (x << 11) | (z << 7) | (y << 0)
+    let x = pos.x as u32 & 0b1111;
+    let z = pos.z as u32 & 0b1111;
+    let y = pos.y as u32 & 0b1111111;
+    ((x << 11) | (z << 7) | (y << 0)) as usize
 }
 
 /// Calculate the chunk position corresponding to the given block position. This returns
@@ -42,7 +42,7 @@ pub fn calc_chunk_pos(pos: IVec3) -> Option<(i32, i32)> {
 /// coordinate is ignored, so it may be invalid.
 #[inline]
 pub fn calc_chunk_pos_unchecked(pos: IVec3) -> (i32, i32) {
-    (pos.x / CHUNK_WIDTH as i32, pos.z / CHUNK_WIDTH as i32)
+    (pos.x >> 4, pos.z >> 4)
 }
 
 /// Calculate the chunk position where the given entity should be positioned given its

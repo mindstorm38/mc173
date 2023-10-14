@@ -2,7 +2,7 @@
 
 use std::io::{Read, self, Write};
 use std::fmt::Arguments;
-use std::ops::{Mul, Div};
+use std::ops::Mul;
 
 use glam::{DVec3, Vec2, IVec3};
 
@@ -10,7 +10,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use crate::util::tcp::{TcpServerPacket, TcpClientPacket};
 use crate::util::io::{ReadPacketExt, WritePacketExt};
-use crate::entity::{ItemEntity, PlayerEntity};
+use crate::entity::{self, ItemEntity, PlayerEntity};
 use crate::item::ItemStack;
 
 
@@ -347,7 +347,7 @@ impl PlayerSpawnPacket {
     pub fn from_entity(entity: &PlayerEntity) -> Self {
 
         let pos = entity.pos.mul(32.0).floor().as_ivec3();
-        let look = entity.look.mul(256.0).div(360.0).as_ivec2();
+        let look = entity.look.mul(256.0).as_ivec2();
 
         Self {
             entity_id: entity.id,
@@ -429,6 +429,28 @@ pub struct MobSpawnPacket {
     pub yaw: i8,
     pub pitch: i8,
     pub metadata: Vec<Metadata>,
+}
+
+impl MobSpawnPacket {
+
+    pub fn from_entity<I>(entity: &entity::Base<I>, kind: u8) -> Self {
+
+        let pos = entity.pos.mul(32.0).floor().as_ivec3();
+        let look = entity.look.mul(256.0).as_ivec2();
+        
+        Self {
+            entity_id: entity.id,
+            kind,
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            yaw: look.x as i8,
+            pitch: look.y as i8,
+            metadata: Vec::new(), // TODO:
+        }
+
+    }
+
 }
 
 /// Packet 25

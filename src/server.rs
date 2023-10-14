@@ -3,6 +3,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::ops::Mul;
 use std::time::Duration;
 use std::io;
 
@@ -14,15 +15,16 @@ use glam::{DVec3, Vec2, IVec3};
 use anyhow::Result as AnyResult;
 
 use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
-use crate::entity::{EntityGeneric, PlayerEntity, ItemEntity};
 use crate::overworld::new_overworld;
 use crate::world::{World, Event};
+
+use crate::entity::{EntityGeneric, PlayerEntity, ItemEntity, PigEntity};
 
 use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, SpawnPositionPacket, 
     UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
-    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket, PlayerSpawnPacket};
+    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket, PlayerSpawnPacket, MobSpawnPacket, EntityKillPacket, EntityMoveAndLookPacket};
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -117,16 +119,48 @@ impl Server {
 
                     let entity = self.resources.overworld_dim.entity(id).unwrap();
                     let pos = entity.pos().as_ivec3();
-                    let spawn_packet = entity_spawn_packet(entity);
+                    let packet = entity_spawn_packet(entity);
 
-                    // FIXME: Do not spawn player for itself.
                     for player in self.players.iter_aware_players(pos) {
-                        self.resources.tcp_server.send(player.client_id, &spawn_packet)?;
+                        // Do not send the player's own entity.
+                        if id != player.playing.as_ref().unwrap().entity_id {
+                            self.resources.tcp_server.send(player.client_id, &packet)?;
+                        }
                     }
 
                 }
-                Event::EntityKill { id } => {
+                Event::EntityKill { id, cx, cz } => {
                     
+                    let packet = ClientPacket::EntityKill(EntityKillPacket {
+                        entity_id: id,
+                    });
+
+                    for player in self.players.iter_chunk_aware_players(cx, cz) {
+                        self.resources.tcp_server.send(player.client_id, &packet)?;
+                    }
+
+                }
+                Event::EntityMoveAndLook { id, pos_delta, look } => {
+
+                    let pos_delta = pos_delta.mul(32.0).floor().as_ivec3();
+                    let look = look.mul(256.0).as_ivec2();
+
+                    let packet = ClientPacket::EntityMoveAndLook(EntityMoveAndLookPacket {
+                        entity_id: id,
+                        dx: pos_delta.x as i8,
+                        dy: pos_delta.y as i8,
+                        dz: pos_delta.z as i8,
+                        yaw: look.x as i8,
+                        pitch: look.y as i8,
+                    });
+
+                    let entity = self.resources.overworld_dim.entity(id).unwrap();
+                    let pos = entity.pos().as_ivec3();
+
+                    for player in self.players.iter_aware_players(pos) {
+                        self.resources.tcp_server.send(player.client_id, &packet)?;
+                    }
+
                 }
                 Event::BlockChange { pos, new_block: new_id, new_metadata, .. } => {
 
@@ -207,16 +241,19 @@ impl Players {
     /// Iterate over players that are aware of a given world's position.
     fn iter_aware_players(&self, pos: IVec3) -> impl Iterator<Item = &Player> {
         calc_chunk_pos(pos).into_iter()
-            .flat_map(|(cx, cz)| {
-                self.players.iter()
-                    .map(|player| &**player)
-                    .filter(move |player| {
-                        if let Some(playing) = &player.playing {
-                            playing.sent_chunks.contains(&(cx, cz))
-                        } else {
-                            false
-                        }
-                    })
+            .flat_map(|(cx, cz)| self.iter_chunk_aware_players(cx, cz))
+    }
+
+    /// Iterate over players that are aware of a given chunk position.
+    fn iter_chunk_aware_players(&self, cx: i32, cz: i32) -> impl Iterator<Item = &Player> {
+        self.players.iter()
+            .map(|player| &**player)
+            .filter(move |player| {
+                if let Some(playing) = &player.playing {
+                    playing.sent_chunks.contains(&(cx, cz))
+                } else {
+                    false
+                }
             })
     }
 
@@ -437,8 +474,11 @@ impl Player {
 
                 if send_chunk_entities {
                     for entity in res.overworld_dim.iter_chunk_entities(cx, cz) {
-                        let spawn_packet = entity_spawn_packet(entity);
-                        res.tcp_server.send(self.client_id, &spawn_packet)?;
+                        // Do not send player's entity.
+                        if entity.id() != playing.entity_id {
+                            let spawn_packet = entity_spawn_packet(entity);
+                            res.tcp_server.send(self.client_id, &spawn_packet)?;
+                        }
                     }
                 }
 
@@ -518,6 +558,8 @@ fn entity_spawn_packet(entity: &dyn EntityGeneric) -> ClientPacket {
         ClientPacket::ItemSpawn(ItemSpawnPacket::from_entity(entity))
     } else if let Some(entity) = entity.downcast_ref::<PlayerEntity>() {
         ClientPacket::PlayerSpawn(PlayerSpawnPacket::from_entity(entity))
+    } else if let Some(entity) = entity.downcast_ref::<PigEntity>() {
+        ClientPacket::MobSpawn(MobSpawnPacket::from_entity(entity, 90))
     } else {
         todo!("entity_spawn_packet: {}", entity.type_name());
     }

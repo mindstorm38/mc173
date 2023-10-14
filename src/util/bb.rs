@@ -23,6 +23,10 @@ impl BoundingBox {
         }
     }
 
+    pub fn size(self) -> DVec3 {
+        self.max - self.min
+    }
+
     /// Expand this bounding box in all direction by the given delta.
     pub fn inflate(self, delta: DVec3) -> Self {
         Self {
@@ -81,7 +85,7 @@ impl BoundingBox {
     /// Simulate an offset of the given bounding box by the given delta, but with this 
     /// bounding box potentially colliding with it in the way, this function will return 
     /// the new delta that avoid this collision.
-    pub fn calc_x_delta(self, mut dx: f64, other: Self) -> f64 {
+    pub fn calc_x_delta(self, other: Self, mut dx: f64) -> f64 {
         if other.max.y > self.min.y && other.min.y < self.max.y {
             if other.max.z > self.min.z && other.min.z < self.max.z {
                 if dx > 0.0 && other.max.x <= self.min.x {
@@ -97,8 +101,8 @@ impl BoundingBox {
     /// Simulate an offset of the given bounding box by the given delta, but with this 
     /// bounding box potentially colliding with it in the way, this function will return 
     /// the new delta that avoid this collision.
-    pub fn calc_y_delta(self, mut dy: f64, other: Self) -> f64 {
-        if other.max.x > self.min.x && other.min.y < self.max.x {
+    pub fn calc_y_delta(self, other: Self, mut dy: f64) -> f64 {
+        if other.max.x > self.min.x && other.min.x < self.max.x {
             if other.max.z > self.min.z && other.min.z < self.max.z {
                 if dy > 0.0 && other.max.y <= self.min.y {
                     dy = dy.min(self.min.y - other.max.y);
@@ -113,8 +117,8 @@ impl BoundingBox {
     /// Simulate an offset of the given bounding box by the given delta, but with this 
     /// bounding box potentially colliding with it in the way, this function will return 
     /// the new delta that avoid this collision.
-    pub fn calc_z_delta(self, mut dz: f64, other: Self) -> f64 {
-        if other.max.x > self.min.x && other.min.y < self.max.x {
+    pub fn calc_z_delta(self, other: Self, mut dz: f64) -> f64 {
+        if other.max.x > self.min.x && other.min.x < self.max.x {
             if other.max.y > self.min.y && other.min.y < self.max.y {
                 if dz > 0.0 && other.max.z <= self.min.z {
                     dz = dz.min(self.min.z - other.max.z);

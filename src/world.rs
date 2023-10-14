@@ -5,7 +5,7 @@ use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
 use std::ops::{Add, Mul};
 
-use glam::IVec3;
+use glam::{IVec3, Vec2, DVec3};
 
 use crate::chunk::{Chunk, CHUNK_HEIGHT, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos};
 use crate::entity::{self, EntityLogic, ItemEntity, EntityGeneric};
@@ -179,6 +179,7 @@ impl World {
         let (cx, cz) = calc_entity_chunk_pos(entity.pos());
         let mut world_entity = WorldEntity {
             inner: Some(entity),
+            id,
             cx,
             cz,
             orphan: false,
@@ -221,7 +222,7 @@ impl World {
     pub fn kill_entity(&mut self, id: u32) -> bool {
 
         let Some(entity_index) = self.entities_map.remove(&id) else { return false };
-        self.entities.swap_remove(entity_index);
+        let killed_entity = self.entities.swap_remove(entity_index);
 
         // If we are removing the entity being updated, set its index to none so it will
         // not placed back into its slot.
@@ -246,6 +247,10 @@ impl World {
             // The swapped entity was at the end, so the new length.
             let previous_index = self.entities.len();
 
+            // Update the mapping from entity unique id to the new index.
+            let previous_map_index = self.entities_map.insert(entity.id, entity_index);
+            debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
+
             // The entity that was swapped is the entity being updated, we need to change
             // its index so it will be placed back into the correct slot.
             if self.updating_entity_index == Some(previous_index) {
@@ -259,7 +264,7 @@ impl World {
 
         }
 
-        self.push_event(Event::EntityKill { id });
+        self.push_event(Event::EntityKill { id, cx: killed_entity.cx, cz: killed_entity.cz });
         true
 
     }
@@ -441,7 +446,7 @@ pub enum Dimension {
 }
 
 /// An event that happened in the world.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum Event {
     /// A new entity has been spawned.
     EntitySpawn {
@@ -452,6 +457,16 @@ pub enum Event {
     EntityKill {
         /// The unique id of the killed entity.
         id: u32,
+        cx: i32,
+        cz: i32,
+    },
+    EntityMoveAndLook {
+        /// The unique id of the entity.
+        id: u32,
+        /// Position delta.
+        pos_delta: DVec3,
+        /// The new entity look.
+        look: Vec2,
     },
     /// A block has been changed in the world.
     BlockChange {
@@ -482,6 +497,9 @@ struct WorldEntity {
     /// Underlying entity, the none variant is rare and only happen once per tick when
     /// the chunk is updated.
     inner: Option<Box<dyn EntityGeneric>>,
+    /// Unique entity id is duplicated here to allow us to access it event when entity
+    /// is updating.
+    id: u32,
     /// The last computed chunk position X.
     cx: i32,
     /// The last computed chunk position Z.
@@ -543,7 +561,8 @@ impl<'a> Iterator for WorldAreaBlocks<'a> {
         
         let cursor = self.cursor;
 
-        if cursor == self.max {
+        // X is the last updated component, so when it reaches max it's done.
+        if cursor.x == self.max.x {
             return None;
         }
 
