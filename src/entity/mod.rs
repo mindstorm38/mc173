@@ -1,11 +1,12 @@
 //! Entity data structures, no logic is defined here.
 
-use std::ops::Add;
+use std::ops::{Add, Sub};
 use std::any::Any;
 
 use glam::{DVec3, Vec2, IVec3};
 
-use crate::block::{self, block_from_id, Material};
+use crate::block::{self, Material};
+use crate::path::PathFinder;
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 use crate::world::{World, Event};
@@ -86,20 +87,8 @@ impl<I: Default> Base<I> {
 
 impl<I> Base<I> {
 
-    /// Update the internal bounding box depending on the entity position and given 
-    /// bounding box size.
-    pub fn update_bounding_box(&mut self, size: Size) {
-        let half_width = (size.width / 2.0) as f64;
-        let height = size.height as f64;
-        let height_center = size.height_center as f64;
-        self.bounding_box = BoundingBox {
-            min: self.pos - DVec3::new(half_width, height_center, half_width),
-            max: self.pos + DVec3::new(half_width, height + height_center, half_width),
-        };
-    }
-
     /// Common method to update entities..
-    pub fn update_entity(&mut self, world: &mut World, size: Size) {
+    pub fn update(&mut self, world: &mut World, size: Size) {
 
         self.lifetime += 1;
         self.update_bounding_box(size);
@@ -132,10 +121,22 @@ impl<I> Base<I> {
 
     }
 
+    /// Update the internal bounding box depending on the entity position and given 
+    /// bounding box size.
+    pub fn update_bounding_box(&mut self, size: Size) {
+        let half_width = (size.width / 2.0) as f64;
+        let height = size.height as f64;
+        let height_center = size.height_center as f64;
+        self.bounding_box = BoundingBox {
+            min: self.pos - DVec3::new(half_width, height_center, half_width),
+            max: self.pos + DVec3::new(half_width, height + height_center, half_width),
+        };
+    }
+
     /// Common method for moving an entity by a given amount while checking collisions.
     /// 
     /// **This is the only method to use for actually modifying the entity position.**
-    pub fn move_entity(&mut self, world: &mut World, delta: DVec3, step_height: f32) {
+    pub fn update_position(&mut self, world: &mut World, delta: DVec3, step_height: f32) {
 
         let prev_pos = self.pos;
 
@@ -228,6 +229,25 @@ impl<I> Base<I> {
 
     }
 
+    /// Update look of the entity, sending an event if needed.
+    /// 
+    /// **This is the only method to use for actually modifying the entity look.**
+    fn update_look(&mut self, world: &mut World, look: Vec2) {
+
+        if look != self.look {
+            self.look = look;
+            world.push_event(Event::EntityLook { 
+                id: self.id, 
+                look,
+            })
+        }
+
+    }
+
+    pub fn calc_eye_height(&self) -> f32 {
+        self.bounding_box.size().y as f32 * 0.85
+    }
+
     pub fn calc_fluid_velocity(&mut self, world: &mut World, material: Material) -> DVec3 {
 
         let fluid_bb = self.bounding_box.inflate(DVec3::new(-0.001, -0.4 - 0.001, -0.001));
@@ -235,7 +255,7 @@ impl<I> Base<I> {
         let max = fluid_bb.max.add(1.0).floor().as_ivec3();
 
         for (pos, block, metadata) in world.iter_area_blocks(min, max) {
-            if block_from_id(block).material == material {
+            if block::block_from_id(block).material == material {
 
                 let fluid_height = block::fluid::calc_fluid_height(metadata);
                 let fluid_top_y = ((pos.y + 1) as f32 - fluid_height) as f64;
@@ -261,23 +281,39 @@ pub struct Living<I> {
     pub accel_strafing: f32,
     /// The forward acceleration.
     pub accel_forward: f32,
+    /// Velocity of the look's yaw axis.
+    pub yaw_velocity: f32,
     /// True if this entity is trying to jump.
     pub jumping: bool,
+    /// If this entity is looking at another one.
+    pub look_target: Option<LookTarget>,
     /// Inner implementation of the living entity.
     pub living: I,
+}
+
+/// Define a target for an entity to look at.
+#[derive(Debug, Default)]
+pub struct LookTarget {
+    /// The entity id to look at.
+    pub entity_id: u32,
+    /// Ticks remaining before stop looking at it.
+    pub ticks_remaining: u32,
 }
 
 impl<I> Base<Living<I>> {
 
     /// Update living entity AI and jump behaviors.
-    pub fn update_living_entity(&mut self, world: &mut World, ai: fn(&mut Self, &mut World)) {
+    pub fn update_living<F>(&mut self, world: &mut World, ai_func: F)
+    where
+        F: FnOnce(&mut Self, &mut World),
+    {
 
         if self.health == 0 {
             self.base.jumping = false;
             self.base.accel_strafing = 0.0;
             self.base.accel_forward = 0.0;
         } else {
-            ai(self, world);
+            ai_func(self, world);
         }
 
         if self.base.jumping {
@@ -290,12 +326,80 @@ impl<I> Base<Living<I>> {
 
         self.base.accel_strafing *= 0.98;
         self.base.accel_forward *= 0.98;
+        self.base.yaw_velocity *= 0.9;
 
     }
 
     /// Default AI function for living entities.
     pub fn update_living_ai(&mut self, world: &mut World) {
         
+        // TODO: Handle kill when closest player is too far away.
+
+        self.base.accel_strafing = 0.0;
+        self.base.accel_forward = 0.0;
+
+        // Maximum of 8 block to look at.
+        let look_target_range = 8.0;
+
+        if self.rand.next_float() < 0.02 {
+            // TODO: Look at closest player (max 8 blocks).
+        }
+
+        if let Some(target) = &mut self.base.look_target {
+
+            target.ticks_remaining -= 1;
+            let mut target_release = target.ticks_remaining == 0;
+
+            if let Some(target_entity) = world.entity(target.entity_id) {
+                // FIXME: Fix the Y value, in order to look at eye height.
+                // FIXME: Pitch step should be an argument.
+                let target_pos = target_entity.pos();
+                self.update_living_look_at(world, target_pos, Vec2::new(10.0, 10.0));
+                // Indicate if the entity is still in range.
+                if target_pos.distance_squared(self.pos) > look_target_range * look_target_range {
+                    target_release = false;
+                }
+            } else {
+                // Entity is dead.
+                target_release = false;
+            }
+
+            if target_release {
+                self.base.look_target = None;
+            }
+
+        } else {
+
+            if self.rand.next_float() < 0.05 {
+                self.base.yaw_velocity = (self.rand.next_float() - 0.5) * 20f32.to_radians();
+            }
+
+            // FIXME: Use update_look
+            self.look.x += self.base.yaw_velocity;
+            self.look.y = 0.0;
+
+        }
+
+        if self.in_water || self.in_lava {
+            self.base.jumping = self.rand.next_float() < 0.8;
+        }
+
+    }
+
+    /// Modify a living look step by step.
+    pub fn update_living_look(&mut self, world: &mut World, look: Vec2, step: Vec2) {
+        let look = look.rem_euclid(Vec2::splat(std::f32::consts::TAU));
+        let delta = look.sub(self.look).min(step);
+        self.update_look(world, self.look + delta);
+    }
+
+    /// Make this living entity face a parti
+    pub fn update_living_look_at(&mut self, world: &mut World, target: DVec3, step: Vec2) {
+        let delta = target - self.pos;
+        let horizontal_dist = delta.length();
+        let yaw = f64::atan2(delta.z, delta.x) as f32 - std::f32::consts::FRAC_PI_2;
+        let pitch = -f64::atan2(delta.y, horizontal_dist) as f32;
+        self.update_living_look(world, Vec2::new(yaw, pitch), step);
     }
 
     /// Accelerate a living entity with the given strafing and forward accelerations.
@@ -319,13 +423,13 @@ impl<I> Base<Living<I>> {
 
         if self.in_water {
             self.accel_living_entity(0.02);
-            self.move_entity(world, self.vel, step_height);
+            self.update_position(world, self.vel, step_height);
             self.vel *= 0.8;
             self.vel.y -= 0.02;
             // TODO: If collided horizontally
         } else if self.in_lava {
             self.accel_living_entity(0.02);
-            self.move_entity(world, self.vel, step_height);
+            self.update_position(world, self.vel, step_height);
             self.vel *= 0.5;
             self.vel.y -= 0.02;
             // TODO: If collided horizontally
@@ -338,7 +442,7 @@ impl<I> Base<Living<I>> {
                 let ground_pos = self.pos.as_ivec3();
                 if let Some((block, _)) = world.block_and_metadata(ground_pos) {
                     if block != 0 {
-                        slipperiness = block_from_id(block).slipperiness * 0.91;
+                        slipperiness = block::block_from_id(block).slipperiness * 0.91;
                     }
                 }
             }
@@ -350,7 +454,7 @@ impl<I> Base<Living<I>> {
             
             // TODO: Is on ladder
 
-            self.move_entity(world, self.vel, step_height);
+            self.update_position(world, self.vel, step_height);
 
             // TODO: Collided horizontally and on ladder
 
@@ -377,14 +481,31 @@ pub struct Creature<I> {
 
 impl<I> Base<Living<Creature<I>>> {
     
+    /// Specialization of [`update_creature_ai`] for basic animals, the weight function
+    /// privileges grass, and then light level.
+    pub fn update_animal_ai(&mut self, world: &mut World) {
+        self.update_creature_ai(world, 0.7, |world, pos| {
+            if let Some((block::GRASS, _)) = world.block_and_metadata(pos - IVec3::Y) {
+                10.0
+            } else {
+                // TODO: Get light at position and subtract 0.5 to light level
+                0.0
+            }
+        })
+    }
+
     /// Update a standard AI.
-    pub fn update_creature_ai(&mut self, world: &mut World) {
+    pub fn update_creature_ai<W>(&mut self, world: &mut World, move_speed: f32, weight_func: W)
+    where
+        W: Fn(&World, IVec3) -> f32,
+    {
 
         // TODO: Work on mob AI with attacks...
 
         if self.base.living.path.is_none() || self.rand.next_int_bounded(20) != 0 {
+            // Find a new path every 4 seconds on average.
             if self.rand.next_int_bounded(80) == 0 {
-                // TODO: Find new path.
+                self.update_creature_path(world, weight_func);
             }
         }
 
@@ -396,11 +517,11 @@ impl<I> Base<Living<Creature<I>>> {
 
                 let mut next_pos = None;
                 
-                while let Some(point) = path.point() {
+                while let Some(pos) = path.point() {
 
-                    let mut pos = point.pos.as_dvec3();
-                    pos.x += bb_size.x * 0.5;
-                    pos.z += bb_size.z * 0.5;
+                    let mut pos = pos.as_dvec3();
+                    pos.x += (bb_size.x + 1.0) * 0.5;
+                    pos.z += (bb_size.z + 1.0) * 0.5;
 
                     // Advance the path to the next point only if distance to current
                     // one is too short.
@@ -418,19 +539,25 @@ impl<I> Base<Living<Creature<I>>> {
 
                 if let Some(next_pos) = next_pos {
 
+                    println!("== update_creature_ai: next pos {next_pos}");
+
                     let dx = next_pos.x - self.pos.x;
-                    let dy = self.bounding_box.min.y.add(0.5).floor();
+                    let dy = next_pos.y - self.bounding_box.min.y.add(0.5).floor();
                     let dz = next_pos.z - self.pos.z;
 
                     let target_yaw = f64::atan2(dx, dz) as f32 - std::f32::consts::FRAC_PI_2;
                     let delta_yaw = target_yaw - self.look.x;
 
-                    self.look.x += delta_yaw;
+                    self.base.accel_forward = move_speed;
+                    self.look.x += delta_yaw;  // FIXME: Use update look.
 
                     if dy > 0.0 {
                         self.base.jumping = true;
                     }
 
+                } else {
+                    println!("== update_creature_ai: finished path");
+                    self.base.living.path = None;
                 }
 
                 // TODO: If player to attack
@@ -443,11 +570,61 @@ impl<I> Base<Living<Creature<I>>> {
 
                 return;
 
+            } else {
+                println!("== update_creature_ai: bad luck, path abandoned");
             }
         }
 
+        println!("== update_creature_ai: no path, fallback to living ai");
+
         self.update_living_ai(world);
         self.base.living.path = None;
+
+    }
+
+    /// Find a path for a create entity.
+    pub fn update_creature_path<W>(&mut self, world: &World, weight_func: W)
+    where
+        W: Fn(&World, IVec3) -> f32,
+    {
+
+        println!("== update_creature_path: entry");
+
+        let mut best_pos = None;
+
+        for _ in 0..10 {
+
+            let try_pos = IVec3 {
+                x: self.pos.x.add((self.rand.next_int_bounded(13) - 6) as f64).floor() as i32,
+                y: self.pos.y.add((self.rand.next_int_bounded(7) - 3) as f64).floor() as i32,
+                z: self.pos.z.add((self.rand.next_int_bounded(13) - 6) as f64).floor() as i32,
+            };
+            
+            let try_weight = weight_func(world, try_pos);
+            if let Some((_, weight)) = best_pos {
+                if try_weight > weight {
+                    best_pos = Some((try_pos, try_weight));
+                }
+            } else {
+                best_pos = Some((try_pos, try_weight));
+            }
+
+        }
+
+        if let Some((best_pos, _weight)) = best_pos {
+
+            let mut path_finder = PathFinder::new(world);
+            let best_pos = best_pos.as_dvec3() + 0.5;
+
+            if let Some(points) = path_finder.find_path_from_bounding_box(self.bounding_box, best_pos, 18.0) {
+                println!("== update_creature_path: new path found to {best_pos}");
+                self.base.living.path = Some(Path {
+                    points,
+                    index: 0,
+                })
+            }
+
+        }
 
     }
 
@@ -475,24 +652,18 @@ impl Size {
 }
 
 
+/// A result of the path finder.
 #[derive(Debug)]
 pub struct Path {
-    points: Vec<PathPoint>,
-    index: usize,
-}
-
-#[derive(Debug)]
-pub struct PathPoint {
-    pub pos: IVec3,
-    pub distance_to_next: f32,
-    pub distance_to_target: f32,
+    pub points: Vec<IVec3>,
+    pub index: usize,
 }
 
 impl Path {
 
     /// Return the current path position.
-    pub fn point(&self) -> Option<&PathPoint> {
-        self.points.get(self.index)
+    pub fn point(&self) -> Option<IVec3> {
+        self.points.get(self.index).copied()
     }
 
     pub fn advance(&mut self) {

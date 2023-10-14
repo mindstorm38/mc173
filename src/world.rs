@@ -7,11 +7,12 @@ use std::ops::{Add, Mul};
 
 use glam::{IVec3, Vec2, DVec3};
 
-use crate::chunk::{Chunk, CHUNK_HEIGHT, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos};
-use crate::entity::{self, EntityLogic, ItemEntity, EntityGeneric};
+use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT};
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
-use crate::block::block_from_id;
+
+use crate::entity::{self, EntityLogic, ItemEntity, EntityGeneric};
+use crate::block;
 
 
 /// Data structure for a whole world.
@@ -314,7 +315,7 @@ impl World {
     pub fn iter_area_bounding_boxes(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
         self.iter_area_blocks(min, max).flat_map(|(pos, id, metadata)| {
             let pos = pos.as_dvec3();
-            block_from_id(id).bounding_boxes(metadata).iter().map(move |bb| bb.offset(pos))
+            block::block_from_id(id).bounding_boxes(metadata).iter().map(move |bb| bb.offset(pos))
         })
     }
 
@@ -337,7 +338,7 @@ impl World {
         entities.iter()
             .filter_map(move |&entity_index| {
                 let entity = &self.entities[entity_index];
-                debug_assert_eq!(entity.orphan, orphan, "incoherent oprhan entity");
+                debug_assert_eq!(entity.orphan, orphan, "incoherent orphan entity");
                 // If we are iterating the orphan entities, check the chunk.
                 if orphan {
                     if (entity.cx, entity.cz) != (cx, cz) {
@@ -465,6 +466,12 @@ pub enum Event {
         id: u32,
         /// Position delta.
         pos_delta: DVec3,
+        /// The new entity look.
+        look: Vec2,
+    },
+    EntityLook {
+        /// The unique id of the entity.
+        id: u32,
         /// The new entity look.
         look: Vec2,
     },

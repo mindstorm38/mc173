@@ -24,7 +24,7 @@ impl EntityLogic for ItemEntity {
 
     fn tick(&mut self, world: &mut World) {
         
-        self.update_entity(world, Size::new_centered(0.25, 0.25));
+        self.update(world, Size::new_centered(0.25, 0.25));
 
         if self.base.frozen_ticks > 0 {
             self.base.frozen_ticks -= 1;
@@ -34,7 +34,7 @@ impl EntityLogic for ItemEntity {
 
         // TODO: handle lava
 
-        self.move_entity(world, self.vel, 0.0);
+        self.update_position(world, self.vel, 0.0);
 
         let mut slipperiness = 0.98;
 

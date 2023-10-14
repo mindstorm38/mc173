@@ -2,9 +2,9 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 use std::net::SocketAddr;
 use std::ops::Mul;
-use std::time::Duration;
 use std::io;
 
 use flate2::write::ZlibEncoder;
@@ -24,7 +24,14 @@ use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, SpawnPositionPacket, 
     UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
-    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket, PlayerSpawnPacket, MobSpawnPacket, EntityKillPacket, EntityMoveAndLookPacket};
+    ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket, 
+    PlayerSpawnPacket, MobSpawnPacket, EntityKillPacket, EntityMoveAndLookPacket, 
+    EntityLookPacket};
+
+
+/// Target tick duration.
+const TICK_DURATION: Duration = Duration::from_millis(50); // 20 TPS = 50 ms/tick
+const TCP_TIMEOUT: Duration = Duration::from_millis(1);
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -67,11 +74,22 @@ impl Server {
         })
     }
 
+    pub fn run(&mut self) -> AnyResult<()> {
+        loop {
+            let start = Instant::now();
+            self.tick()?;
+            let elapsed = start.elapsed();
+            if let Some(missing) = TICK_DURATION.checked_sub(elapsed) {
+                std::thread::sleep(missing);
+            }
+        }
+    }
+
     /// Run a single tick in the server.
     pub fn tick(&mut self) -> AnyResult<()> {
 
         let mut events: Vec<TcpEvent<ServerPacket>> = Vec::new();
-        self.resources.tcp_server.poll(&mut events, Some(Duration::from_secs_f32(1.0 / 20.0)))?;
+        self.resources.tcp_server.poll(&mut events, Some(TCP_TIMEOUT))?;
 
         // Process each event with concerned client.
         for event in events.drain(..) {
@@ -113,7 +131,7 @@ impl Server {
         // copying.
         self.resources.overworld_events.extend(self.resources.overworld_dim.drain_events());
         for event in self.resources.overworld_events.drain(..) {
-            println!("[OVERWORLD] Event: {event:?}");
+            // println!("[OVERWORLD] Event: {event:?}");
             match event {
                 Event::EntitySpawn { id } => {
 
@@ -154,6 +172,24 @@ impl Server {
                         pitch: look.y as i8,
                     });
 
+                    let entity = self.resources.overworld_dim.entity(id).unwrap();
+                    let pos = entity.pos().as_ivec3();
+
+                    for player in self.players.iter_aware_players(pos) {
+                        self.resources.tcp_server.send(player.client_id, &packet)?;
+                    }
+
+                }
+                Event::EntityLook { id, look } => {
+
+                    let look = look.mul(256.0).as_ivec2();
+
+                    let packet = ClientPacket::EntityLook(EntityLookPacket {
+                        entity_id: id,
+                        yaw: look.x as i8,
+                        pitch: look.y as i8,
+                    });
+                    
                     let entity = self.resources.overworld_dim.entity(id).unwrap();
                     let pos = entity.pos().as_ivec3();
 

@@ -1,6 +1,7 @@
 //! Cube bounding boxes.
 
 use std::ops::AddAssign;
+use std::fmt;
 
 use glam::DVec3;
 
@@ -143,5 +144,11 @@ impl AddAssign<f64> for BoundingBox {
     #[inline]
     fn add_assign(&mut self, rhs: f64) {
         *self = self.offset(DVec3::splat(rhs));
+    }
+}
+
+impl fmt::Display for BoundingBox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}, {}]", self.min, self.max)
     }
 }

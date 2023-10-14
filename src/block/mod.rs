@@ -37,10 +37,10 @@ blocks! {
     WOOD/5:             Block::new("wood", Material::Wood, 2.0, 15.0),
     SAPLING/6:          Block::new("sapling", Material::Plant, 0.0, 0.0),
     BEDROCK/7:          Block::new("bedrock", Material::Rock, -1.0, 18000000.0),
-    WATER_MOVING/8:     Block::new("water_moving", Material::Water, 100.0, 0.0),
-    WATER_STILL/9:      Block::new("water_moving", Material::Water, 100.0, 0.0),
-    LAVA_MOVING/10:     Block::new("lava_moving", Material::Lava, 100.0, 0.0),
-    LAVA_STILL/11:      Block::new("lava_moving", Material::Lava, 100.0, 0.0),
+    WATER_MOVING/8:     Block::new("water_moving", Material::Water, 100.0, 0.0).set_light_opacity(3),
+    WATER_STILL/9:      Block::new("water_moving", Material::Water, 100.0, 0.0).set_light_opacity(3),
+    LAVA_MOVING/10:     Block::new("lava_moving", Material::Lava, 100.0, 0.0).set_light_emission(15),
+    LAVA_STILL/11:      Block::new("lava_moving", Material::Lava, 100.0, 0.0).set_light_emission(15),
     SAND/12:            Block::new("sand", Material::Sand, 0.5, 0.0),
     GRAVEL/13:          Block::new("gravel", Material::Sand, 0.6, 0.0),
     GOLD_ORE/14:        Block::new("gold_ore", Material::Rock, 3.0, 15.0),
@@ -72,11 +72,60 @@ blocks! {
     RED_MUSHROOM/40:    Block::new("red_mushroom", Material::Plant, 0.0, 0.0),
     GOLD_BLOCK/41:      Block::new("gold_block", Material::Iron, 3.0, 30.0),
     IRON_BLOCK/42:      Block::new("iron_block", Material::Iron, 5.0, 30.0),
-    STAIR/43:           Block::new("stair", Material::Rock, 2.0, 30.0),
+    DOUBLE_SLAB/43:     Block::new("double_slab", Material::Rock, 2.0, 30.0),
     SLAB/44:            Block::new("slab", Material::Rock, 2.0, 30.0),
     BRICK/45:           Block::new("brick", Material::Rock, 2.0, 30.0),
     TNT/46:             Block::new("tnt", Material::Tnt, 0.0, 0.0),
     BOOKSHELF/47:       Block::new("bookshelf", Material::Wood, 1.5, 0.0),
+    MOSSY_COBBLESTONE/48: Block::new("mossy_cobblestone", Material::Rock, 2.0, 30.0),
+    OBSIDIAN/49:        Block::new("obsidian", Material::Rock, 10.0, 6000.0),
+    TORCH/50:           Block::new("torch", Material::Circuit, 0.0, 0.0).set_light_emission(14),
+    FIRE/51:            Block::new("fire", Material::Fire, 0.0, 0.0).set_light_emission(15),
+    SPAWNER/52:         Block::new("spawner", Material::Rock, 5.0, 0.0),
+    WOOD_STAIR/53:      Block::new("wood_stair", Material::Wood, 2.0, 15.0),
+    CHEST/54:           Block::new("chest", Material::Wood, 2.5, 0.0),
+    REDSTONE/55:        Block::new("redstone", Material::Circuit, 0.0, 0.0),
+    DIAMOND_ORE/56:     Block::new("diamond_ore", Material::Rock, 3.0, 15.0),
+    DIAMOND_BLOCK/57:   Block::new("diamond_block", Material::Iron, 5.0, 30.0),
+    CRAFTING_TABLE/58:  Block::new("crafting_table", Material::Wood, 2.5, 0.0),
+    WHEAT/59:           Block::new("wheat", Material::Plant, 0.0, 0.0),
+    FARMLAND/60:        Block::new("farmland", Material::Ground, 0.6, 0.0),
+    FURNACE/61:         Block::new("furnace", Material::Rock, 3.5, 0.0),
+    FURNACE_LIT/62:     Block::new("furnace_lit", Material::Rock, 3.5, 0.0).set_light_emission(14),
+    SIGN/63:            Block::new("sign", Material::Wood, 1.0, 0.0),
+    WOOD_DOOR/64:       Block::new("wood_door", Material::Wood, 3.0, 0.0),
+    LADDER/65:          Block::new("ladder", Material::Circuit, 0.4, 0.0),
+    RAIL/66:            Block::new("rail", Material::Circuit, 0.7, 0.0),
+    COBBLESTONE_STAIR/67: Block::new("cobblestone_stair", Material::Rock, 2.0, 30.0),
+    WALL_SIGN/68:       Block::new("wall_sign", Material::Wood, 1.0, 0.0),
+    LEVER/69:           Block::new("lever", Material::Circuit, 0.5, 0.0),
+    STONE_PRESSURE_PLATE/70: Block::new("stone_pressure_plate", Material::Rock, 0.5, 0.0),
+    IRON_DOOR/71:       Block::new("iron_door", Material::Iron, 5.0, 15.0),
+    WOOD_PRESSURE_PLATE/72: Block::new("wood_pressure_plate", Material::Wood, 0.5, 0.0),
+    REDSTONE_ORE/73:    Block::new("redstone_ore", Material::Rock, 3.0, 15.0),
+    REDSTONE_ORE_GLOWING/74: Block::new("redstone_ore", Material::Rock, 3.0, 15.0).set_light_emission(9),
+    REDSTONE_TORCH/75:  Block::new("redstone_torch", Material::Circuit, 0.0, 0.0),
+    REDSTONE_TORCH_LIT/76:  Block::new("redstone_torch_lit", Material::Circuit, 0.0, 0.0).set_light_emission(7),
+    BUTTON/77:          Block::new("button", Material::Circuit, 0.5, 0.0),
+    SNOW/78:            Block::new("snow", Material::Snow, 0.1, 0.0),
+    ICE/79:             Block::new("ice", Material::Ice, 0.5, 0.0).set_light_opacity(3).set_slipperiness(0.98),
+    SNOW_BLOCK/80:      Block::new("snow_block", Material::SnowBlock, 0.2, 0.0),
+    CACTUS/81:          Block::new("cactus", Material::Cactus, 0.4, 0.0),
+    CLAY/82:            Block::new("clay", Material::Clay, 0.6, 0.0),
+    SUGAR_CANE/83:      Block::new("sugar_cane", Material::Plant, 0.0, 0.0),
+    JUKEBOX/84:         Block::new("jukebox", Material::Wood, 2.0, 30.0),
+    FENCE/85:           Block::new("fence", Material::Wood, 2.0, 5.0),
+    PUMPKIN/86:         Block::new("pumpkin", Material::Pumpkin, 1.0, 0.0),
+    NETHERRACK/87:      Block::new("netherrack", Material::Rock, 0.4, 0.0),
+    SOULSAND/88:        Block::new("soulsand", Material::Sand, 0.5, 0.0),
+    GLOWSTONE/89:       Block::new("glowstone", Material::Rock, 0.3, 0.0).set_light_emission(15),
+    PORTAL/90:          Block::new("portal", Material::Portal, -1.0, 0.0).set_light_emission(15),
+    PUMPKIN_LIT/91:     Block::new("pumpkin_lit", Material::Pumpkin, 1.0, 0.0),
+    CAKE/92:            Block::new("cake", Material::Cake, 0.5, 0.0).set_light_opacity(0),
+    REPEATER/93:        Block::new("repeater", Material::Circuit, 0.0, 0.0),
+    REPEATER_LIT/94:    Block::new("repeater_lit", Material::Circuit, 0.0, 0.0).set_light_emission(9),
+    LOCKED_CHEST/95:    Block::new("locked_chest", Material::Wood, 0.0, 0.0).set_light_emission(15),
+    TRAPDOOR/96:        Block::new("trapdoor", Material::Wood, 3.0, 0.0).set_light_opacity(0),
 }
 
 
@@ -129,6 +178,21 @@ impl Block {
             fn_bounding_boxes: |_| &[BoundingBox::CUBE],
         }
     }
+
+    const fn set_slipperiness(mut self, slipperiness: f32) -> Self {
+        self.slipperiness = slipperiness;
+        self
+    }
+
+    const fn set_light_opacity(mut self, opacity: u8) -> Self {
+        self.light_opacity = opacity;
+        self
+    }
+
+    const fn set_light_emission(mut self, light: u8) -> Self {
+        self.light_emission = light;
+        self
+    }
     
     const fn set_no_collide(self) -> Self {
         self.set_fn_bounding_boxes(|_| &[])
@@ -171,7 +235,7 @@ pub enum Material {
     Wug,
     Ice,
     Snow,
-    BuiltSnow,
+    SnowBlock,
     Cactus,
     Clay,
     Pumpkin,
@@ -179,4 +243,32 @@ pub enum Material {
     Cake,
     Web,
     Piston,
+}
+
+impl Material {
+
+    pub fn is_solid(self) -> bool {
+        !matches!(self, 
+            Material::Air |
+            Material::Water |
+            Material::Lava |
+            Material::Plant |
+            Material::Snow |
+            Material::Circuit |
+            Material::Portal |
+            Material::Fire
+        )
+    }
+
+    pub fn is_fluid(self) -> bool {
+        matches!(self, Material::Water | Material::Lava)
+    }
+
+}
+
+
+/// If the block is a door (iron/wood), get if it's in open state.
+#[inline]
+pub fn is_door_open(metadata: u8) -> bool {
+    metadata & 4 != 0
 }

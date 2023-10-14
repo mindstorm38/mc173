@@ -4,7 +4,6 @@ use glam::{IVec3, DVec3};
 
 use crate::chunk::{Chunk, CHUNK_WIDTH};
 use crate::world::{World, Dimension};
-use crate::util::rand::JavaRandom;
 use crate::block::{STONE, GRASS};
 use crate::entity::PigEntity;
 
