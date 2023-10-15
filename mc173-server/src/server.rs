@@ -14,11 +14,10 @@ use glam::{DVec3, Vec2, IVec3, IVec2};
 
 use anyhow::Result as AnyResult;
 
-use crate::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
-use crate::overworld::new_overworld;
-use crate::world::{World, Event};
-
-use crate::entity::{EntityGeneric, PlayerEntity, ItemEntity, PigEntity};
+use mc173::entity::{EntityGeneric, PlayerEntity, ItemEntity, PigEntity};
+use mc173::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
+use mc173::overworld::new_overworld;
+use mc173::world::{World, Event};
 
 use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,

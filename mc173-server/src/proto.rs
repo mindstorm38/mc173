@@ -7,9 +7,10 @@ use glam::{DVec3, Vec2, IVec3};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
+use mc173::item::ItemStack;
+
 use crate::util::tcp::{TcpServerPacket, TcpClientPacket};
 use crate::util::io::{ReadJavaExt, WriteJavaExt};
-use crate::item::ItemStack;
 
 
 /// A packet received by the server (server-bound).

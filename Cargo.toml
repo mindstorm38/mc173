@@ -1,14 +1,2 @@
-[package]
-name = "mc-beta"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-mio = { version = "0.8", features = ["os-poll", "net"] }
-byteorder = "1.5"
-anyhow = "1.0"
-flate2 = "1.0"
-glam = "0.24"
-smallvec = "1.11"
+[workspace]
+members = ["mc173", "mc173-server"]
