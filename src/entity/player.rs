@@ -17,7 +17,7 @@ pub type PlayerEntity = Base<Living<Player>>;
 impl EntityLogic for PlayerEntity {
     
     fn tick(&mut self, world: &mut World) {
-        
+        let _ = world;
     }
 
 }

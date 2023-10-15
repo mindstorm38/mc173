@@ -226,7 +226,7 @@ impl World {
     pub fn kill_entity(&mut self, id: u32) -> bool {
 
         let Some(entity_index) = self.entities_map.remove(&id) else { return false };
-        let killed_entity = self.entities.swap_remove(entity_index);
+        let _killed_entity = self.entities.swap_remove(entity_index);
 
         // If we are removing the entity being updated, set its index to none so it will
         // not placed back into its slot.

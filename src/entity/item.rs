@@ -2,9 +2,9 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::block::block_from_id;
 use crate::item::ItemStack;
 use crate::world::World;
+use crate::block;
 
 use super::{EntityLogic, Base, Size};
 
@@ -46,8 +46,8 @@ impl EntityLogic for ItemEntity {
                 z: self.pos.z.floor() as i32,
             };
             if let Some((block, _)) = world.block_and_metadata(ground_pos) {
-                if block >= 0 {
-                    slipperiness = block_from_id(block).slipperiness * 0.98;
+                if block != block::AIR {
+                    slipperiness = block::block_from_id(block).slipperiness * 0.98;
                 }
             }
         }

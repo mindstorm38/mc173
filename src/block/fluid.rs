@@ -20,24 +20,25 @@ pub fn calc_fluid_height(metadata: u8) -> f32 {
 /// ensure before calling that this position contains a fluid block.
 pub fn calc_fluid_velocity(world: &mut World, pos: IVec3) -> Option<DVec3> {
 
-    // TODO:
-    
-    let mut ret = DVec3::ZERO;
-    let (center_block, center_metadata) = world.block_and_metadata(pos)?;
+    let _ = (world, pos);
+    todo!()
 
-    // Fetch all block around the block...
-    let mut delta = IVec3::new(-1, 0, 0);
-    for _ in 0..3 {
+    // let mut ret = DVec3::ZERO;
+    // let (center_block, center_metadata) = world.block_and_metadata(pos)?;
+
+    // // Fetch all block around the block...
+    // let mut delta = IVec3::new(-1, 0, 0);
+    // for _ in 0..3 {
         
-        let (block, metadata) = world.block_and_metadata(pos + delta)?;
-        if block == center_block {
+    //     let (block, metadata) = world.block_and_metadata(pos + delta)?;
+    //     if block == center_block {
 
-        }
+    //     }
 
-        delta = IVec3::new(-delta.z, 0, delta.x);
+    //     delta = IVec3::new(-delta.z, 0, delta.x);
 
-    }
+    // }
 
-    Some(ret.normalize())
+    // Some(ret.normalize())
 
 }
