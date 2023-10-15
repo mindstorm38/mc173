@@ -1,7 +1,5 @@
 //! Pig entity.
 
-use glam::Vec2;
-
 use crate::world::World;
 
 use super::{Base, Living, Creature, EntityLogic, Size};
