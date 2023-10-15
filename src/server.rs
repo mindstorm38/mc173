@@ -29,8 +29,9 @@ use crate::proto::{ServerPacket, ClientPacket,
     EntityLookPacket, EntityMovePacket, EntityPositionAndLookPacket};
 
 
-/// Target tick duration.
-const TICK_DURATION: Duration = Duration::from_millis(50); // 20 TPS = 50 ms/tick
+/// Target tick duration. Currently 20 TPS, so 50 ms/tick.
+const TICK_DURATION: Duration = Duration::from_millis(50);
+/// Timeout for TCP polling.
 const TCP_TIMEOUT: Duration = Duration::from_millis(1);
 
 
