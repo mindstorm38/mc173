@@ -8,7 +8,7 @@ use glam::{DVec3, Vec2, IVec3};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use crate::util::tcp::{TcpServerPacket, TcpClientPacket};
-use crate::util::io::{ReadPacketExt, WritePacketExt};
+use crate::util::io::{ReadJavaExt, WriteJavaExt};
 use crate::item::ItemStack;
 
 

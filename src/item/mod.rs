@@ -1,6 +1,6 @@
 //! Item enumeration and behaviors.
 
-use crate::block::block_from_id;
+use crate::block;
 
 
 /// Internal macro to easily define blocks registry.
@@ -29,9 +29,9 @@ items! {
 
 
 /// Get an item from its numeric id.
-pub fn item_from_id(id: u16) -> &'static Item {
+pub fn from_id(id: u16) -> &'static Item {
     if id < 256 {
-        &block_from_id(id as u8).item
+        &block::from_id(id as u8).item
     } else {
         &ITEMS[(id - 256) as usize]
     }

@@ -47,7 +47,7 @@ impl EntityLogic for ItemEntity {
             };
             if let Some((block, _)) = world.block_and_metadata(ground_pos) {
                 if block != block::AIR {
-                    slipperiness = block::block_from_id(block).slipperiness * 0.98;
+                    slipperiness = block::from_id(block).slipperiness * 0.98;
                 }
             }
         }

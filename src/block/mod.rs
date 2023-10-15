@@ -130,7 +130,7 @@ blocks! {
 
 
 /// Get a block from its numeric id.
-pub fn block_from_id(id: u8) -> &'static Block {
+pub fn from_id(id: u8) -> &'static Block {
     &BLOCKS[id as usize]
 }
 

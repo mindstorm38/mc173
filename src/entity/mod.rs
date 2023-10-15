@@ -254,7 +254,7 @@ impl<I> Base<I> {
         let max = fluid_bb.max.add(1.0).floor().as_ivec3();
 
         for (pos, block, metadata) in world.iter_area_blocks(min, max) {
-            if block::block_from_id(block).material == material {
+            if block::from_id(block).material == material {
 
                 let fluid_height = block::fluid::calc_fluid_height(metadata);
                 let fluid_top_y = ((pos.y + 1) as f32 - fluid_height) as f64;
@@ -439,7 +439,7 @@ impl<I> Base<Living<I>> {
                 let ground_pos = self.pos.as_ivec3();
                 if let Some((block, _)) = world.block_and_metadata(ground_pos) {
                     if block != 0 {
-                        slipperiness = block::block_from_id(block).slipperiness * 0.91;
+                        slipperiness = block::from_id(block).slipperiness * 0.91;
                     }
                 }
             }

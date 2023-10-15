@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 
 
 /// Extension trait with Minecraft-specific packet read methods.
-pub trait ReadPacketExt: Read {
+pub trait ReadJavaExt: Read {
 
     fn read_java_byte(&mut self) -> io::Result<i8> {
         ReadBytesExt::read_i8(self)
@@ -63,7 +63,7 @@ pub trait ReadPacketExt: Read {
 }
 
 /// Extension trait with Minecraft-specific packet read methods.
-pub trait WritePacketExt: Write {
+pub trait WriteJavaExt: Write {
 
     fn write_java_byte(&mut self, b: i8) -> io::Result<()> {
         WriteBytesExt::write_i8(self, b)
@@ -126,8 +126,8 @@ pub trait WritePacketExt: Write {
 
 }
 
-impl<R: Read> ReadPacketExt for R {}
-impl<W: Write> WritePacketExt for W {}
+impl<R: Read> ReadJavaExt for R {}
+impl<W: Write> WriteJavaExt for W {}
 
 
 /// Return an invalid data io error with specific message.

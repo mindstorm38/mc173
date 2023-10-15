@@ -89,7 +89,7 @@ impl<'a> PathFinder<'a> {
                     }
                 }
                 _ => {
-                    match block::block_from_id(block).material {
+                    match block::from_id(block).material {
                         Material::Water => return PathClearance::Water,
                         Material::Lava => return PathClearance::Lava,
                         material => {

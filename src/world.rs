@@ -318,7 +318,7 @@ impl World {
     pub fn iter_area_bounding_boxes(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
         self.iter_area_blocks(min, max).flat_map(|(pos, id, metadata)| {
             let pos = pos.as_dvec3();
-            block::block_from_id(id).bounding_boxes(metadata).iter().map(move |bb| bb.offset(pos))
+            block::from_id(id).bounding_boxes(metadata).iter().map(move |bb| bb.offset(pos))
         })
     }
 
