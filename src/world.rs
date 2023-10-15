@@ -176,8 +176,11 @@ impl World {
 
         let entity_index = self.entities.len();
 
+        let entity_pos = entity.pos();
+        let entity_look = entity.look();
+
         // Bind the entity to an existing chunk if possible.
-        let (cx, cz) = calc_entity_chunk_pos(entity.pos());
+        let (cx, cz) = calc_entity_chunk_pos(entity_pos);
         let mut world_entity = WorldEntity {
             inner: Some(entity),
             id,
@@ -196,7 +199,7 @@ impl World {
         self.entities.push(world_entity);
         self.entities_map.insert(id, entity_index);
 
-        self.push_event(Event::EntitySpawn { id });
+        self.push_event(Event::EntitySpawn { id, pos: entity_pos, look: entity_look });
 
     }
 
@@ -265,7 +268,7 @@ impl World {
 
         }
 
-        self.push_event(Event::EntityKill { id, cx: killed_entity.cx, cz: killed_entity.cz });
+        self.push_event(Event::EntityKill { id });
         true
 
     }
@@ -453,26 +456,26 @@ pub enum Event {
     EntitySpawn {
         /// The unique id of the spawned entity.
         id: u32,
+        /// Absolute position of the entity.
+        pos: DVec3,
+        /// The entity look.
+        look: Vec2,
     },
     /// An entity has been killed from the world.
     EntityKill {
         /// The unique id of the killed entity.
         id: u32,
-        cx: i32,
-        cz: i32,
     },
-    EntityMoveAndLook {
+    EntityPosition {
         /// The unique id of the entity.
         id: u32,
-        /// Position delta.
-        pos_delta: DVec3,
-        /// The new entity look.
-        look: Vec2,
+        /// Absolute position of the entity.
+        pos: DVec3,
     },
     EntityLook {
         /// The unique id of the entity.
         id: u32,
-        /// The new entity look.
+        /// The entity look.
         look: Vec2,
     },
     /// A block has been changed in the world.

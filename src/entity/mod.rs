@@ -218,12 +218,10 @@ impl<I> Base<I> {
 
         }
 
-        let pos_delta = self.pos - prev_pos;
-        if pos_delta != DVec3::ZERO {
-            world.push_event(Event::EntityMoveAndLook { 
+        if prev_pos != self.pos {
+            world.push_event(Event::EntityPosition { 
                 id: self.id, 
-                pos_delta,
-                look: self.look,
+                pos: self.pos,
             })
         }
 
@@ -539,7 +537,7 @@ impl<I> Base<Living<Creature<I>>> {
 
                 if let Some(next_pos) = next_pos {
 
-                    println!("== update_creature_ai: next pos {next_pos}");
+                    // println!("== update_creature_ai: next pos {next_pos}");
 
                     let dx = next_pos.x - self.pos.x;
                     let dy = next_pos.y - self.bounding_box.min.y.add(0.5).floor();
@@ -556,7 +554,7 @@ impl<I> Base<Living<Creature<I>>> {
                     }
 
                 } else {
-                    println!("== update_creature_ai: finished path");
+                    // println!("== update_creature_ai: finished path");
                     self.base.living.path = None;
                 }
 
@@ -571,11 +569,11 @@ impl<I> Base<Living<Creature<I>>> {
                 return;
 
             } else {
-                println!("== update_creature_ai: bad luck, path abandoned");
+                // println!("== update_creature_ai: bad luck, path abandoned");
             }
         }
 
-        println!("== update_creature_ai: no path, fallback to living ai");
+        // println!("== update_creature_ai: no path, fallback to living ai");
 
         self.update_living_ai(world);
         self.base.living.path = None;
@@ -588,7 +586,7 @@ impl<I> Base<Living<Creature<I>>> {
         W: Fn(&World, IVec3) -> f32,
     {
 
-        println!("== update_creature_path: entry");
+        // println!("== update_creature_path: entry");
 
         let mut best_pos = None;
 
@@ -617,7 +615,7 @@ impl<I> Base<Living<Creature<I>>> {
             let best_pos = best_pos.as_dvec3() + 0.5;
 
             if let Some(points) = path_finder.find_path_from_bounding_box(self.bounding_box, best_pos, 18.0) {
-                println!("== update_creature_path: new path found to {best_pos}");
+                // println!("== update_creature_path: new path found to {best_pos}");
                 self.base.living.path = Some(Path {
                     points,
                     index: 0,
@@ -694,6 +692,9 @@ pub trait EntityGeneric: EntityLogic {
     /// Get the entity position.
     fn pos(&self) -> DVec3;
 
+    /// Get the entity look.
+    fn look(&self) -> Vec2;
+
     /// Get this entity as any type, this allows checking its real type.
     fn any(&self) -> &dyn Any;
 
@@ -739,6 +740,11 @@ where
     #[inline]
     fn pos(&self) -> DVec3 {
         self.pos
+    }
+
+    #[inline]
+    fn look(&self) -> Vec2 {
+        self.look
     }
 
     #[inline]

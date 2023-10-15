@@ -122,8 +122,12 @@ impl TcpServer {
     where
         P: TcpClientPacket,
     {
-        let client = self.inner.clients.get_mut(&Token(client_id)).unwrap();
+
+        let client = self.inner.clients.get_mut(&Token(client_id))
+            .expect("invalid client id");
+
         packet.write(&mut client.stream)
+        
     }
 
 }

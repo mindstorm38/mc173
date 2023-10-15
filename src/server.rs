@@ -10,7 +10,7 @@ use std::io;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 
-use glam::{DVec3, Vec2, IVec3};
+use glam::{DVec3, Vec2, IVec3, IVec2};
 
 use anyhow::Result as AnyResult;
 
@@ -26,7 +26,7 @@ use crate::proto::{ServerPacket, ClientPacket,
     UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
     ChunkStatePacket, BreakBlockPacket, BlockChangePacket, ItemSpawnPacket, 
     PlayerSpawnPacket, MobSpawnPacket, EntityKillPacket, EntityMoveAndLookPacket, 
-    EntityLookPacket};
+    EntityLookPacket, EntityMovePacket, EntityPositionAndLookPacket};
 
 
 /// Target tick duration.
@@ -41,6 +41,8 @@ pub struct Server {
     resources: Resources,
     /// The player manager.
     players: Players,
+    /// Trackers for data of entity.
+    entities: Entities,
 }
 
 /// Common resources of the server, this is passed to players' handling function for 
@@ -71,6 +73,11 @@ impl Server {
                 players: Vec::new(),
                 players_client_map: HashMap::new(),
             },
+            entities: Entities { 
+                update_ticks: 0, 
+                trackers: HashMap::new(),
+                killed_trackers: Vec::new(),
+            }
         })
     }
 
@@ -98,6 +105,7 @@ impl Server {
                 TcpEventKind::Lost(err) => {
                     println!("[{}] Lost ({err:?})", event.client_id);
                     self.players.remove_player(event.client_id).handle_lost(&mut self.resources);
+                    self.entities.remove_player(event.client_id);
                 }
                 TcpEventKind::Packet(packet) => {
                     // println!("[{}] Received {packet:?}", event.client_id);
@@ -133,70 +141,20 @@ impl Server {
         for event in self.resources.overworld_events.drain(..) {
             // println!("[OVERWORLD] Event: {event:?}");
             match event {
-                Event::EntitySpawn { id } => {
-
-                    let entity = self.resources.overworld_dim.entity(id).unwrap();
-                    let pos = entity.pos().as_ivec3();
-                    let packet = entity_spawn_packet(entity);
-
-                    for player in self.players.iter_aware_players(pos) {
-                        // Do not send the player's own entity.
-                        if id != player.playing.as_ref().unwrap().entity_id {
-                            self.resources.tcp_server.send(player.client_id, &packet)?;
-                        }
-                    }
-
+                Event::EntitySpawn { id, pos, look } => {
+                    let entity = self.resources.overworld_dim.entity(id).expect("incoherent entity");
+                    let tracker = self.entities.new_tracker(entity);
+                    tracker.set_pos(pos);
+                    tracker.set_look(look);
                 }
-                Event::EntityKill { id, cx, cz } => {
-                    
-                    let packet = ClientPacket::EntityKill(EntityKillPacket {
-                        entity_id: id,
-                    });
-
-                    for player in self.players.iter_chunk_aware_players(cx, cz) {
-                        self.resources.tcp_server.send(player.client_id, &packet)?;
-                    }
-
+                Event::EntityKill { id } => {
+                    self.entities.kill_tracker(id);
                 }
-                Event::EntityMoveAndLook { id, pos_delta, look } => {
-
-                    let pos_delta = pos_delta.mul(32.0).floor().as_ivec3();
-                    let look = look.mul(256.0).as_ivec2();
-
-                    let packet = ClientPacket::EntityMoveAndLook(EntityMoveAndLookPacket {
-                        entity_id: id,
-                        dx: pos_delta.x as i8,
-                        dy: pos_delta.y as i8,
-                        dz: pos_delta.z as i8,
-                        yaw: look.x as i8,
-                        pitch: look.y as i8,
-                    });
-
-                    let entity = self.resources.overworld_dim.entity(id).unwrap();
-                    let pos = entity.pos().as_ivec3();
-
-                    for player in self.players.iter_aware_players(pos) {
-                        self.resources.tcp_server.send(player.client_id, &packet)?;
-                    }
-
+                Event::EntityPosition { id, pos } => {
+                    self.entities.tracker_mut(id).set_pos(pos);
                 }
                 Event::EntityLook { id, look } => {
-
-                    let look = look.mul(256.0).as_ivec2();
-
-                    let packet = ClientPacket::EntityLook(EntityLookPacket {
-                        entity_id: id,
-                        yaw: look.x as i8,
-                        pitch: look.y as i8,
-                    });
-                    
-                    let entity = self.resources.overworld_dim.entity(id).unwrap();
-                    let pos = entity.pos().as_ivec3();
-
-                    for player in self.players.iter_aware_players(pos) {
-                        self.resources.tcp_server.send(player.client_id, &packet)?;
-                    }
-
+                    self.entities.tracker_mut(id).set_look(look);
                 }
                 Event::BlockChange { pos, new_block: new_id, new_metadata, .. } => {
 
@@ -215,6 +173,9 @@ impl Server {
                 }
             }
         }
+
+        // Tick entity trackers.
+        self.entities.tick(&self.players, &self.resources.overworld_dim, &mut self.resources.tcp_server)?;
 
         Ok(())
 
@@ -295,7 +256,6 @@ impl Players {
 
 }
 
-
 /// A handle for a player connected to the server.
 #[derive(Debug)]
 struct Player {
@@ -332,7 +292,6 @@ impl Player {
         let Some(playing) = self.playing else { return };
 
         res.overworld_dim.kill_entity(playing.entity_id);
-        
 
     }
 
@@ -479,8 +438,6 @@ impl Player {
         for cx in -2..2 {
             for cz in -2..2 {
 
-                let mut send_chunk_entities = false;
-
                 if let Some(chunk) = res.overworld_dim.chunk(cx, cz) {
                     if playing.sent_chunks.insert((cx, cz)) {
 
@@ -503,18 +460,7 @@ impl Player {
                         }
 
                         res.tcp_server.send(self.client_id, &map_chunk_packet)?;
-                        send_chunk_entities = true;
 
-                    }
-                }
-
-                if send_chunk_entities {
-                    for entity in res.overworld_dim.iter_chunk_entities(cx, cz) {
-                        // Do not send player's entity.
-                        if entity.id() != playing.entity_id {
-                            let spawn_packet = entity_spawn_packet(entity);
-                            res.tcp_server.send(self.client_id, &spawn_packet)?;
-                        }
                     }
                 }
 
@@ -570,6 +516,307 @@ impl Player {
 }
 
 
+/// Internal structure to keep tracks of all entities in order to send correct move,
+/// velocity or look packets only when needed.
+#[derive(Debug)]
+struct Entities {
+    /// Global ticks counter.
+    update_ticks: u32,
+    /// Entities by type.
+    trackers: HashMap<u32, EntityTracker>,
+    /// List of trackers to kill on the next tick.
+    killed_trackers: Vec<u32>,  // TODO:
+}
+
+impl Entities {
+
+    /// Create a new tracker for the given entity.
+    fn new_tracker(&mut self, entity: &dyn EntityGeneric) -> &mut EntityTracker {
+        self.trackers.entry(entity.id()).or_insert_with(|| {
+            EntityTracker::new(entity)
+        })
+    }
+
+    fn kill_tracker(&mut self, entity_id: u32) {
+        self.killed_trackers.push(entity_id);
+    }
+
+    /// Get a mutable reference to a tracker.
+    fn tracker_mut(&mut self, id: u32) -> &mut EntityTracker {
+        self.trackers.get_mut(&id).expect("invalid entity")
+    }
+
+    /// Ensure that the given player has been removed internally.
+    fn remove_player(&mut self, client_id: usize) {
+        for tracker in self.trackers.values_mut() {
+            tracker.client_ids.remove(&client_id);
+        }
+    }
+
+    fn tick(&mut self, players: &Players, world: &World, server: &mut TcpServer) -> io::Result<()> {
+
+        let update_players = self.update_ticks % 60 == 0;
+
+        for tracker in self.trackers.values_mut() {
+
+            if update_players || !tracker.first_update {
+                for player in &players.players {
+                    tracker.update_player(&player, world, server)?;
+                }
+            }
+
+            tracker.forced_countdown_ticks += 1;
+            if !tracker.first_update || self.update_ticks % tracker.interval == 0 {
+                tracker.tick(server)?;
+            }
+
+        }
+        
+        self.update_ticks = self.update_ticks.wrapping_add(1);
+        Ok(())
+
+    }
+
+}
+
+/// This structure tracks every entity spawned in the world and save their previous 
+/// position/look (and motion for some entities). It handle allows sending the right
+/// packets to the right players when these properties are changed.
+#[derive(Debug)]
+struct EntityTracker {
+    /// The entity id.
+    entity_id: u32,
+    /// Maximum tracking distance for this type of entity.
+    distance: u32,
+    /// Update interval for this type of entity.
+    interval: u32,
+    /// Last known position of the entity.
+    pos: IVec3,
+    /// Last known look of the entity.
+    look: IVec2,
+    /// Last encoded position sent to clients.
+    sent_pos: IVec3,
+    /// Last encoded look sent to clients.
+    sent_look: IVec2,
+    /// This counter is forced 
+    forced_countdown_ticks: u16,
+    /// Client ids that tracks this entity.
+    client_ids: HashSet<usize>,
+    /// Indicate if this tracker has been ticked at least once.
+    first_update: bool,
+}
+
+impl EntityTracker {
+
+    fn new(entity: &dyn EntityGeneric) -> Self {
+
+        macro_rules! entity_match {
+            (match ($entity:expr) { $($ty:ty => $value:expr),* $(,)? }) => {
+                if false { unreachable!() } 
+                $(else if $entity.is::<$ty>() { $value })* 
+                else { panic!("unmatched entity type"); }
+            };
+        }
+
+        let (distance, interval) = entity_match! {
+            match (entity) {
+                PlayerEntity => (512, 2),
+                PigEntity => (160, 3),
+                ItemEntity => (64, 20),
+            }
+        };
+
+        Self {
+            entity_id: entity.id(),
+            distance,
+            interval,
+            forced_countdown_ticks: 0,
+            pos: IVec3::ZERO,
+            look: IVec2::ZERO,
+            sent_pos: IVec3::ZERO,
+            sent_look: IVec2::ZERO,
+            client_ids: HashSet::new(),
+            first_update: false,
+        }
+
+    }
+
+    fn set_pos(&mut self, pos: DVec3) {
+        self.pos = pos.mul(32.0).floor().as_ivec3();
+        if self.first_update {
+            self.sent_pos = self.pos;
+        }
+    }
+
+    fn set_look(&mut self, look: Vec2) {
+        self.look = look.mul(256.0).as_ivec2();
+        if self.first_update {
+            self.sent_look = self.look;
+        }
+    }
+
+    /// Tick this tracker.
+    fn tick(&mut self, server: &mut TcpServer) -> io::Result<()> {
+
+        let delta_pos = self.pos - self.sent_pos;
+        let delta_look = self.look - self.sent_look;
+
+        let mut send_pos = true;
+        let send_look = delta_look.x.abs() >= 8 || delta_look.y.abs() >= 8;
+
+        // Check if the delta can be sent with a move packet.
+        let dx = i8::try_from(delta_pos.x).ok();
+        let dy = i8::try_from(delta_pos.y).ok();
+        let dz = i8::try_from(delta_pos.z).ok();
+
+        let mut move_packet = None;
+        let forced_position = self.forced_countdown_ticks > 400;
+
+        if let (false, Some(dx), Some(dy), Some(dz)) = (forced_position, dx, dy, dz) {
+
+            // We don't send position if delta is too small.
+            send_pos = dx.abs() >= 8 || dy.abs() >= 8 || dz.abs() >= 8;
+
+            if send_pos && send_look {
+                move_packet = Some(ClientPacket::EntityMoveAndLook(EntityMoveAndLookPacket {
+                    entity_id: self.entity_id,
+                    dx,
+                    dy,
+                    dz,
+                    yaw: self.look.x as i8,
+                    pitch: self.look.y as i8,
+                }))
+            } else if send_pos {
+                move_packet = Some(ClientPacket::EntityMove(EntityMovePacket {
+                    entity_id: self.entity_id,
+                    dx,
+                    dy,
+                    dz,
+                }))
+            } else if send_look {
+                move_packet = Some(ClientPacket::EntityLook(EntityLookPacket {
+                    entity_id: self.entity_id,
+                    yaw: self.look.x as i8,
+                    pitch: self.look.y as i8,
+                }))
+            }
+
+        } else {
+            self.forced_countdown_ticks = 0;
+            move_packet = Some(ClientPacket::EntityPositionAndLook(EntityPositionAndLookPacket {
+                entity_id: self.entity_id,
+                x: self.pos.x,
+                y: self.pos.y,
+                z: self.pos.z,
+                yaw: self.look.x as i8,
+                pitch: self.look.y as i8,
+            }));
+        }
+
+        if send_pos {
+            self.sent_pos = self.pos;
+        }
+
+        if send_look {
+            self.sent_look = self.look;
+        }
+
+        if let Some(packet) = move_packet {
+            for &client_id in &self.client_ids {
+                server.send(client_id, &packet)?;
+            }
+        }
+
+        self.first_update = true;
+
+        Ok(())
+
+    }
+
+    /// Update a player regarding this tracker, if the player is in range, this function
+    /// make sure that the player has the entity spawn on its side, if the player is not
+    /// longer in range, the entity is killed on its side.
+    fn update_player(&mut self, player: &Player, world: &World, server: &mut TcpServer) -> io::Result<()> {
+        
+        // Do nothing if player is not yet playing.
+        let Some(playing) = &player.playing else { return Ok(()) };
+
+        // Ignore this tracker if this is the player's entity.
+        if playing.entity_id == self.entity_id {
+            return Ok(());
+        }
+
+        let delta = player.last_pos - self.pos.as_dvec3() / 32.0;
+        if delta.x.abs() <= self.distance as f64 && delta.z.abs() <= self.distance as f64 {
+            if self.client_ids.insert(player.client_id) {
+                self.spawn_player_entity(player, world, server)
+            } else {
+                Ok(())
+            }
+        } else if self.client_ids.remove(&player.client_id) {
+            self.kill_player_entity(player, server)
+        } else {
+            Ok(())
+        }
+
+    }
+
+    /// Spawn the entity on the player side.
+    fn spawn_player_entity(&mut self, player: &Player, world: &World, server: &mut TcpServer) -> io::Result<()> {
+
+        // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
+        let Some(entity) = world.entity(self.entity_id) else { return Ok(()) };
+
+        if let Some(entity) = entity.downcast_ref::<PlayerEntity>() {
+            server.send(player.client_id, &ClientPacket::PlayerSpawn(PlayerSpawnPacket {
+                entity_id: entity.id,
+                username: entity.base.living.username.clone(),
+                x: self.sent_pos.x, 
+                y: self.sent_pos.y, 
+                z: self.sent_pos.z, 
+                yaw: self.sent_look.x as i8,
+                pitch: self.sent_look.y as i8,
+                current_item: 0, // TODO:
+            }))
+        } else if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
+            let vel = entity.vel.mul(128.0).as_ivec3();
+            server.send(player.client_id, &ClientPacket::ItemSpawn(ItemSpawnPacket { 
+                entity_id: entity.id, 
+                item: entity.base.item, 
+                x: self.sent_pos.x, 
+                y: self.sent_pos.y, 
+                z: self.sent_pos.z, 
+                vx: vel.x as i8,
+                vy: vel.y as i8,
+                vz: vel.z as i8,
+            }))
+        } else if let Some(entity) = entity.downcast_ref::<PigEntity>() {
+            server.send(player.client_id, &ClientPacket::MobSpawn(MobSpawnPacket {
+                entity_id: entity.id,
+                kind: 90,
+                x: self.sent_pos.x, 
+                y: self.sent_pos.y, 
+                z: self.sent_pos.z, 
+                yaw: self.sent_look.x as i8,
+                pitch: self.sent_look.y as i8,
+                metadata: Vec::new(), // TODO:
+            }))
+        } else {
+            unimplemented!("unknown entity");
+        }
+
+    }
+
+    /// Kill the entity on the player side.
+    fn kill_player_entity(&mut self, player: &Player, server: &mut TcpServer) -> io::Result<()> {
+        server.send(player.client_id, &ClientPacket::EntityKill(EntityKillPacket { 
+            entity_id: self.entity_id
+        }))
+    }
+
+}
+
+
 #[derive(Debug, Clone)]
 struct PlayerPosition {
     pos: DVec3,
@@ -586,17 +833,4 @@ struct BreakingBlock {
     time: u64,
     pos: IVec3,
     block: u8,
-}
-
-
-fn entity_spawn_packet(entity: &dyn EntityGeneric) -> ClientPacket {
-    if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
-        ClientPacket::ItemSpawn(ItemSpawnPacket::from_entity(entity))
-    } else if let Some(entity) = entity.downcast_ref::<PlayerEntity>() {
-        ClientPacket::PlayerSpawn(PlayerSpawnPacket::from_entity(entity))
-    } else if let Some(entity) = entity.downcast_ref::<PigEntity>() {
-        ClientPacket::MobSpawn(MobSpawnPacket::from_entity(entity, 90))
-    } else {
-        todo!("entity_spawn_packet: {}", entity.type_name());
-    }
 }
