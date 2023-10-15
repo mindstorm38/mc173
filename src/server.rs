@@ -130,7 +130,9 @@ impl Server {
         if time % 20 == 0 {
             let time_packet = ClientPacket::UpdateTime(UpdateTimePacket { time });
             for player in &self.players.players {
-                self.resources.tcp_server.send(player.client_id, &time_packet)?;
+                if player.playing.is_some() {
+                    self.resources.tcp_server.send(player.client_id, &time_packet)?;
+                }
             }
         }
 
