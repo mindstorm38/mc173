@@ -18,7 +18,15 @@ pub fn new_overworld() -> World {
         }
     }
 
-    world.spawn_entity(PigEntity::new(DVec3::new(0.0, 70.0, 0.0)));
+    for _ in 0..4 {
+        world.spawn_entity(PigEntity::new(DVec3::new(0.0, 70.0, 0.0)));
+    }
+
+    for x in -3..3 {
+        for z in -3..3 {
+            world.break_block(IVec3::new(x, 63, z));
+        }
+    }
 
     world
 

@@ -189,7 +189,7 @@ impl<I> Base<I> {
 
             // Apply step if relevant.
             if step_height > 0.0 && on_ground && (collided_x || collided_z) {
-                todo!("handle step motion");
+                // TODO: todo!("handle step motion");
             }
 
             self.pos += new_delta;
@@ -234,6 +234,7 @@ impl<I> Base<I> {
 
         if look != self.look {
             self.look = look;
+            self.look = self.look.rem_euclid(Vec2::splat(std::f32::consts::TAU));
             world.push_event(Event::EntityLook { 
                 id: self.id, 
                 look,
@@ -372,9 +373,7 @@ impl<I> Base<Living<I>> {
                 self.base.yaw_velocity = (self.rand.next_float() - 0.5) * 20f32.to_radians();
             }
 
-            // FIXME: Use update_look
-            self.look.x += self.base.yaw_velocity;
-            self.look.y = 0.0;
+            self.update_look(world, Vec2::new(self.look.x + self.base.yaw_velocity, 0.0));
 
         }
 
@@ -412,7 +411,7 @@ impl<I> Base<Living<I>> {
             forward *= dist;
             let (yaw_sin, yaw_cos) = self.look.x.sin_cos();
             self.vel.x += (strafing * yaw_cos - forward * yaw_sin) as f64;
-            self.vel.z += (forward * yaw_cos - strafing * yaw_sin) as f64;
+            self.vel.z += (forward * yaw_cos + strafing * yaw_sin) as f64;
         }
     }
 
@@ -547,7 +546,7 @@ impl<I> Base<Living<Creature<I>>> {
                     let delta_yaw = target_yaw - self.look.x;
 
                     self.base.accel_forward = move_speed;
-                    self.look.x += delta_yaw;  // FIXME: Use update look.
+                    self.update_look(world, self.look + Vec2::X * delta_yaw);
 
                     if dy > 0.0 {
                         self.base.jumping = true;

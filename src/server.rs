@@ -4,7 +4,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use std::net::SocketAddr;
-use std::ops::Mul;
+use std::ops::{Mul, Div};
 use std::io;
 
 use flate2::write::ZlibEncoder;
@@ -206,7 +206,7 @@ impl Players {
 
                 let player = Box::new(Player {
                     client_id,
-                    last_pos: DVec3::new(8.5, 67.0, 8.5),
+                    last_pos: DVec3::new(0.0, 67.0, 0.0),
                     last_look: Vec2::ZERO,
                     playing: None,
                 });
@@ -293,7 +293,6 @@ impl Player {
     fn handle_lost(self, res: &mut Resources) {
         
         let Some(playing) = self.playing else { return };
-
         res.overworld_dim.kill_entity(playing.entity_id);
 
     }
@@ -351,7 +350,7 @@ impl Player {
             return Ok(());
         }
 
-        let mut entity = PlayerEntity::new(DVec3::new(8.5, 66.0, 8.5));
+        let mut entity = PlayerEntity::new(self.last_pos);
         entity.base.living.username = username.clone();
         
         let entity_id = res.overworld_dim.spawn_entity(entity);
@@ -646,14 +645,14 @@ impl EntityTracker {
 
     fn set_pos(&mut self, pos: DVec3) {
         self.pos = pos.mul(32.0).floor().as_ivec3();
-        if self.first_update {
+        if !self.first_update {
             self.sent_pos = self.pos;
         }
     }
 
     fn set_look(&mut self, look: Vec2) {
-        self.look = look.mul(256.0).as_ivec2();
-        if self.first_update {
+        self.look = look.div(std::f32::consts::TAU).mul(256.0).as_ivec2();
+        if !self.first_update {
             self.sent_look = self.look;
         }
     }
