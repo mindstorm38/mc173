@@ -172,7 +172,7 @@ impl World {
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
-    fn add_entity(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
+    fn spawn_entity_inner(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
 
         let entity_index = self.entities.len();
 
@@ -216,7 +216,7 @@ impl World {
         let mut entity = Box::new(entity);
         let id = self.next_entity_id();
         entity.id = id;
-        self.add_entity(id, entity);
+        self.spawn_entity_inner(id, entity);
         id
     }
 
