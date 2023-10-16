@@ -24,7 +24,7 @@ pub fn new_overworld() -> World {
 
     for x in -3..3 {
         for z in -3..3 {
-            world.break_block(IVec3::new(x, 63, z));
+            world.set_block_and_metadata(IVec3::new(x, 63, z), 0, 0);
         }
     }
 

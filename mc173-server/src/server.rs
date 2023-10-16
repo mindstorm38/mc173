@@ -37,38 +37,23 @@ const TCP_TIMEOUT: Duration = Duration::from_millis(1);
 /// This structure manages a whole server and its clients, dispatching incoming packets
 /// to correct handlers.
 pub struct Server {
-    /// Global server resources.
-    resources: Resources,
-    /// The player manager.
-    players: Players,
-    /// Trackers for data of entity.
-    entities: Entities,
-}
-
-/// Common resources of the server, this is passed to players' handling function for 
-/// packets.
-struct Resources {
     /// The internal server used to accept new clients and receive network packets.
     tcp_server: TcpServer,
-    /// Future packets to broadcast.
-    broadcast_packets: Vec<ClientPacket>,
-    /// The game driver.
-    overworld_dim: World,
-    /// Temporary queue of overworld events.
-    overworld_events: Vec<Event>,
+    /// The player manager.
+    players: Players,
+    /// Overworld handle.
+    overworld: ServerWorld,
+    /// Trackers for data of entity.
+    entities: Entities,
 }
 
 impl Server {
 
     /// Bind this server's TCP listener to the given address.
-    pub fn bind(addr: SocketAddr) -> AnyResult<Self> {
+    pub fn bind(addr: SocketAddr) -> io::Result<Self> {
         Ok(Self {
-            resources: Resources { 
-                tcp_server: TcpServer::bind(addr)?,
-                broadcast_packets: Vec::new(),
-                overworld_dim: new_overworld(),
-                overworld_events: Vec::new(),
-            },
+            tcp_server: TcpServer::bind(addr)?,
+            overworld: ServerWorld::new(new_overworld()),
             players: Players {
                 players: Vec::new(),
                 players_client_map: HashMap::new(),
@@ -95,10 +80,12 @@ impl Server {
     /// Run a single tick in the server.
     pub fn tick(&mut self) -> AnyResult<()> {
 
+        // Start by polling the TCP server, in the future, this might be done in another 
+        // thread!
         let mut events: Vec<TcpEvent<ServerPacket>> = Vec::new();
-        self.resources.tcp_server.poll(&mut events, Some(TCP_TIMEOUT))?;
+        self.tcp_server.poll(&mut events, Some(TCP_TIMEOUT))?;
 
-        // Process each event with concerned client.
+        // Process each event with client.
         for event in events.drain(..) {
             match event.kind {
                 TcpEventKind::Accepted => {}
@@ -114,16 +101,7 @@ impl Server {
             }
         }
 
-        // Process pending broadcast packets (only to playing players).
-        for packet in self.resources.broadcast_packets.drain(..) {
-            for player in &self.players.players {
-                if player.playing.is_some() {
-                    self.resources.tcp_server.send(player.client_id, &packet)?;
-                }
-            }
-        }
-
-        self.resources.overworld_dim.tick();
+        self.overworld.inner.tick();
 
         // Send time every second.
         let time = self.resources.overworld_dim.time();
@@ -182,6 +160,45 @@ impl Server {
         Ok(())
 
     }
+
+}
+
+
+/// A single world in the server.
+struct ServerWorld {
+    /// The inner world data structure.
+    inner: World,
+}
+
+impl ServerWorld {
+
+    /// Internal function to create a server world.
+    fn new(mut inner: World) -> Self {
+
+        // Make sure that the world initially have an empty events queue.
+        inner.swap_events(Some(Vec::new()));
+
+        Self {
+            inner,
+        }
+
+    }
+
+    /// Tick this world.
+    fn tick(&mut self) {
+
+        debug_assert!(self.inner.has_events(), "world should have events enabled");
+        
+        self.inner.tick();
+
+        // Send time to every playing clients every second.
+        let time = self.inner.time();
+        if time % 20 == 0 {
+            // TODO: Send time
+        }
+
+    }
+    
 
 }
 

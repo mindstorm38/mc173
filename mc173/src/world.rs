@@ -16,7 +16,16 @@ use crate::block;
 
 
 /// Data structure for a whole world.
+/// 
+/// This structure can be used as a data structure to read and modify the world's content,
+/// but it can also be ticked in order to run every world's logic (block ticks, random 
+/// ticks, entity ticks, time, weather, etc.). When manually modifying or ticking the
+/// world, events are produced *(of type [`Event`])* depending on what's modified. **By
+/// default**, events are not saved, but an events queue can be swapped in or out of the
+/// world to enable or disable events registration.
 pub struct World {
+    /// Some events queue if enabled.
+    events: Option<Vec<Event>>,
     /// The dimension
     dimension: Dimension,
     /// The spawn position.
@@ -25,8 +34,6 @@ pub struct World {
     time: u64,
     /// The world's global random number generator.
     rand: JavaRandom,
-    /// Pending events queue.
-    events: Vec<Event>,
     /// Mapping of chunks to their coordinates.
     chunks: HashMap<(i32, i32), WorldChunk>,
     /// The entities are stored inside an option, this has no overhead because of niche 
@@ -45,13 +52,15 @@ pub struct World {
 
 impl World {
 
+    /// Create a new world of the given dimension with no events queue by default, so
+    /// events are disabled.
     pub fn new(dimension: Dimension) -> Self {
         Self {
+            events: None,
             dimension,
             spawn_pos: IVec3::ZERO,
             time: 0,
             rand: JavaRandom::new_seeded(),
-            events: Vec::new(),
             chunks: HashMap::new(),
             entities: Vec::new(),
             entities_map: HashMap::new(),
@@ -61,16 +70,42 @@ impl World {
         }
     }
 
+    /// This function can be used to swap in a new events queue and return the previous
+    /// one if relevant. Giving *None* events queue disable events registration using
+    /// the [`push_event`] method. Swapping out the events is the only way of reading
+    /// them afterward.
+    pub fn swap_events(&mut self, events: Option<Vec<Event>>) -> Option<Vec<Event>> {
+        std::mem::replace(&mut self.events, events)
+    }
+
+    /// Return true if this world has an internal events queue that enables usage of the
+    /// [`push_event`] method.
+    pub fn has_events(&self) -> bool {
+        self.events.is_some()
+    }
+
+    /// Push an event in this world. This only actually push the event if events are 
+    /// enabled. Events queue can be swapped using [`swap_events`] method.swap_events
+    #[inline]
+    pub fn push_event(&mut self, event: Event) {
+        if let Some(events) = &mut self.events {
+            events.push(event);
+        }
+    }
+
     pub fn dimension(&self) -> Dimension {
         self.dimension
     }
 
-    pub fn spawn_pos(&self) -> IVec3 {
+    /// Get the world's spawn position.
+    pub fn spawn_position(&self) -> IVec3 {
         self.spawn_pos
     }
 
-    pub fn set_spawn_pos(&mut self, pos: IVec3) {
+    /// Set the world's spawn position, this triggers `SpawnPosition` event.
+    pub fn set_spawn_position(&mut self, pos: IVec3) {
         self.spawn_pos = pos;
+        self.push_event(Event::SpawnPosition { pos });
     }
 
     pub fn time(&self) -> u64 {
@@ -79,11 +114,6 @@ impl World {
 
     pub fn set_time(&mut self, time: u64) {
         self.time = time;
-    }
-
-    /// Push an event in this world.
-    pub fn push_event(&mut self, event: Event) {
-        self.events.push(event);
     }
 
     pub fn chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
@@ -149,14 +179,6 @@ impl World {
         self.orphan_entities.extend_from_slice(&chunk.entities);
         Some(chunk.inner)
 
-    }
-
-    /// Get block and metadata at given position in the world, if the chunk is not
-    /// loaded, none is returned.
-    pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {
-        let (cx, cz) = calc_chunk_pos(pos)?;
-        let chunk = self.chunk(cx, cz)?;
-        Some(chunk.block_and_metadata(pos))
     }
 
     /// Internal function to ensure monomorphization and reduce bloat of the 
@@ -353,16 +375,31 @@ impl World {
 
     }
 
+    /// Get block and metadata at given position in the world, if the chunk is not
+    /// loaded, none is returned.
+    pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.chunk(cx, cz)?;
+        Some(chunk.block_and_metadata(pos))
+    }
+
+    /// Set block and metadata at given position in the world, if the chunk is not
+    /// loaded, none is returned, but if it is existing the previous block and metadata
+    /// is returned. This function also push a block change event.
+    pub fn set_block_and_metadata(&mut self, pos: IVec3, block: u8, metadata: u8) -> Option<(u8, u8)> {
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.chunk_mut(cx, cz)?;
+        let prev = chunk.block_and_metadata(pos);
+        chunk.set_block_and_metadata(pos, block, metadata);
+        Some(prev)
+    }
+
     /// Break a block naturally and drop its items. This function will generate an event 
     /// of the block break and the items spawn. This returns true if successful, false
     /// if the chunk/pos was not valid.
     pub fn break_block(&mut self, pos: IVec3) -> bool {
 
-        let Some((cx, cz)) = calc_chunk_pos(pos) else { return false };
-        let Some(chunk) = self.chunk_mut(cx, cz) else { return false };
-
-        let (prev_block, prev_metadata) = chunk.block_and_metadata(pos);
-        chunk.set_block_and_metadata(pos, 0, 0);
+        let Some((prev_block, prev_metadata)) = self.set_block_and_metadata(pos, 0, 0) else { return false };
 
         self.push_event(Event::BlockChange { 
             pos,
@@ -432,11 +469,6 @@ impl World {
 
     }
 
-    /// Iterate and remove all events.
-    pub fn drain_events(&mut self) -> impl Iterator<Item = Event> + '_ {
-        self.events.drain(..)
-    }
-
 }
 
 
@@ -491,6 +523,11 @@ pub enum Event {
         /// The new block metadata.
         new_metadata: u8,
     },
+    /// The world's spawn point has been changed.
+    SpawnPosition {
+        /// The new spawn point position.
+        pos: IVec3,
+    }
 }
 
 
