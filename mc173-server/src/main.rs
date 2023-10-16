@@ -1,7 +1,10 @@
 //! A Minecraft beta 1.7.3 server in Rust.
 
 pub mod util;
+
+pub mod packet;
 pub mod proto;
+
 pub mod server;
 
 

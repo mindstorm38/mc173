@@ -9,8 +9,8 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use mc173::item::ItemStack;
 
-use crate::util::tcp::{TcpServerPacket, TcpClientPacket};
 use crate::util::io::{ReadJavaExt, WriteJavaExt};
+use crate::packet::{InPacket, OutPacket};
 
 
 /// A packet received by the server (server-bound).
@@ -669,7 +669,7 @@ pub enum MetadataKind {
 }
 
 
-impl TcpServerPacket for ServerPacket {
+impl InPacket for ServerPacket {
 
     fn read(read: &mut impl Read) -> io::Result<Self> {
         Ok(match read.read_u8()? {
@@ -803,7 +803,7 @@ impl TcpServerPacket for ServerPacket {
 
 }
 
-impl TcpClientPacket for ClientPacket {
+impl OutPacket for ClientPacket {
 
     fn write(&self, write: &mut impl Write) -> io::Result<()> {
 

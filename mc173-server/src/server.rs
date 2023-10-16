@@ -19,7 +19,6 @@ use mc173::chunk::{CHUNK_WIDTH, CHUNK_HEIGHT, calc_chunk_pos};
 use mc173::overworld::new_overworld;
 use mc173::world::{World, Event};
 
-use crate::util::tcp::{TcpServer, TcpEvent, TcpEventKind};
 use crate::proto::{ServerPacket, ClientPacket,
     ClientHandshakePacket, DisconnectPacket, ClientLoginPacket, SpawnPositionPacket, 
     UpdateTimePacket, ChatPacket, PositionLookPacket, ChunkDataPacket, 
