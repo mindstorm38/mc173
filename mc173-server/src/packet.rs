@@ -175,6 +175,15 @@ const CLIENT_FIRST_TOKEN: Token = Token(1);
 const BUF_SIZE: usize = 1024;
 
 
+/// Shared immutable client state.
+struct SharedClient {
+    /// The client's stream, this stream is behind a read/write lock because most of the
+    /// time it will be accessed immutably, because reading/writing from/to the stream
+    /// don't requires mutability, the only moment it will be accessed mutably is for
+    /// deregister it from poll instance, when closing client.
+    stream: RwLock<TcpStream>,
+}
+
 /// Internal thread for polling the TCP listener and client events. Polling is done it
 /// its own thread because it blocks until events are received, but we also need to block
 /// for incoming commands, this would require a sort of *select* between poll events
@@ -196,11 +205,8 @@ struct PollThread<I, O> {
 
 /// Internal structure for storing client
 struct PollClient {
-    /// The client's stream, this stream is behind a read/write lock because most of the
-    /// time it will be accessed immutably, because reading/writing from/to the stream
-    /// don't requires mutability, the only moment it will be accessed mutably is for
-    /// deregister it from poll instance, when closing client.
-    stream: Arc<RwLock<TcpStream>>,
+    /// Shared client state.
+    shared: Arc<SharedClient>,
     /// Internal buffer to temporarily stores incoming client's data.
     buf: Box<[u8; BUF_SIZE]>,
     /// Cursor in the receiving buffer.
@@ -265,11 +271,13 @@ impl<I: InPacket, O: OutPacket> PollThread<I, O> {
             self.next_token = Token(token.0.checked_add(1).expect("out of client token"));
             self.poll.registry().register(&mut stream, token, Interest::READABLE | Interest::WRITABLE)?;
 
-            let stream = Arc::new(RwLock::new(stream));
+            let shared = Arc::new(SharedClient {
+                stream: RwLock::new(stream),
+            });
 
             // NOTE: Blocking send because this would have no sense to continue if the
             // command thread is not aware of the new client.
-            self.commands_sender.send(ThreadCommand::NewClient { token, stream: Arc::clone(&stream) })
+            self.commands_sender.send(ThreadCommand::NewClient { token, shared: Arc::clone(&shared) })
                 .expect("commands channel should not be disconnected while this poll thread exists");
 
             // NOTE: Blocking send is intentional.
@@ -279,7 +287,7 @@ impl<I: InPacket, O: OutPacket> PollThread<I, O> {
             }
 
             self.clients.insert(token, PollClient {
-                stream, 
+                shared, 
                 buf: Box::new([0; BUF_SIZE]),
                 buf_cursor: 0
             });
@@ -323,7 +331,7 @@ impl<I: InPacket, O: OutPacket> PollThread<I, O> {
 
         // Just ignore no longer existing clients.
         let Some(client) = self.clients.get_mut(&token) else { return Ok(true) };
-        let stream = client.stream.read().expect("poisoned");
+        let stream = client.shared.stream.read().expect("poisoned");
         let mut stream = &*stream;
 
         loop {
@@ -377,7 +385,7 @@ impl<I: InPacket, O: OutPacket> PollThread<I, O> {
         // command thread. We are the poll thread trying to write, and if the command
         // thread is currently reading it (and therefore blocking it) it will end really
         // soon, when it will finish writing a packet.
-        let mut stream = client.stream.write().expect("poisoned");
+        let mut stream = client.shared.stream.write().expect("poisoned");
 
         // NOTE: Shutting down this stream will trigger events in the PollThread and 
         // deregister the event.
@@ -406,7 +414,7 @@ struct CommandThread<O> {
     /// This channel allows receiving commands from server and client handles.
     commands_receiver: Receiver<ThreadCommand<O>>,
     /// Connected clients, mapped to their polling token.
-    clients: HashMap<Token, Arc<RwLock<TcpStream>>>,
+    clients: HashMap<Token, Arc<SharedClient>>,
 }
 
 impl<O: OutPacket> CommandThread<O> {
@@ -416,8 +424,8 @@ impl<O: OutPacket> CommandThread<O> {
         // This receive commands while there is any sender.
         while let Ok(command) = self.commands_receiver.recv() {
             match command {
-                ThreadCommand::NewClient { token, stream } => {
-                    self.clients.insert(token, stream);
+                ThreadCommand::NewClient { token, shared } => {
+                    self.clients.insert(token, shared);
                 }
                 ThreadCommand::LostClient { token } => {
                     self.clients.remove(&token).expect("client already lost");
@@ -435,7 +443,7 @@ impl<O: OutPacket> CommandThread<O> {
     fn handle_client_disconnect(&mut self, token: Token) {
         // Just ignore no longer existing clients.
         let Some(client) = self.clients.get(&token) else { return };
-        let stream = client.read().expect("poisoned");
+        let stream = client.stream.read().expect("poisoned");
         // This shutdown should be seen by the poll thread, and therefore properly
         // shutdown and deregister, and a `ThreadCommand::LostClient` should come back
         // to this command thread.
@@ -447,7 +455,7 @@ impl<O: OutPacket> CommandThread<O> {
     fn handle_client_send(&mut self, token: Token, packet: O) {
         // Just ignore no longer existing clients.
         let Some(client) = self.clients.get(&token) else { return };
-        let stream = client.read().expect("poisoned");
+        let stream = client.stream.read().expect("poisoned");
         // NOTE: For now we ignore I/O errors because we can't send them to handle.
         let _ = packet.write(&mut &*stream);
     }
@@ -458,7 +466,7 @@ enum ThreadCommand<O> {
     /// Sent by the poll thread when a new client has been accepted.
     NewClient {
         token: Token,
-        stream: Arc<RwLock<TcpStream>>,
+        shared: Arc<SharedClient>,
     },
     /// Sent by the poll thread when a client should be forget by the command thread
     LostClient {
