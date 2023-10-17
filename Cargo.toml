@@ -1,2 +1,3 @@
 [workspace]
 members = ["mc173", "mc173-server"]
+resolver = "2"
