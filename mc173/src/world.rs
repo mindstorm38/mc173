@@ -29,7 +29,7 @@ pub struct World {
     /// The dimension
     dimension: Dimension,
     /// The spawn position.
-    spawn_pos: IVec3,
+    spawn_pos: DVec3,
     /// The world time, increasing at each tick.
     time: u64,
     /// The world's global random number generator.
@@ -58,7 +58,7 @@ impl World {
         Self {
             events: None,
             dimension,
-            spawn_pos: IVec3::ZERO,
+            spawn_pos: DVec3::ZERO,
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
@@ -98,12 +98,12 @@ impl World {
     }
 
     /// Get the world's spawn position.
-    pub fn spawn_position(&self) -> IVec3 {
+    pub fn spawn_position(&self) -> DVec3 {
         self.spawn_pos
     }
 
     /// Set the world's spawn position, this triggers `SpawnPosition` event.
-    pub fn set_spawn_position(&mut self, pos: IVec3) {
+    pub fn set_spawn_position(&mut self, pos: DVec3) {
         self.spawn_pos = pos;
         self.push_event(Event::SpawnPosition { pos });
     }
@@ -389,18 +389,8 @@ impl World {
     pub fn set_block_and_metadata(&mut self, pos: IVec3, block: u8, metadata: u8) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.chunk_mut(cx, cz)?;
-        let prev = chunk.block_and_metadata(pos);
+        let (prev_block, prev_metadata) = chunk.block_and_metadata(pos);
         chunk.set_block_and_metadata(pos, block, metadata);
-        Some(prev)
-    }
-
-    /// Break a block naturally and drop its items. This function will generate an event 
-    /// of the block break and the items spawn. This returns true if successful, false
-    /// if the chunk/pos was not valid.
-    pub fn break_block(&mut self, pos: IVec3) -> bool {
-
-        let Some((prev_block, prev_metadata)) = self.set_block_and_metadata(pos, 0, 0) else { return false };
-
         self.push_event(Event::BlockChange { 
             pos,
             prev_block, 
@@ -408,6 +398,15 @@ impl World {
             new_block: 0, 
             new_metadata: 0,
         });
+        Some((prev_block, prev_metadata))
+    }
+
+    /// Break a block naturally and drop its items. This function will generate an event 
+    /// of the block break and the items spawn. This returns true if successful, false
+    /// if the chunk/pos was not valid.
+    pub fn break_block(&mut self, pos: IVec3) -> bool {
+
+        let Some((prev_block, _)) = self.set_block_and_metadata(pos, 0, 0) else { return false };
 
         const SPREAD: f32 = 0.7;
         let delta = self.rand.next_vec3()
@@ -526,7 +525,7 @@ pub enum Event {
     /// The world's spawn point has been changed.
     SpawnPosition {
         /// The new spawn point position.
-        pos: IVec3,
+        pos: DVec3,
     }
 }
 

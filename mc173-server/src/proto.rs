@@ -9,19 +9,23 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use mc173::item::ItemStack;
 
-use crate::util::io::{ReadJavaExt, WriteJavaExt};
-use crate::packet::{InPacket, OutPacket};
+use crate::io::{ReadJavaExt, WriteJavaExt};
+use crate::net;
 
+/// Type alias for Minecraft protocol server.
+pub type Network = net::Network<InPacket, OutPacket>;
+pub type NetworkEvent = net::NetworkEvent<InPacket>;
+pub type NetworkClient = net::NetworkClient;
 
 /// A packet received by the server (server-bound).
 #[derive(Debug, Clone)]
-pub enum ServerPacket {
+pub enum InPacket {
     /// Used for TCP keep alive.
     KeepAlive,
     /// A login request from the client.
-    Login(ServerLoginPacket),
+    Login(InLoginPacket),
     /// Sent by the client to handshake.
-    Handshake(ServerHandshakePacket),
+    Handshake(InHandshakePacket),
     /// A chat message.
     Chat(ChatPacket),
     /// The client's player interact with an entity.
@@ -60,13 +64,13 @@ pub enum ServerPacket {
 
 /// A packet to send to a client (client-bound).
 #[derive(Debug, Clone)]
-pub enum ClientPacket {
+pub enum OutPacket {
     /// Used for TCP keep alive.
     KeepAlive,
     /// Answered by the server to a client's login request, if successful.
-    Login(ClientLoginPacket),
+    Login(OutLoginPacket),
     /// Answered by the server when the client wants to handshake.
-    Handshake(ClientHandshakePacket),
+    Handshake(OutHandshakePacket),
     /// A chat message sent to the client.
     Chat(ChatPacket),
     /// Update the world's time of the client.
@@ -168,7 +172,7 @@ pub enum ClientPacket {
 
 /// Packet 1 (server-bound)
 #[derive(Debug, Clone)]
-pub struct ServerLoginPacket {
+pub struct InLoginPacket {
     /// Current protocol version, should be 14 for this version.
     pub protocol_version: i32,
     /// The username of the player that connects.
@@ -177,7 +181,7 @@ pub struct ServerLoginPacket {
 
 /// Packet 1 (client-bound)
 #[derive(Debug, Clone)]
-pub struct ClientLoginPacket {
+pub struct OutLoginPacket {
     /// The entity id of the player being connected.
     pub entity_id: u32,
     /// A random seed sent to the player.
@@ -188,14 +192,14 @@ pub struct ClientLoginPacket {
 
 /// Packet 2 (server-bound)
 #[derive(Debug, Clone)]
-pub struct ServerHandshakePacket {
+pub struct InHandshakePacket {
     /// Username of the player trying to connect.
     pub username: String,
 }
 
 /// Packet 2 (client-bound)
 #[derive(Debug, Clone)]
-pub struct ClientHandshakePacket {
+pub struct OutHandshakePacket {
     /// Server identifier that accepted the player handshake. This equals '-' in 
     /// offline mode.
     pub server: String,
@@ -625,7 +629,7 @@ pub struct UpdateSignPacket {
     pub x: i32,
     pub y: i16,
     pub z: i32,
-    pub lines: [String; 4],
+    pub lines: Box<[String; 4]>,
 }
 
 /// Packet 131
@@ -669,14 +673,14 @@ pub enum MetadataKind {
 }
 
 
-impl InPacket for ServerPacket {
+impl net::InPacket for InPacket {
 
     fn read(read: &mut impl Read) -> io::Result<Self> {
         Ok(match read.read_u8()? {
-            0 => ServerPacket::KeepAlive,
+            0 => InPacket::KeepAlive,
             1 => {
 
-                let packet = ServerPacket::Login(ServerLoginPacket {
+                let packet = InPacket::Login(InLoginPacket {
                     protocol_version: read.read_java_int()?, 
                     username: read.read_java_string16(16)?,
                 });
@@ -688,21 +692,21 @@ impl InPacket for ServerPacket {
                 packet
 
             }
-            2 => ServerPacket::Handshake(ServerHandshakePacket {
+            2 => InPacket::Handshake(InHandshakePacket {
                 username: read.read_java_string16(16)?
             }),
-            3 => ServerPacket::Chat(ChatPacket { 
+            3 => InPacket::Chat(ChatPacket { 
                 message: read.read_java_string16(119)?,
             }),
-            7 => ServerPacket::Interact(InteractPacket {
+            7 => InPacket::Interact(InteractPacket {
                 player_entity_id: read.read_java_int()? as u32,
                 target_entity_id: read.read_java_int()? as u32,
                 left_click: read.read_java_boolean()?,
             }),
-            9 => ServerPacket::Respawn(RespawnPacket {
+            9 => InPacket::Respawn(RespawnPacket {
                 dimension: read.read_java_byte()?,
             }),
-            10 => ServerPacket::Flying(FlyingPacket {
+            10 => InPacket::Flying(FlyingPacket {
                 on_ground: read.read_java_boolean()?,
             }),
             11 => {
@@ -711,7 +715,7 @@ impl InPacket for ServerPacket {
                 let stance = read.read_java_double()?;
                 let z = read.read_java_double()?;
                 let on_ground = read.read_java_boolean()?;
-                ServerPacket::Position(PositionPacket {
+                InPacket::Position(PositionPacket {
                     pos: DVec3::new(x, y, z),
                     stance,
                     on_ground,
@@ -721,7 +725,7 @@ impl InPacket for ServerPacket {
                 let yaw = read.read_java_float()?;
                 let pitch = read.read_java_float()?;
                 let on_ground = read.read_java_boolean()?;
-                ServerPacket::Look(LookPacket {
+                InPacket::Look(LookPacket {
                     look: Vec2::new(yaw, pitch), 
                     on_ground,
                 })
@@ -734,43 +738,43 @@ impl InPacket for ServerPacket {
                 let yaw = read.read_java_float()?;
                 let pitch = read.read_java_float()?;
                 let on_ground = read.read_java_boolean()?;
-                ServerPacket::PositionLook(PositionLookPacket {
+                InPacket::PositionLook(PositionLookPacket {
                     pos: DVec3::new(x, y, z),
                     look: Vec2::new(yaw, pitch),
                     stance,
                     on_ground,
                 })
             }
-            14 => ServerPacket::BreakBlock(BreakBlockPacket {
+            14 => InPacket::BreakBlock(BreakBlockPacket {
                 status: read.read_java_byte()? as u8,
                 x: read.read_java_int()?,
                 y: read.read_java_byte()?,
                 z: read.read_java_int()?,
                 face: read.read_java_byte()? as u8,
             }),
-            15 => ServerPacket::PlaceBlock(PlaceBlockPacket {
+            15 => InPacket::PlaceBlock(PlaceBlockPacket {
                 x: read.read_java_int()?,
                 y: read.read_java_byte()?,
                 z: read.read_java_int()?,
                 direction: read.read_java_byte()? as u8,
                 item: read_item_stack(read)?,
             }),
-            16 => ServerPacket::HandSlot(HandSlotPacket {
+            16 => InPacket::HandSlot(HandSlotPacket {
                 slot: read.read_java_short()?,
             }),
-            18 => ServerPacket::Animation(AnimationPacket {
+            18 => InPacket::Animation(AnimationPacket {
                 entity_id: read.read_java_int()? as u32,
                 animate: read.read_java_byte()? as u8,
             }),
-            19 => ServerPacket::Action(ActionPacket {
+            19 => InPacket::Action(ActionPacket {
                 entity_id: read.read_java_int()? as u32,
                 state: read.read_java_byte()? as u8,
             }),
             // 27 => return Err(new_todo_packet_err("position??")),
-            101 => ServerPacket::WindowClose(WindowClosePacket {
+            101 => InPacket::WindowClose(WindowClosePacket {
                 window_id: read.read_java_byte()? as u8,
             }),
-            102 => ServerPacket::WindowClick(WindowClickPacket {
+            102 => InPacket::WindowClick(WindowClickPacket {
                 window_id: read.read_java_byte()? as u8,
                 slot: read.read_java_short()?,
                 right_click: read.read_java_boolean()?,
@@ -778,23 +782,23 @@ impl InPacket for ServerPacket {
                 shift_click: read.read_java_boolean()?,
                 item: read_item_stack(read)?,
             }),
-            106 => ServerPacket::WindowTransaction(WindowTransactionPacket {
+            106 => InPacket::WindowTransaction(WindowTransactionPacket {
                 window_id: read.read_java_byte()? as u8,
                 transaction_id: read.read_java_short()? as u16,
                 accepted: read.read_java_boolean()?,
             }),
-            130 => ServerPacket::UpdateSign(UpdateSignPacket {
+            130 => InPacket::UpdateSign(UpdateSignPacket {
                 x: read.read_java_int()?,
                 y: read.read_java_short()?,
                 z: read.read_java_int()?,
-                lines: [
+                lines: Box::new([
                     read.read_java_string16(15)?,
                     read.read_java_string16(15)?,
                     read.read_java_string16(15)?,
                     read.read_java_string16(15)?,
-                ],
+                ]),
             }),
-            255 => ServerPacket::Disconnect(DisconnectPacket {
+            255 => InPacket::Disconnect(DisconnectPacket {
                 reason: read.read_java_string16(100)?,
             }),
             id => return Err(new_invalid_packet_err(format_args!("unknown id {id}"))),
@@ -803,34 +807,34 @@ impl InPacket for ServerPacket {
 
 }
 
-impl OutPacket for ClientPacket {
+impl net::OutPacket for OutPacket {
 
     fn write(&self, write: &mut impl Write) -> io::Result<()> {
 
-        println!("Encode packet: {self:?}");
+        // println!("Encode packet: {self:?}");
         
         match self {
-            ClientPacket::KeepAlive => write.write_u8(0)?,
-            ClientPacket::Login(packet) => {
+            OutPacket::KeepAlive => write.write_u8(0)?,
+            OutPacket::Login(packet) => {
                 write.write_u8(1)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string16("")?; // No username it sent to the client.
                 write.write_java_long(packet.random_seed)?;
                 write.write_java_byte(packet.dimension)?;
             }
-            ClientPacket::Handshake(packet) => {
+            OutPacket::Handshake(packet) => {
                 write.write_u8(2)?;
                 write.write_java_string16(&packet.server)?;
             }
-            ClientPacket::Chat(packet) => {
+            OutPacket::Chat(packet) => {
                 write.write_u8(3)?;
                 write.write_java_string16(&packet.message[..packet.message.len().min(199)])?;
             }
-            ClientPacket::UpdateTime(packet) => {
+            OutPacket::UpdateTime(packet) => {
                 write.write_u8(4)?;
                 write.write_java_long(packet.time as i64)?;
             }
-            ClientPacket::PlayerInventory(packet) => {
+            OutPacket::PlayerInventory(packet) => {
                 write.write_u8(5)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_short(packet.slot)?;
@@ -842,25 +846,25 @@ impl OutPacket for ClientPacket {
                     write.write_java_short(0)?;
                 }
             }
-            ClientPacket::SpawnPosition(packet)=> {
+            OutPacket::SpawnPosition(packet)=> {
                 write.write_u8(6)?;
                 write.write_java_int(packet.pos.x)?;
                 write.write_java_int(packet.pos.y)?;
                 write.write_java_int(packet.pos.z)?;
             }
-            ClientPacket::UpdateHealth(packet) => {
+            OutPacket::UpdateHealth(packet) => {
                 write.write_u8(8)?;
                 write.write_java_int(packet.health)?;
             }
-            ClientPacket::Respawn(packet) => {
+            OutPacket::Respawn(packet) => {
                 write.write_u8(9)?;
                 write.write_java_byte(packet.dimension)?;
             }
-            ClientPacket::Flying(packet) => {
+            OutPacket::Flying(packet) => {
                 write.write_u8(10)?;
                 write.write_java_boolean(packet.on_ground)?;
             }
-            ClientPacket::Position(packet) => {
+            OutPacket::Position(packet) => {
                 write.write_u8(11)?;
                 write.write_java_double(packet.pos.x)?;
                 write.write_java_double(packet.pos.y)?;
@@ -868,13 +872,13 @@ impl OutPacket for ClientPacket {
                 write.write_java_double(packet.pos.z)?;
                 write.write_java_boolean(packet.on_ground)?;
             }
-            ClientPacket::Look(packet) => {
+            OutPacket::Look(packet) => {
                 write.write_u8(12)?;
                 write.write_java_float(packet.look.x)?;
                 write.write_java_float(packet.look.y)?;
                 write.write_java_boolean(packet.on_ground)?;
             }
-            ClientPacket::PositionLook(packet) => {
+            OutPacket::PositionLook(packet) => {
                 write.write_u8(13)?;
                 write.write_java_double(packet.pos.x)?;
                 write.write_java_double(packet.pos.y)?;
@@ -884,7 +888,7 @@ impl OutPacket for ClientPacket {
                 write.write_java_float(packet.look.y)?;
                 write.write_java_boolean(packet.on_ground)?;
             }
-            ClientPacket::PlayerSleep(packet) => {
+            OutPacket::PlayerSleep(packet) => {
                 write.write_u8(17)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.unused)?;
@@ -892,12 +896,12 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.y)?;
                 write.write_java_int(packet.z)?;
             }
-            ClientPacket::EntityAnimation(packet) => {
+            OutPacket::EntityAnimation(packet) => {
                 write.write_u8(18)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.animate as i8)?;
             }
-            ClientPacket::PlayerSpawn(packet) => {
+            OutPacket::PlayerSpawn(packet) => {
                 write.write_u8(20)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string16(&packet.username)?;
@@ -908,7 +912,7 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.pitch)?;
                 write.write_java_short(packet.current_item as i16)?;
             }
-            ClientPacket::ItemSpawn(packet) => {
+            OutPacket::ItemSpawn(packet) => {
                 write.write_u8(21)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_short(packet.item.id as i16)?;
@@ -921,12 +925,12 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.vy)?;
                 write.write_java_byte(packet.vz)?;
             }
-            ClientPacket::PlayerItemPickup(packet) => {
+            OutPacket::PlayerItemPickup(packet) => {
                 write.write_u8(22)?;
                 write.write_java_int(packet.item_entity_id as i32)?;
                 write.write_java_int(packet.player_entity_id as i32)?;
             }
-            ClientPacket::ObjectSpawn(packet) => {
+            OutPacket::ObjectSpawn(packet) => {
                 write.write_u8(23)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.kind as i8)?;
@@ -940,7 +944,7 @@ impl OutPacket for ClientPacket {
                     write.write_java_short(vz)?;
                 }
             }
-            ClientPacket::MobSpawn(packet) => {
+            OutPacket::MobSpawn(packet) => {
                 write.write_u8(24)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.kind as i8)?;
@@ -951,7 +955,7 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.pitch)?;
                 write_metadata_list(write, &packet.metadata)?;
             }
-            ClientPacket::PaintingSpawn(packet) => {
+            OutPacket::PaintingSpawn(packet) => {
                 write.write_u8(25)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string16(&packet.title)?;
@@ -960,35 +964,35 @@ impl OutPacket for ClientPacket {
                 write.write_java_int(packet.z)?;
                 write.write_java_int(packet.direction)?;
             }
-            ClientPacket::EntityVelocity(packet) => {
+            OutPacket::EntityVelocity(packet) => {
                 write.write_u8(28)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_short(packet.vx)?;
                 write.write_java_short(packet.vy)?;
                 write.write_java_short(packet.vz)?;
             }
-            ClientPacket::EntityKill(packet) => {
+            OutPacket::EntityKill(packet) => {
                 write.write_u8(29)?;
                 write.write_java_int(packet.entity_id as i32)?;
             }
-            ClientPacket::Entity(packet) => {
+            OutPacket::Entity(packet) => {
                 write.write_u8(30)?;
                 write.write_java_int(packet.entity_id as i32)?;
             }
-            ClientPacket::EntityMove(packet) => {
+            OutPacket::EntityMove(packet) => {
                 write.write_u8(31)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.dx)?;
                 write.write_java_byte(packet.dy)?;
                 write.write_java_byte(packet.dz)?;
             }
-            ClientPacket::EntityLook(packet) => {
+            OutPacket::EntityLook(packet) => {
                 write.write_u8(32)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.yaw)?;
                 write.write_java_byte(packet.pitch)?;
             }
-            ClientPacket::EntityMoveAndLook(packet) => {
+            OutPacket::EntityMoveAndLook(packet) => {
                 write.write_u8(33)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.dx)?;
@@ -997,7 +1001,7 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.yaw)?;
                 write.write_java_byte(packet.pitch)?;
             }
-            ClientPacket::EntityPositionAndLook(packet) => {
+            OutPacket::EntityPositionAndLook(packet) => {
                 write.write_u8(34)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_int(packet.x)?;
@@ -1006,28 +1010,28 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.yaw)?;
                 write.write_java_byte(packet.pitch)?;
             }
-            ClientPacket::EntityStatus(packet) => {
+            OutPacket::EntityStatus(packet) => {
                 write.write_u8(38)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.status)?;
             }
-            ClientPacket::EntityRide(packet) => {
+            OutPacket::EntityRide(packet) => {
                 write.write_u8(39)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_int(packet.vehicle_entity_id as i32)?;
             }
-            ClientPacket::EntityMetadata(packet) => {
+            OutPacket::EntityMetadata(packet) => {
                 write.write_u8(40)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write_metadata_list(write, &packet.metadata)?;
             }
-            ClientPacket::ChunkState(packet) => {
+            OutPacket::ChunkState(packet) => {
                 write.write_u8(50)?;
                 write.write_java_int(packet.cx)?;
                 write.write_java_int(packet.cz)?;
                 write.write_java_boolean(packet.init)?;
             }
-            ClientPacket::ChunkData(packet) => {
+            OutPacket::ChunkData(packet) => {
                 write.write_u8(51)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_short(packet.y)?;
@@ -1038,13 +1042,13 @@ impl OutPacket for ClientPacket {
                 write.write_java_int(packet.compressed_data.len() as i32)?;
                 write.write_all(&packet.compressed_data)?;
             }
-            ClientPacket::BlockMultiChange(packet) => {
+            OutPacket::BlockMultiChange(packet) => {
                 write.write_u8(52)?;
                 write.write_java_int(packet.cx)?;
                 write.write_java_int(packet.cz)?;
                 // TODO: write packet.blocks
             }
-            ClientPacket::BlockChange(packet) => {
+            OutPacket::BlockChange(packet) => {
                 write.write_u8(53)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_byte(packet.y)?;
@@ -1052,7 +1056,7 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.block as i8)?;
                 write.write_java_byte(packet.metadata as i8)?;
             }
-            ClientPacket::BlockAction(packet) => {
+            OutPacket::BlockAction(packet) => {
                 write.write_u8(54)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_short(packet.y)?;
@@ -1060,7 +1064,7 @@ impl OutPacket for ClientPacket {
                 write.write_java_byte(packet.data0)?;
                 write.write_java_byte(packet.data1)?;
             }
-            ClientPacket::Explosion(packet) => {
+            OutPacket::Explosion(packet) => {
                 write.write_u8(60)?;
                 write.write_java_double(packet.x)?;
                 write.write_java_double(packet.y)?;
@@ -1073,7 +1077,7 @@ impl OutPacket for ClientPacket {
                     write.write_java_byte(dz)?;
                 }
             }
-            ClientPacket::SoundPlay(packet) => {
+            OutPacket::SoundPlay(packet) => {
                 write.write_u8(61)?;
                 write.write_java_int(packet.effect_id as i32)?;
                 write.write_java_int(packet.x)?;
@@ -1081,35 +1085,35 @@ impl OutPacket for ClientPacket {
                 write.write_java_int(packet.z)?;
                 write.write_java_int(packet.effect_data as i32)?;
             }
-            ClientPacket::Notification(packet) => {
+            OutPacket::Notification(packet) => {
                 write.write_u8(70)?;
                 write.write_java_byte(packet.reason as i8)?;
             }
-            ClientPacket::LightningBolt(packet) => {
+            OutPacket::LightningBolt(packet) => {
                 write.write_u8(71)?;
                 write.write_java_boolean(true)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_int(packet.y)?;
                 write.write_java_int(packet.z)?;
             }
-            ClientPacket::WindowOpen(packet) => {
+            OutPacket::WindowOpen(packet) => {
                 write.write_u8(100)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_byte(packet.inventory_type as i8)?;
                 write.write_java_string8(&packet.title)?;
                 write.write_java_byte(packet.slots_count as i8)?;
             }
-            ClientPacket::WindowClose(packet) => {
+            OutPacket::WindowClose(packet) => {
                 write.write_u8(101)?;
                 write.write_java_byte(packet.window_id as i8)?;
             }
-            ClientPacket::WindowSetItem(packet) => {
+            OutPacket::WindowSetItem(packet) => {
                 write.write_u8(103)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.slot)?;
                 write_item_stack(write, packet.item)?;
             }
-            ClientPacket::WindowItems(packet) => {
+            OutPacket::WindowItems(packet) => {
                 write.write_u8(104)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.items.len() as i16)?;
@@ -1117,28 +1121,28 @@ impl OutPacket for ClientPacket {
                     write_item_stack(write, item_stack)?;
                 }
             }
-            ClientPacket::WindowProgressBar(packet) => {
+            OutPacket::WindowProgressBar(packet) => {
                 write.write_u8(105)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.bar_id as i16)?;
                 write.write_java_short(packet.value)?;
             }
-            ClientPacket::WindowTransaction(packet) => {
+            OutPacket::WindowTransaction(packet) => {
                 write.write_u8(106)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.transaction_id as i16)?;
                 write.write_java_boolean(packet.accepted)?;
             }
-            ClientPacket::UpdateSign(packet) => {
+            OutPacket::UpdateSign(packet) => {
                 write.write_u8(130)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_short(packet.y)?;
                 write.write_java_int(packet.z)?;
-                for line in &packet.lines {
+                for line in packet.lines.iter() {
                     write.write_java_string16(&line)?;
                 }
             }
-            ClientPacket::ItemData(packet) => {
+            OutPacket::ItemData(packet) => {
                 write.write_u8(131)?;
                 write.write_java_short(packet.id as i16)?;
                 write.write_java_short(packet.damage as i16)?;
@@ -1149,12 +1153,12 @@ impl OutPacket for ClientPacket {
                 write.write_u8(len)?;
                 write.write_all(&packet.data)?;
             }
-            ClientPacket::StatisticIncrement(packet) => {
+            OutPacket::StatisticIncrement(packet) => {
                 write.write_u8(200)?;
                 write.write_java_int(packet.statistic_id as i32)?;
                 write.write_java_byte(packet.amount)?;
             }
-            ClientPacket::Disconnect(packet) => {
+            OutPacket::Disconnect(packet) => {
                 write.write_u8(255)?;
                 write.write_java_string16(&packet.reason)?;
             }

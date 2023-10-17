@@ -54,7 +54,6 @@ pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
 }
 
 
-
 /// Data structure storing every chunk-local data, chunks are a world subdivision of 
 /// 16x16x256 blocks.
 pub struct Chunk {

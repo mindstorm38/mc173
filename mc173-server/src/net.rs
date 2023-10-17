@@ -30,15 +30,15 @@ pub trait OutPacket {
 /// A packet server backed by a background thread that do all the hard processing.
 /// 
 /// To kill the server, every handle of it should be dropped.
-#[derive(Clone)]
-pub struct PacketServer<I, O> {
+#[derive(Debug, Clone)]
+pub struct Network<I, O> {
     /// This channels allows sending commands to the thread.
     commands_sender: Sender<ThreadCommand<O>>,
     /// This channels allows received events from the thread.
     events_receiver: Receiver<ThreadEvent<I>>,
 }
 
-impl<I, O> PacketServer<I, O>
+impl<I, O> Network<I, O>
 where
     I: InPacket + Send + 'static,
     O: OutPacket + Send + 'static,
@@ -95,20 +95,20 @@ where
 
     /// Poll events from this packet server. If an I/O error is returned, the error is
     /// critical and the 
-    pub fn poll(&self) -> io::Result<Option<PacketEvent<I>>> {
+    pub fn poll(&self) -> io::Result<Option<NetworkEvent<I>>> {
         loop { // A loop to ignore channel check.
             return Ok(Some(match self.events_receiver.try_recv() {
                 Ok(ThreadEvent::ChannelCheck) => continue,
-                Ok(ThreadEvent::Accept { token }) => PacketEvent::Accept {
-                    client: PacketClient(token)
+                Ok(ThreadEvent::Accept { token }) => NetworkEvent::Accept {
+                    client: NetworkClient(token)
                 },
-                Ok(ThreadEvent::Received { token, packet }) => PacketEvent::Received {
-                    client: PacketClient(token), 
-                    packet,
-                },
-                Ok(ThreadEvent::Lost { token, error }) => PacketEvent::Lost {
-                    client: PacketClient(token),
+                Ok(ThreadEvent::Lost { token, error }) => NetworkEvent::Lost {
+                    client: NetworkClient(token),
                     error,
+                },
+                Ok(ThreadEvent::Packet { token, packet }) => NetworkEvent::Packet {
+                    client: NetworkClient(token), 
+                    packet,
                 },
                 // Critical error, this should be the last event of the channel before 
                 // disconnection.
@@ -120,7 +120,7 @@ where
         }
     }
 
-    pub fn send(&self, client: PacketClient, packet: O) {
+    pub fn send(&self, client: NetworkClient, packet: O) {
         // NOTE: Commands channel can never disconnect if a handle exists.
         self.commands_sender.try_send(ThreadCommand::SingleClientPacket { 
             token: client.0, 
@@ -128,7 +128,7 @@ where
         }).expect("commands channel is full");
     }
 
-    pub fn disconnect(&self, client: PacketClient) {
+    pub fn disconnect(&self, client: NetworkClient) {
         // NOTE: Commands channel can never disconnect if a handle exists.
         self.commands_sender.try_send(ThreadCommand::DisconnectClient {
             token: client.0
@@ -140,29 +140,29 @@ where
 /// A handle to a client produced by a packet server. This handle can be used with a
 /// server to send packets to a client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PacketClient(Token);
+pub struct NetworkClient(Token);
 
 /// An event of the packet
 #[derive(Debug)]
-pub enum PacketEvent<I> {
+pub enum NetworkEvent<I> {
     /// A client 
     Accept {
         /// The client handle that was accepted.
-        client: PacketClient,
-    },
-    /// A packet was received from a client.
-    Received {
-        /// The client handle that received the packet.
-        client: PacketClient,
-        /// Received packet.
-        packet: I,
+        client: NetworkClient,
     },
     Lost {
         /// The client handle that was lost.
-        client: PacketClient,
+        client: NetworkClient,
         /// Some error if that caused the client to be lost, no error means that the
         /// client was just kicked from the server or closed the connection itself.
         error: Option<io::Error>,
+    },
+    /// A packet was received from a client.
+    Packet {
+        /// The client handle that received the packet.
+        client: NetworkClient,
+        /// Received packet.
+        packet: I,
     },
 }
 
@@ -358,7 +358,7 @@ impl<I: InPacket, O: OutPacket> PollThread<I, O> {
 
             // If the channel was disconnect, return Ok(false) to stop the thread, because
             // all handles have been dropped.
-            if self.events_sender.send(ThreadEvent::Received { token, packet }).is_err() {
+            if self.events_sender.send(ThreadEvent::Packet { token, packet }).is_err() {
                 return Ok(false);
             }
 
@@ -490,16 +490,16 @@ enum ThreadEvent<I> {
     Accept {
         token: Token,
     },
-    /// A packet was received from a client.
-    Received {
-        token: Token,
-        packet: I,
-    },
     Lost {
         token: Token,
         /// Some error if that caused the client to be lost, no error means that the
         /// client was just kicked from the server or closed the connection itself.
         error: Option<io::Error>,
+    },
+    /// A packet was received from a client.
+    Packet {
+        token: Token,
+        packet: I,
     },
     /// An I/O error that caused the background thread to crash, it's not recoverable.
     Error {
