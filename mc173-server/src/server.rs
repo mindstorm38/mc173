@@ -80,32 +80,51 @@ impl Server {
         }
 
         for world in &mut self.worlds {
-            world.tick(&self.net);
+            world.tick();
         }
 
         Ok(())
 
     }
 
+    /// Find a playing client state with the given world index and previous player index,
+    /// and replace the player index with the given one.
+    fn update_player_index(&mut self, prev_world_index: usize, prev_player_index: usize, new_player_index: usize) {
+        for client in self.clients.values_mut() {
+            if let ClientState::Playing { world_index, player_index } = client {
+                if *world_index == prev_world_index && *player_index == prev_player_index {
+                    *player_index = new_player_index;
+                    return;
+                }
+            }
+        }
+        debug_assert!(false, "no player index found to update");
+    }
+
     /// Handle new client accepted by the network.
-    pub fn handle_accept(&mut self, client: NetworkClient) {
+    fn handle_accept(&mut self, client: NetworkClient) {
         println!("[{client:?}] Accepted");
         self.clients.insert(client, ClientState::Handshaking);
     }
 
     /// Handle a lost client.
-    pub fn handle_lost(&mut self, client: NetworkClient, error: Option<io::Error>) {
+    fn handle_lost(&mut self, client: NetworkClient, error: Option<io::Error>) {
+
         println!("[{client:?}] Lost: {error:?}");
         let state = self.clients.remove(&client).unwrap();
+        
         if let ClientState::Playing { world_index, player_index } = state {
             // If the client was playing, remove it from its world.
             let world = &mut self.worlds[world_index];
-            let player = world.players.remove(player_index);
-            player.handle_lost(&mut world.world);
+            // Leave the player and check if an index has been swapped.
+            if let Some(swapped_index) = world.handle_player_leave(player_index, true) {
+                self.update_player_index(world_index, swapped_index, player_index);
+            }
         }
+
     }
 
-    pub fn handle_packet(&mut self, client: NetworkClient, packet: InPacket) {
+    fn handle_packet(&mut self, client: NetworkClient, packet: InPacket) {
         
         println!("[{client:?}] Packet: {packet:?}");
 
@@ -123,7 +142,7 @@ impl Server {
     }
 
     /// Handle a packet for a client that is in handshaking state.
-    pub fn handle_handshaking(&mut self, client: NetworkClient, packet: InPacket) {
+    fn handle_handshaking(&mut self, client: NetworkClient, packet: InPacket) {
         match packet {
             InPacket::KeepAlive => {}
             InPacket::Handshake(_) => 
@@ -136,14 +155,14 @@ impl Server {
 
     /// Handle a handshake from a client that is still handshaking, there is no 
     /// restriction.
-    pub fn handle_handshake(&mut self, client: NetworkClient) {
+    fn handle_handshake(&mut self, client: NetworkClient) {
         self.net.send(client, OutPacket::Handshake(proto::OutHandshakePacket {
             server: "-".to_string(),
         }));
     }
 
     /// Handle a login after handshake.
-    pub fn handle_login(&mut self, client: NetworkClient, packet: proto::InLoginPacket) {
+    fn handle_login(&mut self, client: NetworkClient, packet: proto::InLoginPacket) {
 
         if packet.protocol_version != 14 {
             self.send_disconnect(client, format!("Protocol version mismatch!"));
@@ -173,28 +192,6 @@ impl Server {
         entity.look = offline_player.look;
         let entity_id = world.world.spawn_entity(entity);
 
-        let player_index = world.players.len();
-        world.players.push(ServerPlayer {
-            net: self.net.clone(),
-            client,
-            entity_id,
-            username: packet.username,
-            pos: offline_player.pos,
-            look: offline_player.look,
-            tracked_chunks: HashSet::new(),
-            breaking_block: None,
-        });
-        
-        // Replace the previous state with a playing state containing the world and 
-        // player indices, used to get to the player instance.
-        let previous_state = self.clients.insert(client, ClientState::Playing {
-            world_index,
-            player_index,
-        });
-
-        // Just a sanity check...
-        debug_assert_eq!(previous_state, Some(ClientState::Handshaking));
-
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {
             entity_id,
@@ -223,12 +220,35 @@ impl Server {
             time: world.world.time(),
         }));
 
+        // Finally insert the player tracker.
+        let player_index = world.handle_player_join(ServerPlayer {
+            net: self.net.clone(),
+            client,
+            entity_id,
+            username: packet.username,
+            pos: offline_player.pos,
+            look: offline_player.look,
+            tracked_chunks: HashSet::new(),
+            tracked_entities: HashSet::new(),
+            breaking_block: None,
+        });
+
+        // Replace the previous state with a playing state containing the world and 
+        // player indices, used to get to the player instance.
+        let previous_state = self.clients.insert(client, ClientState::Playing {
+            world_index,
+            player_index,
+        });
+
+        // Just a sanity check...
+        debug_assert_eq!(previous_state, Some(ClientState::Handshaking));
+
         // TODO: Broadcast chat joining chat message.
 
     }
 
     /// Send disconnect (a.k.a. kick) to a client.
-    pub fn send_disconnect(&mut self, client: NetworkClient, reason: String) {
+    fn send_disconnect(&mut self, client: NetworkClient, reason: String) {
         self.net.send(client, OutPacket::Disconnect(proto::DisconnectPacket {
             reason,
         }))
@@ -268,6 +288,8 @@ struct ServerWorld {
     name: String,
     /// The inner world data structure.
     world: World,
+    /// True when the world has been ticked once.
+    init: bool,
     /// Entity tracker, each is associated to the entity id.
     trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
@@ -285,6 +307,7 @@ impl ServerWorld {
         Self {
             name: name.into(),
             world: inner,
+            init: false,
             trackers: HashMap::new(),
             players: Vec::new(),
         }
@@ -292,7 +315,12 @@ impl ServerWorld {
     }
 
     /// Tick this world.
-    fn tick(&mut self, net: &Network) {
+    fn tick(&mut self) {
+
+        if !self.init {
+            self.handle_init();
+            self.init = true;
+        }
 
         self.world.tick();
 
@@ -310,8 +338,8 @@ impl ServerWorld {
         let mut events = self.world.swap_events(None).expect("events should be enabled");
         for event in events.drain(..) {
             match event {
-                Event::EntitySpawn { id, pos, look } =>
-                    self.handle_entity_spawn(id, pos, look),
+                Event::EntitySpawn { id } =>
+                    self.handle_entity_spawn(id),
                 Event::EntityKill { id } => 
                     self.handle_entity_kill(id),
                 Event::EntityPosition { id, pos } => 
@@ -320,7 +348,8 @@ impl ServerWorld {
                     self.handle_entity_look(id, look),
                 Event::BlockChange { pos, new_block, new_metadata, .. } => 
                     self.handle_block_change(pos, new_block, new_metadata),
-                Event::SpawnPosition { pos } => {}
+                Event::SpawnPosition { pos } =>
+                    self.handle_spawn_position(pos),
             }
             println!("[WORLD] Event: {event:?}");
         }
@@ -329,36 +358,108 @@ impl ServerWorld {
         self.world.swap_events(Some(events));
 
         // After world events are processed, tick entity trackers.
-        let update_players = time % 60 == 0;
         for tracker in self.trackers.values_mut() {
 
-            if update_players || !tracker.first_update {
-                for player in &self.players {
-                    tracker.update_player(player, &self.world);
-                }
+            if time % 60 == 0 {
+                tracker.update_tracking_players(&mut self.players, &self.world);
             }
 
             tracker.forced_countdown_ticks += 1;
-            if !tracker.first_update || time % tracker.interval as u64 == 0 {
-                tracker.tick(net);
+            if time % tracker.interval as u64 == 0 {
+                tracker.update_players(&self.players);
             }
 
         }
 
     }
+    
+    /// Initialize the world by ensuring that every entity is currently tracked. This
+    /// method can be called multiple time and should be idempotent.
+    fn handle_init(&mut self) {
+
+        // Ensure that every entity has a tracker.
+        for entity in self.world.iter_entities() {
+            self.trackers.entry(entity.id()).or_insert_with(|| {
+                let tracker = EntityTracker::new(entity);
+                tracker.update_tracking_players(&mut self.players, &self.world);
+                tracker
+            });
+        }
+
+    }
+
+    /// Handle a player joining this world.
+    fn handle_player_join(&mut self, mut player: ServerPlayer) -> usize {
+
+        // Initial tracked entities.
+        for tracker in self.trackers.values() {
+            tracker.update_tracking_player(&mut player, &self.world);
+        }
+
+        player.update_chunks(&mut self.world);
+        
+        let player_index = self.players.len();
+        self.players.push(player);
+        player_index
+
+    }
+
+    /// Handle a player leaving this world, this should remove its entity. The `lost`
+    /// argument indicates if the player is leaving because of a lost connection or not.
+    /// If the connection was not lost, chunks and entities previously tracked by the
+    /// player are send to be untracked. 
+    /// 
+    /// **Note that** this function swap remove the player, so the swapped player will
+    /// see its index changed, in such case its previous index if returned and should
+    /// change its index to the given player index.
+    fn handle_player_leave(&mut self, player_index: usize, lost: bool) -> Option<usize> {
+
+        // Remove the player tracker.
+        let mut player = self.players.swap_remove(player_index);
+        
+        // Kill the entity associated to the player.
+        self.world.kill_entity(player.entity_id);
+
+        // If player has not lost connection but it's just leaving the world, we just
+        // send it untrack packets.
+        if !lost {
+            
+            // Take and replace it with an empty set (no overhead).
+            let tracked_entities = std::mem::take(&mut player.tracked_entities);
+
+            // Untrack all its entities.
+            for entity_id in tracked_entities {
+                let tracker = self.trackers.get(&entity_id).expect("incoherent tracked entity");
+                tracker.kill_player_entity(&mut player);
+            }
+
+        }
+
+        if self.players.is_empty() {
+            // If the new player list is empty, there was no swapped player.
+            None
+        } else {
+            // If the list is not empty, this means that the player previously at length
+            // index was moved to 'player_index'.
+            Some(self.players.len())
+        }
+
+    }
 
     /// Handle an entity spawn world event.
-    fn handle_entity_spawn(&mut self, id: u32, pos: DVec3, look: Vec2) {
+    fn handle_entity_spawn(&mut self, id: u32) {
         let entity = self.world.entity(id).expect("incoherent event entity");
-        let mut tracker = EntityTracker::new(entity);
-        tracker.set_pos(pos);
-        tracker.set_look(look);
-        self.trackers.insert(id, tracker);
+        self.trackers.entry(id).or_insert_with(|| {
+            let tracker = EntityTracker::new(entity);
+            tracker.update_tracking_players(&mut self.players, &self.world);
+            tracker
+        });
     }
 
     /// Handle an entity kill world event.
     fn handle_entity_kill(&mut self, id: u32) {
-        // TODO:
+        let tracker = self.trackers.remove(&id).expect("incoherent event entity");
+        tracker.untrack_players(&mut self.players);
     }
 
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
@@ -385,6 +486,16 @@ impl ServerWorld {
         }
     }
 
+    /// Handle a dynamic update of the spawn position.
+    fn handle_spawn_position(&mut self, pos: DVec3) {
+        let pos = pos.floor().as_ivec3();
+        for player in &self.players {
+            player.send(OutPacket::SpawnPosition(proto::SpawnPositionPacket {
+                pos,
+            }))
+        }
+    }
+
 }
 
 /// A server player is an actual 
@@ -396,6 +507,7 @@ struct ServerPlayer {
     /// The entity id linked to this player.
     entity_id: u32,
     /// Its username.
+    #[allow(unused)] // FIXME: Use this for chat message for example.
     username: String,
     /// Last position sent by the client.
     pos: DVec3,
@@ -403,6 +515,10 @@ struct ServerPlayer {
     look: Vec2,
     /// Set of chunks that are already sent to the player.
     tracked_chunks: HashSet<(i32, i32)>,
+    /// Set of tracked entities by this player, all entity ids in this set are considered
+    /// known and rendered by the client, when the entity will disappear, a kill packet
+    /// should be sent.
+    tracked_entities: HashSet<u32>,
     /// If the player is breaking a block, this record the breaking state.
     breaking_block: Option<BreakingBlock>,
 }
@@ -410,6 +526,7 @@ struct ServerPlayer {
 /// State of a player breaking a block.
 struct BreakingBlock {
     /// The world time when breaking started.
+    #[allow(unused)] // FIXME: Check breaking time in the future.
     time: u64,
     /// The position of the block.
     pos: IVec3,
@@ -419,13 +536,9 @@ struct BreakingBlock {
 
 impl ServerPlayer {
 
+    /// Send a packet to this player.
     fn send(&self, packet: OutPacket) {
         self.net.send(self.client, packet);
-    }
-
-    /// Handle loss of this player.
-    fn handle_lost(self, world: &mut World) {
-        world.kill_entity(self.entity_id);
     }
 
     /// Handle an incoming packet from this player.
@@ -462,6 +575,7 @@ impl ServerPlayer {
     /// Handle a look packet.
     fn handle_look(&mut self, world: &mut World, packet: proto::LookPacket) {
         self.look = packet.look;
+        let _ = world;
     }
 
     /// Handle a position and look packet.
@@ -546,9 +660,9 @@ struct EntityTracker {
     /// The entity id.
     entity_id: u32,
     /// Maximum tracking distance for this type of entity.
-    distance: u32,
+    distance: u16,
     /// Update interval for this type of entity.
-    interval: u32,
+    interval: u16,
     /// Last known position of the entity.
     pos: IVec3,
     /// Last known look of the entity.
@@ -559,10 +673,6 @@ struct EntityTracker {
     sent_look: IVec2,
     /// This counter is forced 
     forced_countdown_ticks: u16,
-    /// Clients that tracks this entity.
-    clients: HashSet<NetworkClient>,
-    /// Indicate if this tracker has been ticked at least once.
-    first_update: bool,
 }
 
 impl EntityTracker {
@@ -585,7 +695,7 @@ impl EntityTracker {
             }
         };
 
-        Self {
+        let mut tracker = Self {
             entity_id: entity.id(),
             distance,
             interval,
@@ -594,28 +704,25 @@ impl EntityTracker {
             look: IVec2::ZERO,
             sent_pos: IVec3::ZERO,
             sent_look: IVec2::ZERO,
-            clients: HashSet::new(),
-            first_update: false,
-        }
+        };
+        tracker.set_pos(entity.pos());
+        tracker.set_look(entity.look());
+        tracker.sent_pos = tracker.pos;
+        tracker.sent_look = tracker.look;
+        tracker
 
-    }
+    } 
 
     fn set_pos(&mut self, pos: DVec3) {
         self.pos = pos.mul(32.0).floor().as_ivec3();
-        if !self.first_update {
-            self.sent_pos = self.pos;
-        }
     }
 
     fn set_look(&mut self, look: Vec2) {
         self.look = look.div(std::f32::consts::TAU).mul(256.0).as_ivec2();
-        if !self.first_update {
-            self.sent_look = self.look;
-        }
     }
 
-    /// Tick this tracker.
-    fn tick(&mut self, net: &Network) {
+    /// Update this tracker to determine which move packet to send and to which players.
+    fn update_players(&mut self, players: &[ServerPlayer]) {
 
         let delta_pos = self.pos - self.sent_pos;
         let delta_look = self.look - self.sent_look;
@@ -681,19 +788,25 @@ impl EntityTracker {
         }
 
         if let Some(packet) = move_packet {
-            for &client in &self.clients {
-                net.send(client, packet.clone());
+            for player in players {
+                if player.tracked_entities.contains(&self.entity_id) {
+                    player.send(packet.clone());
+                }
             }
         }
 
-        self.first_update = true;
-
     }
 
-    /// Update a player regarding this tracker, if the player is in range, this function
-    /// make sure that the player has the entity spawn on its side, if the player is not
-    /// longer in range, the entity is killed on its side.
-    fn update_player(&mut self, player: &ServerPlayer, world: &World) {
+    /// Update players to track or untrack this entity. See [`update_tracking_player`].
+    fn update_tracking_players(&self, players: &mut [ServerPlayer], world: &World) {
+        for player in players {
+            self.update_tracking_player(player, world);
+        }
+    }
+
+    /// Update a player to track or untrack this entity. The correct packet is sent if
+    /// the entity needs to appear or disappear on the client side.
+    fn update_tracking_player(&self, player: &mut ServerPlayer, world: &World) {
         
         // A player cannot track its own entity.
         if player.entity_id == self.entity_id {
@@ -702,17 +815,32 @@ impl EntityTracker {
 
         let delta = player.pos - self.pos.as_dvec3() / 32.0;
         if delta.x.abs() <= self.distance as f64 && delta.z.abs() <= self.distance as f64 {
-            if self.clients.insert(player.client) {
+            if player.tracked_entities.insert(self.entity_id) {
                 self.spawn_player_entity(player, world);
             }
-        } else if self.clients.remove(&player.client) {
+        } else if player.tracked_entities.remove(&self.entity_id) {
             self.kill_player_entity(player);
         }
 
     }
 
+    /// Force untrack this entity to this player if the player is already tracking it.
+    fn untrack_player(&self, player: &mut ServerPlayer) {
+        if player.tracked_entities.remove(&self.entity_id) {
+            self.kill_player_entity(player);
+        }
+    }
+
+    /// Force untrack this entity to all given players, it applies only to players that
+    /// were already tracking the entity.
+    fn untrack_players(&self, players: &mut [ServerPlayer]) {
+        for player in players {
+            self.untrack_player(player);
+        }
+    }
+
     /// Spawn the entity on the player side.
-    fn spawn_player_entity(&mut self, player: &ServerPlayer, world: &World) {
+    fn spawn_player_entity(&self, player: &ServerPlayer, world: &World) {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
         let Some(entity) = world.entity(self.entity_id) else { return };
@@ -758,7 +886,7 @@ impl EntityTracker {
     }
 
     /// Kill the entity on the player side.
-    fn kill_player_entity(&mut self, player: &ServerPlayer) {
+    fn kill_player_entity(&self, player: &ServerPlayer) {
         player.send(OutPacket::EntityKill(proto::EntityKillPacket { 
             entity_id: self.entity_id
         }));

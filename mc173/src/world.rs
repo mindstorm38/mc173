@@ -194,15 +194,12 @@ impl World {
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
-    fn spawn_entity_inner(&mut self, id: u32, entity: Box<dyn EntityGeneric>) {
+    fn spawn_entity_inner(&mut self, id: u32, pos: DVec3, entity: Box<dyn EntityGeneric>) {
 
         let entity_index = self.entities.len();
 
-        let entity_pos = entity.pos();
-        let entity_look = entity.look();
-
         // Bind the entity to an existing chunk if possible.
-        let (cx, cz) = calc_entity_chunk_pos(entity_pos);
+        let (cx, cz) = calc_entity_chunk_pos(pos);
         let mut world_entity = WorldEntity {
             inner: Some(entity),
             id,
@@ -221,7 +218,7 @@ impl World {
         self.entities.push(world_entity);
         self.entities_map.insert(id, entity_index);
 
-        self.push_event(Event::EntitySpawn { id, pos: entity_pos, look: entity_look });
+        self.push_event(Event::EntitySpawn { id });
 
     }
 
@@ -238,7 +235,7 @@ impl World {
         let mut entity = Box::new(entity);
         let id = self.next_entity_id();
         entity.id = id;
-        self.spawn_entity_inner(id, entity);
+        self.spawn_entity_inner(id, entity.pos, entity);
         id
     }
 
@@ -350,6 +347,13 @@ impl World {
         let min = bb.min.floor().as_ivec3();
         let max = bb.max.add(1.0).floor().as_ivec3();
         self.iter_area_bounding_boxes(min, max).filter(move |block_bb| block_bb.intersects(bb))
+    }
+
+    /// Iterate over all entities in the world.
+    pub fn iter_entities(&self) -> impl Iterator<Item = &dyn EntityGeneric> {
+        self.entities.iter()
+            .filter_map(|e| e.inner.as_ref())
+            .map(|e| &**e)
     }
 
     /// Iterate over all entities of the given chunk. This is legal for non-existing 
@@ -487,10 +491,6 @@ pub enum Event {
     EntitySpawn {
         /// The unique id of the spawned entity.
         id: u32,
-        /// Absolute position of the entity.
-        pos: DVec3,
-        /// The entity look.
-        look: Vec2,
     },
     /// An entity has been killed from the world.
     EntityKill {
