@@ -25,17 +25,24 @@ pub use pig::PigEntity;
 /// Base class for entity.
 #[derive(Debug)]
 pub struct Base<I> {
-    /// The internal entity id.
+    /// The internal entity id, it is unique to this entity within its world. It can be
+    /// used to uniquely refer to this entity when and where needed.
     pub id: u32,
     /// The current entity position.
     pub pos: DVec3,
     /// The current entity velocity.
     pub vel: DVec3,
-    /// Yaw/Pitch look, angles are in radian with no range guarantee.
+    /// Yaw a pitch angles of this entity's look. These are in radians with no range 
+    /// guarantee, although this will often be normalized in 2pi range.
     pub look: Vec2,
-    /// Lifetime of the entity, in ticks.
+    /// Bounding box of the entity at the initial position before ticking, this is used
+    /// for checking collision with the entity on the same tick. but it can be used as a base for collision detection.
+    pub bounding_box: BoundingBox,
+    /// Lifetime of the entity since it was spawned in the world, it increase at every
+    /// world tick.
     pub lifetime: u32,
-    /// Is this entity responding to block's collisions.
+    /// No clip is used to disable collision check when moving the entity, if no clip is
+    /// false, then the entity will be constrained by bounding box in its way.
     pub no_clip: bool,
     /// Is this entity currently on ground.
     pub on_ground: bool,
@@ -53,9 +60,6 @@ pub struct Base<I> {
     pub rider_id: Option<u32>,
     /// The random number generator used for this entity.
     pub rand: JavaRandom,
-    /// This bounding box is internally used by tick methods, it is usually initialized
-    /// with [`update_bounding_box`] or [`update`] methods.
-    pub bounding_box: BoundingBox,
     /// Inner implementation of the entity.
     pub base: I,
 }
@@ -65,10 +69,11 @@ impl<I: Default> Base<I> {
     pub fn new(pos: DVec3) -> Self {
         Self {
             id: 0,
+            lifetime: 0,
             pos,
             vel: DVec3::ZERO,
             look: Vec2::ZERO,
-            lifetime: 0,
+            bounding_box: BoundingBox::default(),
             no_clip: false,
             on_ground: false,
             in_water: false,
@@ -78,7 +83,6 @@ impl<I: Default> Base<I> {
             health: 1,
             rider_id: None,
             rand: JavaRandom::new_seeded(),
-            bounding_box: BoundingBox::default(),
             base: I::default(),
         }
     }
@@ -86,6 +90,18 @@ impl<I: Default> Base<I> {
 }
 
 impl<I> Base<I> {
+
+    /// This function is called for all entities prior to ticking each entity. It's used
+    /// to update the bounding box of the entity
+    pub fn update_bounding_box(&mut self, size: Size) {
+        let half_width = (size.width / 2.0) as f64;
+        let height = size.height as f64;
+        let height_center = size.height_center as f64;
+        self.bounding_box = BoundingBox {
+            min: self.pos - DVec3::new(half_width, height_center, half_width),
+            max: self.pos + DVec3::new(half_width, height + height_center, half_width),
+        };
+    }
 
     /// Common method to update entities..
     pub fn update(&mut self, world: &mut World) {
@@ -118,18 +134,6 @@ impl<I> Base<I> {
             world.kill_entity(self.id);
         }
 
-    }
-
-    /// Update the internal bounding box depending on the entity position and given 
-    /// bounding box size. Usually called through the [`update`] method.
-    pub fn update_bounding_box(&mut self, size: Size) {
-        let half_width = (size.width / 2.0) as f64;
-        let height = size.height as f64;
-        let height_center = size.height_center as f64;
-        self.bounding_box = BoundingBox {
-            min: self.pos - DVec3::new(half_width, height_center, half_width),
-            max: self.pos + DVec3::new(half_width, height + height_center, half_width),
-        };
     }
 
     /// Common method for moving an entity by a given amount while checking collisions.
