@@ -87,20 +87,6 @@ impl Server {
 
     }
 
-    /// Find a playing client state with the given world index and previous player index,
-    /// and replace the player index with the given one.
-    fn update_player_index(&mut self, prev_world_index: usize, prev_player_index: usize, new_player_index: usize) {
-        for client in self.clients.values_mut() {
-            if let ClientState::Playing { world_index, player_index } = client {
-                if *world_index == prev_world_index && *player_index == prev_player_index {
-                    *player_index = new_player_index;
-                    return;
-                }
-            }
-        }
-        debug_assert!(false, "no player index found to update");
-    }
-
     /// Handle new client accepted by the network.
     fn handle_accept(&mut self, client: NetworkClient) {
         println!("[{client:?}] Accepted");
@@ -116,9 +102,12 @@ impl Server {
         if let ClientState::Playing { world_index, player_index } = state {
             // If the client was playing, remove it from its world.
             let world = &mut self.worlds[world_index];
-            // Leave the player and check if an index has been swapped.
-            if let Some(swapped_index) = world.handle_player_leave(player_index, true) {
-                self.update_player_index(world_index, swapped_index, player_index);
+            if let Some(swapped_player) = world.handle_player_leave(player_index, true) {
+                // If a player has been swapped in place of the removed one, update the 
+                // swapped one to point to its new index (and same world).
+                let state = self.clients.get_mut(&swapped_player.client)
+                    .expect("swapped player should be existing");
+                *state = ClientState::Playing { world_index, player_index };
             }
         }
 
@@ -409,10 +398,11 @@ impl ServerWorld {
     /// If the connection was not lost, chunks and entities previously tracked by the
     /// player are send to be untracked. 
     /// 
-    /// **Note that** this function swap remove the player, so the swapped player will
-    /// see its index changed, in such case its previous index if returned and should
-    /// change its index to the given player index.
-    fn handle_player_leave(&mut self, player_index: usize, lost: bool) -> Option<usize> {
+    /// **Note that** this function swap remove the player, so the last player in this
+    /// world's list is moved to the given player index. So if it exists, you should 
+    /// update all indices pointing to the swapped player. This method returns, if 
+    /// existing, the player that was swapped.
+    fn handle_player_leave(&mut self, player_index: usize, lost: bool) -> Option<&ServerPlayer> {
 
         // Remove the player tracker.
         let mut player = self.players.swap_remove(player_index);
@@ -435,14 +425,7 @@ impl ServerWorld {
 
         }
 
-        if self.players.is_empty() {
-            // If the new player list is empty, there was no swapped player.
-            None
-        } else {
-            // If the list is not empty, this means that the player previously at length
-            // index was moved to 'player_index'.
-            Some(self.players.len())
-        }
+        self.players.get(player_index)
 
     }
 

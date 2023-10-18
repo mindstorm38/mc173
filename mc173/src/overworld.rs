@@ -5,7 +5,7 @@ use glam::{IVec3, DVec3};
 use crate::chunk::{Chunk, CHUNK_WIDTH};
 use crate::world::{World, Dimension};
 use crate::block::{STONE, GRASS};
-use crate::entity::PigEntity;
+// use crate::entity::PigEntity;
 
 
 pub fn new_overworld() -> World {
@@ -18,9 +18,9 @@ pub fn new_overworld() -> World {
         }
     }
 
-    for _ in 0..4 {
-        world.spawn_entity(PigEntity::new(DVec3::new(0.0, 70.0, 0.0)));
-    }
+    // for _ in 0..4 {
+    //     world.spawn_entity(PigEntity::new(DVec3::new(0.0, 70.0, 0.0)));
+    // }
 
     for x in -3..3 {
         for z in -3..3 {

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::thread;
+use std::fmt;
 
 use crossbeam_channel::{bounded, Sender, Receiver, TryRecvError};
 
@@ -139,8 +140,14 @@ where
 
 /// A handle to a client produced by a packet server. This handle can be used with a
 /// server to send packets to a client.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NetworkClient(Token);
+
+impl fmt::Debug for NetworkClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("NetworkClient").field(&self.0.0).finish()
+    }
+}
 
 /// An event of the packet
 #[derive(Debug)]

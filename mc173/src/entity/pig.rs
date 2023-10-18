@@ -23,7 +23,7 @@ impl EntityLogic for PigEntity {
         // EntityLiving.onLivingUpdate()
         self.update_living(world, Self::update_animal_ai);
         // EntityLiving.moveEntityWithHeading()
-        self.move_living_entity(world, 0.5);
+        self.update_living_position(world, 0.5);
 
     }
 

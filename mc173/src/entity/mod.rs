@@ -301,7 +301,7 @@ pub struct LookTarget {
 
 impl<I> Base<Living<I>> {
 
-    /// Update living entity AI and jump behaviors.
+    /// Update living entity AI and jump behaviors
     pub fn update_living<F>(&mut self, world: &mut World, ai_func: F)
     where
         F: FnOnce(&mut Self, &mut World),
@@ -400,7 +400,7 @@ impl<I> Base<Living<I>> {
     }
 
     /// Accelerate a living entity with the given strafing and forward accelerations.
-    pub fn accel_living_entity(&mut self, factor: f32) {
+    pub fn accel_living(&mut self, factor: f32) {
         let mut strafing = self.base.accel_strafing;
         let mut forward = self.base.accel_forward;
         let mut dist = Vec2::new(forward, strafing).length();
@@ -416,16 +416,16 @@ impl<I> Base<Living<I>> {
     }
 
     /// Move a living entity from its forward and strafing accelerations.
-    pub fn move_living_entity(&mut self, world: &mut World, step_height: f32) {
+    pub fn update_living_position(&mut self, world: &mut World, step_height: f32) {
 
         if self.in_water {
-            self.accel_living_entity(0.02);
+            self.accel_living(0.02);
             self.update_position(world, self.vel, step_height);
             self.vel *= 0.8;
             self.vel.y -= 0.02;
             // TODO: If collided horizontally
         } else if self.in_lava {
-            self.accel_living_entity(0.02);
+            self.accel_living(0.02);
             self.update_position(world, self.vel, step_height);
             self.vel *= 0.5;
             self.vel.y -= 0.02;
@@ -444,7 +444,7 @@ impl<I> Base<Living<I>> {
                 }
             }
 
-            self.accel_living_entity(match self.on_ground {
+            self.accel_living(match self.on_ground {
                 true => 0.1 * 0.16277136 / (slipperiness * slipperiness * slipperiness),
                 false => 0.02,
             });
