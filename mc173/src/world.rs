@@ -437,6 +437,11 @@ impl World {
 
         self.time += 1;
 
+        // Update every entity's bounding box prior to actually ticking.
+        for entity in &mut self.entities {
+            entity.inner.as_mut().unwrap().update_bounding_box();
+        }
+
         // NOTE: We don't use a for loop because killed and spawned entities may change
         // the length of the list.
         let mut i = 0;

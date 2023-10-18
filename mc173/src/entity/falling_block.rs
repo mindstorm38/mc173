@@ -21,6 +21,10 @@ pub type FallingBlockEntity = Base<FallingBlock>;
 
 impl EntityLogic for FallingBlockEntity {
 
+    fn size(&mut self) -> Size {
+        Size::new(1.0, 1.0)
+    }
+
     fn tick(&mut self, world: &mut World) {
 
         if self.base.block_id == 0 {
@@ -29,7 +33,6 @@ impl EntityLogic for FallingBlockEntity {
         }
 
         self.lifetime += 1;
-        self.update_bounding_box(Size::new(1.0, 1.0));
         
         self.vel.y -= 0.04;
         self.update_position_delta(world, self.vel, 0.0);

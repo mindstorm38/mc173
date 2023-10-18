@@ -22,9 +22,13 @@ pub type ItemEntity = Base<Item>;
 
 impl EntityLogic for ItemEntity {
 
+    fn size(&mut self) -> Size {
+        Size::new_centered(0.25, 0.25)
+    }
+
     fn tick(&mut self, world: &mut World) {
         
-        self.update(world, Size::new_centered(0.25, 0.25));
+        self.update(world);
 
         if self.base.frozen_ticks > 0 {
             self.base.frozen_ticks -= 1;

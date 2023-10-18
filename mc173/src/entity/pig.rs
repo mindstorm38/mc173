@@ -16,10 +16,14 @@ pub type PigEntity = Base<Living<Creature<Pig>>>;
 
 impl EntityLogic for PigEntity {
 
+    fn size(&mut self) -> Size {
+        Size::new(0.9, 0.9)
+    }
+    
     fn tick(&mut self, world: &mut World) {
         
         // Entity.onEntityUpdate()
-        self.update(world, Size::new(0.9, 0.9));
+        self.update(world);
         // EntityLiving.onLivingUpdate()
         self.update_living(world, Self::update_animal_ai);
         // EntityLiving.moveEntityWithHeading()

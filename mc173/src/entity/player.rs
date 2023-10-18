@@ -17,10 +17,16 @@ pub struct Player {
 pub type PlayerEntity = Base<Living<Player>>;
 
 impl EntityLogic for PlayerEntity {
+
+    fn size(&mut self) -> Size {
+        Size::new(0.9, 0.9)
+    }
     
     fn tick(&mut self, world: &mut World) {
         
-        self.update(world, Size::new(0.9, 0.9));
+        self.update(world);
+
+        // world.iter_colliding_bounding_boxes(bb)
 
     }
 

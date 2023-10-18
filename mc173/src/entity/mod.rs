@@ -54,7 +54,7 @@ pub struct Base<I> {
     /// The random number generator used for this entity.
     pub rand: JavaRandom,
     /// This bounding box is internally used by tick methods, it is usually initialized
-    /// with [`update_bounding_box`] or [`update_entity`] methods.
+    /// with [`update_bounding_box`] or [`update`] methods.
     pub bounding_box: BoundingBox,
     /// Inner implementation of the entity.
     pub base: I,
@@ -88,10 +88,9 @@ impl<I: Default> Base<I> {
 impl<I> Base<I> {
 
     /// Common method to update entities..
-    pub fn update(&mut self, world: &mut World, size: Size) {
+    pub fn update(&mut self, world: &mut World) {
 
         self.lifetime += 1;
-        self.update_bounding_box(size);
 
         // TODO: Handle water velocity.
         self.in_water = false;
@@ -122,7 +121,7 @@ impl<I> Base<I> {
     }
 
     /// Update the internal bounding box depending on the entity position and given 
-    /// bounding box size.
+    /// bounding box size. Usually called through the [`update`] method.
     pub fn update_bounding_box(&mut self, size: Size) {
         let half_width = (size.width / 2.0) as f64;
         let height = size.height as f64;
@@ -676,6 +675,12 @@ impl Path {
 /// implement the [`Any`] trait, this provides downcasts on dynamic pointers to entities.
 pub trait EntityLogic: Any {
 
+    /// Get the size of the entity in its current state. This is used at each tick to 
+    /// update the bounding box of all entities before actually ticking them. This allows
+    /// performing bounding box collisions with all previous and future entities when
+    /// actually ticking.
+    fn size(&mut self) -> Size;
+
     /// Tick this entity and update its internal components.
     fn tick(&mut self, world: &mut World);
 
@@ -685,7 +690,7 @@ pub trait EntityLogic: Any {
 /// Base trait for [`EntityLogic`] implementors, it is automatically implemented for all
 /// generic type [`Base`] and provides common methods to access base properties of an
 /// entity behind a dynamic reference.
-pub trait EntityGeneric: EntityLogic {
+pub trait EntityGeneric: Any {
 
     /// Get the entity id.
     fn id(&self) -> u32;
@@ -704,6 +709,12 @@ pub trait EntityGeneric: EntityLogic {
 
     /// Debug-purpose underlying type name.
     fn type_name(&self) -> &'static str;
+
+    /// Update the internal bounding box of the entity depending on its size.
+    fn update_bounding_box(&mut self);
+
+    /// Actually tick the entity, delegating to underlying logic.
+    fn tick(&mut self, world: &mut World);
 
 }
 
@@ -762,6 +773,18 @@ where
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
+
+    #[inline]
+    fn update_bounding_box(&mut self) {
+        let size = EntityLogic::size(self);
+        self.update_bounding_box(size);
+    }
+
+    #[inline]
+    fn tick(&mut self, world: &mut World) {
+        EntityLogic::tick(self, world);
+    }
+    
     
 }
 
