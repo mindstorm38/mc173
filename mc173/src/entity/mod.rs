@@ -134,15 +134,11 @@ impl<I> Base<I> {
     }
 
     /// Common method for moving an entity by a given amount while checking collisions.
-    /// 
-    /// **This is the only method to use for actually modifying the entity position.**
-    pub fn update_position(&mut self, world: &mut World, delta: DVec3, step_height: f32) {
-
-        let prev_pos = self.pos;
+    pub fn update_position_delta(&mut self, world: &mut World, delta: DVec3, step_height: f32) {
 
         if self.no_clip {
             self.bounding_box += delta;
-            self.pos += delta;
+            self.update_position(world, self.pos + delta);
         } else {
 
             // TODO: 
@@ -192,7 +188,7 @@ impl<I> Base<I> {
                 // TODO: todo!("handle step motion");
             }
 
-            self.pos += new_delta;
+            self.update_position(world, self.pos + new_delta);
             self.on_ground = on_ground;
 
             if on_ground {
@@ -218,19 +214,25 @@ impl<I> Base<I> {
 
         }
 
-        if prev_pos != self.pos {
+    }
+
+    /// Update position of the entity, sending an event if needed.
+    /// 
+    /// **This is the only method to use for actually modifying the entity position.**
+    pub fn update_position(&mut self, world: &mut World, pos: DVec3) {
+        if pos != self.pos {
+            self.pos = pos;
             world.push_event(Event::EntityPosition { 
                 id: self.id, 
-                pos: self.pos,
+                pos,
             })
         }
-
     }
 
     /// Update look of the entity, sending an event if needed.
     /// 
     /// **This is the only method to use for actually modifying the entity look.**
-    fn update_look(&mut self, world: &mut World, look: Vec2) {
+    pub fn update_look(&mut self, world: &mut World, look: Vec2) {
 
         if look != self.look {
             self.look = look;
@@ -420,13 +422,13 @@ impl<I> Base<Living<I>> {
 
         if self.in_water {
             self.accel_living(0.02);
-            self.update_position(world, self.vel, step_height);
+            self.update_position_delta(world, self.vel, step_height);
             self.vel *= 0.8;
             self.vel.y -= 0.02;
             // TODO: If collided horizontally
         } else if self.in_lava {
             self.accel_living(0.02);
-            self.update_position(world, self.vel, step_height);
+            self.update_position_delta(world, self.vel, step_height);
             self.vel *= 0.5;
             self.vel.y -= 0.02;
             // TODO: If collided horizontally
@@ -451,7 +453,7 @@ impl<I> Base<Living<I>> {
             
             // TODO: Is on ladder
 
-            self.update_position(world, self.vel, step_height);
+            self.update_position_delta(world, self.vel, step_height);
 
             // TODO: Collided horizontally and on ladder
 

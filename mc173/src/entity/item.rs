@@ -34,7 +34,7 @@ impl EntityLogic for ItemEntity {
 
         // TODO: handle lava
 
-        self.update_position(world, self.vel, 0.0);
+        self.update_position_delta(world, self.vel, 0.0);
 
         let mut slipperiness = 0.98;
 

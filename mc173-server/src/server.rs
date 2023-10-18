@@ -551,21 +551,42 @@ impl ServerPlayer {
 
     /// Handle a position packet.
     fn handle_position(&mut self, world: &mut World, packet: proto::PositionPacket) {
-        self.pos = packet.pos;
-        self.update_chunks(world);
+        self.handle_position_look_inner(world, Some(packet.pos), None);
     }
 
     /// Handle a look packet.
     fn handle_look(&mut self, world: &mut World, packet: proto::LookPacket) {
-        self.look = packet.look;
-        let _ = world;
+        self.handle_position_look_inner(world, None, Some(packet.look));
     }
 
     /// Handle a position and look packet.
     fn handle_position_look(&mut self, world: &mut World, packet: proto::PositionLookPacket) {
-        self.pos = packet.pos;
-        self.look = packet.look;
-        self.update_chunks(world);
+        self.handle_position_look_inner(world, Some(packet.pos), Some(packet.look));
+    }
+
+    fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>) {
+
+        let entity = self.entity_mut(world);
+
+        if let Some(pos) = pos {
+            self.pos = pos;
+            entity.pos = self.pos;
+        }
+
+        if let Some(look) = look {
+            self.look = Vec2::new(look.x.to_radians(), look.y.to_radians());
+            entity.look = self.look;
+        }
+
+        if pos.is_some() {
+            world.push_event(Event::EntityPosition { id: self.entity_id, pos: self.pos });
+            self.update_chunks(world);
+        }
+
+        if look.is_some() {
+            world.push_event(Event::EntityLook { id: self.entity_id, look: self.look });
+        }
+
     }
 
     /// Handle a break block packet.
@@ -631,6 +652,12 @@ impl ServerPlayer {
             }
         }
 
+    }
+    
+    /// Get a mutable access to the underlying player entity.
+    fn entity_mut<'a>(&self, world: &'a mut World) -> &'a mut PlayerEntity {
+        world.entity_downcast_mut::<PlayerEntity>(self.entity_id)
+            .expect("invalid player entity")
     }
 
 }

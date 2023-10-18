@@ -32,7 +32,7 @@ impl EntityLogic for FallingBlockEntity {
         self.update_bounding_box(Size::new(1.0, 1.0));
         
         self.vel.y -= 0.04;
-        self.update_position(world, self.vel, 0.0);
+        self.update_position_delta(world, self.vel, 0.0);
 
         if self.on_ground {
             self.vel *= DVec3::new(0.7, -0.5, 0.7);
