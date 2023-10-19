@@ -456,11 +456,24 @@ impl World {
             let mut entity = self.entities[i].inner.take().unwrap();
             entity.tick(&mut *self);
 
+            // This checks if the entity is still alive.
             if let Some(entity_index) = self.updating_entity_index {
 
+                // Before re-adding the entity, check dirty flags to send proper events.
+                let entity_base = entity.base_mut();
+
+                if std::mem::take(&mut entity_base.pos_dirty) {
+                    self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
+                }
+
+                if std::mem::take(&mut entity_base.look_dirty) {
+                    self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
+                }
+
                 // After tick, we re-add the entity.
-                debug_assert!(self.entities[i].inner.is_none(), "incoherent updating entity");
-                self.entities[i].inner = Some(entity);
+                let world_entity = &mut self.entities[i];
+                debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
+                world_entity.inner = Some(entity);
 
                 // Only increment if the entity index has not changed.
                 if entity_index == i {

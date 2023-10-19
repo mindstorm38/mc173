@@ -572,20 +572,13 @@ impl ServerPlayer {
         if let Some(pos) = pos {
             self.pos = pos;
             entity_base.pos = self.pos;
+            entity_base.pos_dirty = true;
         }
 
         if let Some(look) = look {
             self.look = Vec2::new(look.x.to_radians(), look.y.to_radians());
             entity_base.look = self.look;
-        }
-
-        if pos.is_some() {
-            world.push_event(Event::EntityPosition { id: self.entity_id, pos: self.pos });
-            self.update_chunks(world);
-        }
-
-        if look.is_some() {
-            world.push_event(Event::EntityLook { id: self.entity_id, look: self.look });
+            entity_base.look_dirty = true;
         }
 
     }

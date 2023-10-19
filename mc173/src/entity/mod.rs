@@ -115,11 +115,18 @@ pub struct BaseData {
     /// can be set forced by setting the size to none, this will force recomputation of
     /// the bounding box, instead of overwriting the position.
     pub pos: DVec3,
+    /// True if an entity pos event should be sent after update.
+    /// 
+    /// TODO: Maybe replace this by a special wrapper type around pos and look, and maybe 
+    /// other properties in the future...
+    pub pos_dirty: bool,
     /// The current entity velocity.
     pub vel: DVec3,
     /// Yaw a pitch angles of this entity's look. These are in radians with no range 
     /// guarantee, although this will often be normalized in 2pi range.
     pub look: Vec2,
+    /// True if an entity look event should be sent after update.
+    pub look_dirty: bool,
     /// Lifetime of the entity since it was spawned in the world, it increase at every
     /// world tick.
     pub lifetime: u32,

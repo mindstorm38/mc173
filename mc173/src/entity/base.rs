@@ -62,7 +62,6 @@ impl<I> Base<I> {
 
         if self.no_clip {
             self.bb += delta;
-            self.pos += delta;
         } else {
 
             // TODO: 
@@ -110,7 +109,6 @@ impl<I> Base<I> {
                 // TODO: todo!("handle step motion");
             }
 
-            self.pos += new_delta;
             self.on_ground = on_ground;
 
             if on_ground {
@@ -136,6 +134,8 @@ impl<I> Base<I> {
 
         }
 
+        self.update_pos_from_bounding_box();
+
     }
     
     /// This function recompute the current bounding box from the position and the last
@@ -155,12 +155,19 @@ impl<I> Base<I> {
     /// This position recompute the current position based on the bounding box' position
     /// the size that was used to create it.
     pub fn update_pos_from_bounding_box(&mut self) {
+        
         let height_center = self.size.height_center as f64;
-        self.pos = DVec3 {
+        let new_pos = DVec3 {
             x: (self.bb.min.x + self.bb.max.x) / 2.0,
             y: self.bb.min.y + height_center,
             z: (self.bb.min.z + self.bb.max.z) / 2.0,
+        };
+
+        if new_pos != self.pos {
+            self.pos = new_pos;
+            self.pos_dirty = true;
         }
+        
     }
 
     /// Modify the look angles of this entity, limited to the given step. We you need to
@@ -168,7 +175,10 @@ impl<I> Base<I> {
     pub fn update_look_by_step(&mut self, look: Vec2, step: Vec2) {
         let look = look.rem_euclid(Vec2::splat(std::f32::consts::TAU));
         let delta = look.sub(self.look).min(step);
-        self.look += delta;
+        if delta != Vec2::ZERO {
+            self.look_dirty = true;
+            self.look += delta;
+        }
     }
 
     /// Modify the look angles to point to a given target step by step.
