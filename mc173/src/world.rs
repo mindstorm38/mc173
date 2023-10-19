@@ -11,7 +11,7 @@ use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 
-use crate::entity::{self, EntityLogic, ItemEntity, EntityGeneric};
+use crate::entity::{Entity, ItemEntity};
 use crate::block;
 
 
@@ -184,28 +184,28 @@ impl World {
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
-    fn next_entity_id(&mut self) -> u32 {
+    fn spawn_entity_inner(&mut self, mut entity: Box<Entity>) -> u32 {
+
+        // Initial position is used to known in which chunk to cache it.
+        let entity_base = entity.base_mut();
+        let entity_index = self.entities.len();
+
+        // Get the next unique entity id.
         let id = self.next_entity_id;
         self.next_entity_id = self.next_entity_id.checked_add(1)
             .expect("entity id overflow");
-        id
-    }
 
-    /// Internal function to ensure monomorphization and reduce bloat of the 
-    /// generic [`spawn_entity`].
-    #[inline(never)]
-    fn spawn_entity_inner(&mut self, id: u32, pos: DVec3, entity: Box<dyn EntityGeneric>) {
-
-        let entity_index = self.entities.len();
+        entity_base.id = id;
 
         // Bind the entity to an existing chunk if possible.
-        let (cx, cz) = calc_entity_chunk_pos(pos);
+        let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
         let mut world_entity = WorldEntity {
             inner: Some(entity),
             id,
             cx,
             cz,
             orphan: false,
+            bb: None,
         };
         
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
@@ -219,6 +219,7 @@ impl World {
         self.entities_map.insert(id, entity_index);
 
         self.push_event(Event::EntitySpawn { id });
+        id
 
     }
 
@@ -227,16 +228,10 @@ impl World {
     /// 
     /// **This function is legal to call from ticking entities, but such entities will be
     /// ticked once in the same cycle as the currently ticking entity.**
-    #[inline]
-    pub fn spawn_entity<B>(&mut self, entity: entity::Base<B>) -> u32
-    where
-        entity::Base<B>: EntityLogic
-    {
-        let mut entity = Box::new(entity);
-        let id = self.next_entity_id();
-        entity.id = id;
-        self.spawn_entity_inner(id, entity.pos, entity);
-        id
+    #[inline(always)]
+    pub fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32 {
+        // NOTE: This method is just a wrapper to ensure boxed entity.
+        self.spawn_entity_inner(entity.into())
     }
 
     /// Kill an entity given its id, this function ensure coherency with chunks cache.
@@ -295,62 +290,59 @@ impl World {
     /// Get a generic entity from its unique id. This generic entity can later be checked
     /// for being of a particular type.
     #[track_caller]
-    pub fn entity(&self, id: u32) -> Option<&dyn EntityGeneric> {
+    pub fn entity(&self, id: u32) -> Option<&Entity> {
         let index = *self.entities_map.get(&id)?;
         Some(self.entities[index].inner
             .as_deref()
             .expect("entity is being updated"))
     }
 
-    /// Get an entity of a given type from its unique id. If an entity exists with this id
-    /// but is not of the right type, none is returned.
-    #[track_caller]
-    pub fn entity_downcast<E: EntityGeneric>(&self, id: u32) -> Option<&E> {
-        self.entity(id)?.downcast_ref()
-    }
-
     /// Get a generic entity from its unique id. This generic entity can later be checked
     /// for being of a particular type.
     #[track_caller]
-    pub fn entity_mut(&mut self, id: u32) -> Option<&mut dyn EntityGeneric> {
+    pub fn entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
         let index = *self.entities_map.get(&id)?;
         Some(self.entities[index].inner
             .as_deref_mut()
             .expect("entity is being updated"))
     }
 
-    /// Get an entity of a given type from its unique id. If an entity exists with this id
-    /// but is not of the right type, none is returned.
-    #[track_caller]
-    pub fn entity_downcast_mut<E: EntityGeneric>(&mut self, id: u32) -> Option<&mut E> {
-        self.entity_mut(id)?.downcast_mut()
-    }
-
     /// Iterate over all blocks in the given area.
     /// *Min is inclusive and max is exclusive.*
-    pub fn iter_area_blocks(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + FusedIterator + '_ {
+    pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
         WorldAreaBlocks::new(self, min, max)
+    }
+
+    /// Iterate over all blocks that are in the bounding box area, this doesn't check for
+    /// actual collision with the block's bounding box, it just return all potential 
+    /// blocks in the bounding box' area.
+    pub fn iter_blocks_in_box(&self, bb: BoundingBox) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
+        let min = bb.min.floor().as_ivec3();
+        let max = bb.max.add(1.0).floor().as_ivec3();
+        self.iter_blocks_in(min, max)
     }
 
     /// Iterate over all bounding boxes in the given area.
     /// *Min is inclusive and max is exclusive.*
-    pub fn iter_area_bounding_boxes(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
-        self.iter_area_blocks(min, max).flat_map(|(pos, id, metadata)| {
+    pub fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
+        self.iter_blocks_in(min, max).flat_map(|(pos, block, metadata)| {
             let pos = pos.as_dvec3();
-            block::from_id(id).bounding_boxes(metadata).iter().map(move |bb| bb.offset(pos))
+            block::from_id(block).bounding_boxes(metadata).iter()
+                .map(move |bb| bb.offset(pos))
         })
     }
 
     /// Iterate over all bounding boxes in the given area that are colliding with the 
-    /// given one. *Min is inclusive and max is exclusive.*
-    pub fn iter_colliding_bounding_boxes(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
+    /// given one.
+    pub fn iter_blocks_boxes_colliding_in(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
         let min = bb.min.floor().as_ivec3();
         let max = bb.max.add(1.0).floor().as_ivec3();
-        self.iter_area_bounding_boxes(min, max).filter(move |block_bb| block_bb.intersects(bb))
+        self.iter_blocks_boxes_in(min, max)
+            .filter(move |block_bb| block_bb.intersects(bb))
     }
 
     /// Iterate over all entities in the world.
-    pub fn iter_entities(&self) -> impl Iterator<Item = &dyn EntityGeneric> {
+    pub fn iter_entities(&self) -> impl Iterator<Item = &Entity> {
         self.entities.iter()
             .filter_map(|e| e.inner.as_ref())
             .map(|e| &**e)
@@ -358,7 +350,7 @@ impl World {
 
     /// Iterate over all entities of the given chunk. This is legal for non-existing 
     /// chunks, in such case this will search for orphan entities.
-    pub fn iter_chunk_entities(&self, cx: i32, cz: i32) -> impl Iterator<Item = &dyn EntityGeneric> {
+    pub fn iter_chunk_entities(&self, cx: i32, cz: i32) -> impl Iterator<Item = &Entity> {
         
         let (entities, orphan) = self.chunks.get(&(cx, cz))
             .map(|c| (&c.entities[..], false))
@@ -418,15 +410,16 @@ impl World {
             .as_dvec3()
             .add((1.0 - SPREAD as f64) * 0.5);
 
-        let mut entity = ItemEntity::new(pos.as_dvec3() + delta);
+        let mut entity = ItemEntity::default();
+        entity.pos = pos.as_dvec3() + delta;
         entity.vel.x = self.rand.next_double() * 0.2 - 0.1;
         entity.vel.y = 0.2;
         entity.vel.z = self.rand.next_double() * 0.2 - 0.1;
-        entity.base.item.id = prev_block as u16;
-        entity.base.item.size = 1;
-        entity.base.frozen_ticks = 10;
+        entity.kind.item.id = prev_block as u16;
+        entity.kind.item.size = 1;
+        entity.kind.frozen_ticks = 10;
         
-        self.spawn_entity(entity);
+        self.spawn_entity(Entity::Item(entity));
 
         true
         
@@ -438,8 +431,11 @@ impl World {
         self.time += 1;
 
         // Update every entity's bounding box prior to actually ticking.
-        for entity in &mut self.entities {
-            entity.inner.as_mut().unwrap().update_bounding_box();
+        for world_entity in &mut self.entities {
+            // NOTE: Unwrapping because entities should not be updating here.
+            let entity = world_entity.inner.as_ref().unwrap();
+            let entity_base = entity.base();
+            world_entity.bb = entity_base.coherent.then_some(entity_base.bb);
         }
 
         // NOTE: We don't use a for loop because killed and spawned entities may change
@@ -547,7 +543,7 @@ struct WorldChunk {
 struct WorldEntity {
     /// Underlying entity, the none variant is rare and only happen once per tick when
     /// the chunk is updated.
-    inner: Option<Box<dyn EntityGeneric>>,
+    inner: Option<Box<Entity>>,
     /// Unique entity id is duplicated here to allow us to access it event when entity
     /// is updating.
     id: u32,
@@ -557,6 +553,10 @@ struct WorldEntity {
     cz: i32,
     /// Indicate if this entity is orphan and therefore does not belong to any chunk.
     orphan: bool,
+    /// The bounding box of this entity prior to ticking, none is used if the entity
+    /// bounding box isn't coherent, which is the default when the entity has just been
+    /// spawned.
+    bb: Option<BoundingBox>,
 }
 
 

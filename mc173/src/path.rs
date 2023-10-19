@@ -80,7 +80,7 @@ impl<'a> PathFinder<'a> {
     /// Check clearance of the given position, depending on the current entity size.
     fn check_clearance(&self, pos: IVec3) -> PathClearance {
         
-        for (_, block, metadata) in self.world.iter_area_blocks(pos, pos + self.entity_size) {
+        for (_, block, metadata) in self.world.iter_blocks_in(pos, pos + self.entity_size) {
             match block {
                 block::AIR => {}
                 block::IRON_DOOR | block::WOOD_DOOR => {

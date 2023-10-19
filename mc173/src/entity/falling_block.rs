@@ -1,33 +1,20 @@
-//! Falling block entity implementation.
+//! Falling block entity logic implementation.
 
 use glam::DVec3;
 
-use crate::entity::Size;
 use crate::world::World;
 
-use super::{EntityLogic, Base};
+use super::{FallingBlockEntity, Size};
 
 
-#[derive(Debug, Default)]
-pub struct FallingBlock {
-    /// Number of ticks since this block is falling.
-    pub fall_ticks: u32,
-    /// The falling block id.
-    pub block_id: u8,
-}
+impl FallingBlockEntity {
 
-/// A falling block entity.
-pub type FallingBlockEntity = Base<FallingBlock>;
+    /// Tick the falling block entity.
+    pub fn tick_falling_block(&mut self, world: &mut World) {
 
-impl EntityLogic for FallingBlockEntity {
+        self.tick_base(world, Size::new_centered(1.0, 1.0));
 
-    fn size(&mut self) -> Size {
-        Size::new(1.0, 1.0)
-    }
-
-    fn tick(&mut self, world: &mut World) {
-
-        if self.base.block_id == 0 {
+        if self.kind.block_id == 0 {
             world.kill_entity(self.id);
             return;
         }
@@ -35,7 +22,7 @@ impl EntityLogic for FallingBlockEntity {
         self.lifetime += 1;
         
         self.vel.y -= 0.04;
-        self.update_position_delta(world, self.vel, 0.0);
+        self.update_pos_move(world, self.vel, 0.0);
 
         if self.on_ground {
             self.vel *= DVec3::new(0.7, -0.5, 0.7);

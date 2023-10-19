@@ -14,8 +14,8 @@ use flate2::Compression;
 use glam::{DVec3, Vec2, IVec3, IVec2};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
-use mc173::entity::{PlayerEntity, PigEntity, ItemEntity, EntityGeneric};
 use mc173::world::{World, Dimension, Event};
+use mc173::entity::{Entity, PlayerEntity};
 use mc173::overworld::new_overworld;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
@@ -175,11 +175,11 @@ impl Server {
             .next()
             .expect("invalid offline player world name");
 
-        let mut entity = PlayerEntity::new(offline_player.pos);
-        entity.base.living.username = packet.username.clone();
+        let mut entity = PlayerEntity::default();
+        entity.kind.kind.username = packet.username.clone();
         entity.pos = offline_player.pos;
         entity.look = offline_player.look;
-        let entity_id = world.world.spawn_entity(entity);
+        let entity_id = world.world.spawn_entity(Entity::Player(entity));
 
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {
@@ -354,7 +354,7 @@ impl ServerWorld {
             }
 
             tracker.forced_countdown_ticks += 1;
-            if time % tracker.interval as u64 == 0 {
+            if tracker.interval != 0 && time % tracker.interval as u64 == 0 {
                 tracker.update_players(&self.players);
             }
 
@@ -368,7 +368,7 @@ impl ServerWorld {
 
         // Ensure that every entity has a tracker.
         for entity in self.world.iter_entities() {
-            self.trackers.entry(entity.id()).or_insert_with(|| {
+            self.trackers.entry(entity.base().id).or_insert_with(|| {
                 let tracker = EntityTracker::new(entity);
                 tracker.update_tracking_players(&mut self.players, &self.world);
                 tracker
@@ -566,16 +566,17 @@ impl ServerPlayer {
 
     fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>) {
 
-        let entity = self.entity_mut(world);
+        let entity = world.entity_mut(self.entity_id).expect("incoherent player entity");
+        let entity_base = entity.base_mut();
 
         if let Some(pos) = pos {
             self.pos = pos;
-            entity.pos = self.pos;
+            entity_base.pos = self.pos;
         }
 
         if let Some(look) = look {
             self.look = Vec2::new(look.x.to_radians(), look.y.to_radians());
-            entity.look = self.look;
+            entity_base.look = self.look;
         }
 
         if pos.is_some() {
@@ -653,12 +654,6 @@ impl ServerPlayer {
         }
 
     }
-    
-    /// Get a mutable access to the underlying player entity.
-    fn entity_mut<'a>(&self, world: &'a mut World) -> &'a mut PlayerEntity {
-        world.entity_downcast_mut::<PlayerEntity>(self.entity_id)
-            .expect("invalid player entity")
-    }
 
 }
 
@@ -687,26 +682,33 @@ struct EntityTracker {
 
 impl EntityTracker {
 
-    fn new(entity: &dyn EntityGeneric) -> Self {
+    fn new(entity: &Entity) -> Self {
 
-        macro_rules! entity_match {
-            (match ($entity:expr) { $($ty:ty => $value:expr),* $(,)? }) => {
-                if false { unreachable!() } 
-                $(else if $entity.is::<$ty>() { $value })* 
-                else { panic!("unmatched entity type"); }
-            };
-        }
-
-        let (distance, interval) = entity_match! {
-            match (entity) {
-                PlayerEntity => (512, 2),
-                PigEntity => (160, 3),
-                ItemEntity => (64, 20),
-            }
+        let (distance, interval) = match entity {
+            Entity::Player(_) => (512, 2),
+            Entity::Fish(_) => (64, 5),
+            Entity::Arrow(_) => (64, 20),
+            Entity::Fireball(_) => (64, 10),
+            Entity::Snowball(_) => (64, 10),
+            Entity::Item(_) => (64, 20),
+            Entity::Minecart(_) => (160, 5),
+            Entity::Boat(_) => (160, 5),
+            Entity::Squid(_) => (160, 3),
+            Entity::Chicken(_) |
+            Entity::Cow(_) |
+            Entity::Sheep(_) |
+            Entity::Wolf(_) |
+            Entity::Pig(_) => (160, 3),
+            Entity::Tnt(_) => (160, 10),
+            Entity::FallingBlock(_) => (160, 20),
+            Entity::Painting(_) => (160, 0),
+            _ => unimplemented!("unsupported entity")
         };
 
+        let entity_base = entity.base();
+
         let mut tracker = Self {
-            entity_id: entity.id(),
+            entity_id: entity_base.id,
             distance,
             interval,
             forced_countdown_ticks: 0,
@@ -715,8 +717,9 @@ impl EntityTracker {
             sent_pos: IVec3::ZERO,
             sent_look: IVec2::ZERO,
         };
-        tracker.set_pos(entity.pos());
-        tracker.set_look(entity.look());
+        
+        tracker.set_pos(entity_base.pos);
+        tracker.set_look(entity_base.look);
         tracker.sent_pos = tracker.pos;
         tracker.sent_look = tracker.look;
         tracker
@@ -854,43 +857,46 @@ impl EntityTracker {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
         let Some(entity) = world.entity(self.entity_id) else { return };
-
-        if let Some(entity) = entity.downcast_ref::<PlayerEntity>() {
-            player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
-                entity_id: entity.id,
-                username: entity.base.living.username.clone(),
-                x: self.sent_pos.x, 
-                y: self.sent_pos.y, 
-                z: self.sent_pos.z, 
-                yaw: self.sent_look.x as i8,
-                pitch: self.sent_look.y as i8,
-                current_item: 0, // TODO:
-            }));
-        } else if let Some(entity) = entity.downcast_ref::<ItemEntity>() {
-            let vel = entity.vel.mul(128.0).as_ivec3();
-            player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
-                entity_id: entity.id, 
-                item: entity.base.item, 
-                x: self.sent_pos.x, 
-                y: self.sent_pos.y, 
-                z: self.sent_pos.z, 
-                vx: vel.x as i8,
-                vy: vel.y as i8,
-                vz: vel.z as i8,
-            }));
-        } else if let Some(entity) = entity.downcast_ref::<PigEntity>() {
-            player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
-                entity_id: entity.id,
-                kind: 90,
-                x: self.sent_pos.x, 
-                y: self.sent_pos.y, 
-                z: self.sent_pos.z, 
-                yaw: self.sent_look.x as i8,
-                pitch: self.sent_look.y as i8,
-                metadata: Vec::new(), // TODO:
-            }));
-        } else {
-            unimplemented!("unknown entity");
+        
+        match entity {
+            Entity::Player(base) => {
+                player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
+                    entity_id: base.id,
+                    username: base.kind.kind.username.clone(),
+                    x: self.sent_pos.x, 
+                    y: self.sent_pos.y, 
+                    z: self.sent_pos.z, 
+                    yaw: self.sent_look.x as i8,
+                    pitch: self.sent_look.y as i8,
+                    current_item: 0, // TODO:
+                }));
+            }
+            Entity::Item(base) => {
+                let vel = base.vel.mul(128.0).as_ivec3();
+                player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
+                    entity_id: base.id, 
+                    item: base.kind.item, 
+                    x: self.sent_pos.x, 
+                    y: self.sent_pos.y, 
+                    z: self.sent_pos.z, 
+                    vx: vel.x as i8,
+                    vy: vel.y as i8,
+                    vz: vel.z as i8,
+                }));
+            }
+            Entity::Pig(base) => {
+                player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
+                    entity_id: base.id,
+                    kind: 90,
+                    x: self.sent_pos.x, 
+                    y: self.sent_pos.y, 
+                    z: self.sent_pos.z, 
+                    yaw: self.sent_look.x as i8,
+                    pitch: self.sent_look.y as i8,
+                    metadata: Vec::new(), // TODO:
+                }));
+            }
+            _ => unimplemented!("unsupported entity to spawn")
         }
 
     }
