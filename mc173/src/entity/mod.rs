@@ -113,7 +113,9 @@ pub struct BaseData {
     pub bb: BoundingBox,
     /// The current entity position, usually derived from the bounding box and size, it
     /// can be set forced by setting the size to none, this will force recomputation of
-    /// the bounding box, instead of overwriting the position.
+    /// the bounding box, instead of overwriting the position. The position is really
+    /// important because it's used to properly cache the entity in its correct chunk,
+    /// and properly do collision detection.
     pub pos: DVec3,
     /// True if an entity pos event should be sent after update.
     /// 
