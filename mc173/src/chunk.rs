@@ -45,12 +45,11 @@ pub fn calc_chunk_pos_unchecked(pos: IVec3) -> (i32, i32) {
     (pos.x >> 4, pos.z >> 4)
 }
 
-/// Calculate the chunk position where the given entity should be positioned given its
-/// position.
+/// Calculate the chunk position where the given entity should be cached.
 #[inline]
 pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
     // NOTE: Using unchecked because entities don't have limit for Y value.
-    calc_chunk_pos_unchecked(pos.as_ivec3())
+    calc_chunk_pos_unchecked(pos.floor().as_ivec3())
 }
 
 

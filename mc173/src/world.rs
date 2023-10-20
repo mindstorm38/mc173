@@ -23,6 +23,8 @@ use crate::block;
 /// world, events are produced *(of type [`Event`])* depending on what's modified. **By
 /// default**, events are not saved, but an events queue can be swapped in or out of the
 /// world to enable or disable events registration.
+/// 
+/// TODO: Make a diagram to better explain the world structure with entity caching.
 pub struct World {
     /// Some events queue if enabled.
     events: Option<Vec<Event>>,
@@ -254,7 +256,7 @@ impl World {
         if let Some(entity) = self.entities.get(entity_index) {
 
             // Get the correct entities list depending on the entity being orphan or not.
-            let chunk_entities = if entity.orphan {
+            let entities = if entity.orphan {
                 &mut self.orphan_entities[..]
             } else {
                 &mut self.chunks.get_mut(&(entity.cx, entity.cz))
@@ -276,9 +278,9 @@ impl World {
             }
 
             // Find where the index is located in the array and modify it.
-            let entity_index_index = chunk_entities.iter().position(|&index| index == previous_index)
+            let entity_index_index = entities.iter().position(|&index| index == previous_index)
                 .expect("entity index not found where it belongs");
-            chunk_entities[entity_index_index] = entity_index;
+            entities[entity_index_index] = entity_index;
 
         }
 
@@ -310,7 +312,7 @@ impl World {
     /// Iterate over all blocks in the given area.
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
-        WorldAreaBlocks::new(self, min, max)
+        WorldBlocksIn::new(self, min, max)
     }
 
     /// Iterate over all blocks that are in the bounding box area, this doesn't check for
@@ -334,7 +336,7 @@ impl World {
 
     /// Iterate over all bounding boxes in the given area that are colliding with the 
     /// given one.
-    pub fn iter_blocks_boxes_colliding_in(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
+    pub fn iter_blocks_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
         let min = bb.min.floor().as_ivec3();
         let max = bb.max.add(1.0).floor().as_ivec3();
         self.iter_blocks_boxes_in(min, max)
@@ -348,27 +350,64 @@ impl World {
             .map(|e| &**e)
     }
 
-    /// Iterate over all entities of the given chunk. This is legal for non-existing 
-    /// chunks, in such case this will search for orphan entities.
-    pub fn iter_chunk_entities(&self, cx: i32, cz: i32) -> impl Iterator<Item = &Entity> {
-        
+    /// Internal function to iterate world entities in a given chunk.
+    fn iter_world_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = &WorldEntity> {
+
         let (entities, orphan) = self.chunks.get(&(cx, cz))
             .map(|c| (&c.entities[..], false))
             .unwrap_or((&self.orphan_entities, true));
 
         entities.iter()
             .filter_map(move |&entity_index| {
-                let entity = &self.entities[entity_index];
-                debug_assert_eq!(entity.orphan, orphan, "incoherent orphan entity");
+                let world_entity = &self.entities[entity_index];
+                debug_assert_eq!(world_entity.orphan, orphan, "incoherent orphan entity");
                 // If we are iterating the orphan entities, check the chunk.
                 if orphan {
-                    if (entity.cx, entity.cz) != (cx, cz) {
+                    if (world_entity.cx, world_entity.cz) != (cx, cz) {
                         return None;
                     }
                 }
-                entity.inner.as_deref()
+                Some(world_entity)
+            })
+        
+    }
+
+    /// Iterate over all entities of the given chunk. This is legal for non-existing 
+    /// chunks, in such case this will search for orphan entities.
+    /// *This function can't return the current updated entity.*
+    pub fn iter_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = &Entity> {
+        self.iter_world_entities_in(cx, cz).filter_map(|world_entity| {
+            world_entity.inner.as_deref()
+        })
+    }
+
+    /// Iterate over all entities colliding with the given bounding box.
+    /// *This function can't return the current updated entity.*
+    pub fn iter_entities_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (&Entity, BoundingBox)> {
+
+        let (min_cx, min_cz) = calc_entity_chunk_pos(bb.min - 2.0);
+        let (max_cx, max_cz) = calc_entity_chunk_pos(bb.max + 2.0);
+
+        (min_cx..=max_cx).flat_map(move |cx| (min_cz..=max_cz).map(move |cz| (cx, cz)))
+            .flat_map(move |(cx, cz)| {
+                self.iter_world_entities_in(cx, cz).filter_map(move |entity| {
+                    if let (Some(entity), Some(entity_bb)) = (&entity.inner, entity.bb) {
+                        bb.intersects(entity_bb).then_some((&**entity, entity_bb))
+                    } else {
+                        None
+                    }
+                })
             })
 
+    }
+
+    /// Iterate over all bounding box in the world that collides with the given one, this
+    /// includes blocks and entities bounding boxes. *Note however that this will not 
+    /// return the bounding box of the updating entity.*
+    pub fn iter_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
+        let bb_for_entities = bb.inflate(DVec3::splat(0.25));
+        self.iter_blocks_boxes_colliding(bb)
+            .chain(self.iter_entities_boxes_colliding(bb_for_entities).map(|(_, bb)| bb))
     }
 
     /// Get block and metadata at given position in the world, if the chunk is not
@@ -456,30 +495,71 @@ impl World {
             let mut entity = self.entities[i].inner.take().unwrap();
             entity.tick(&mut *self);
 
-            // This checks if the entity is still alive.
-            if let Some(entity_index) = self.updating_entity_index {
+            // Check if the entity is still alive, if not we just continue without
+            // incrementing 'i' to tick the entity that was moved in place.
+            let Some(entity_index) = self.updating_entity_index else { continue };
 
-                // Before re-adding the entity, check dirty flags to send proper events.
-                let entity_base = entity.base_mut();
+            // Before re-adding the entity, check dirty flags to send proper events.
+            let entity_base = entity.base_mut();
+            let mut new_chunk = None;
 
-                if std::mem::take(&mut entity_base.pos_dirty) {
-                    self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
+            // If the position is dirty, compute the expected chunk position and trigger
+            // an entity position event.
+            if std::mem::take(&mut entity_base.pos_dirty) {
+                new_chunk = Some(calc_entity_chunk_pos(entity_base.pos));
+                self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
+            }
+
+            // If the look is dirt, trigger an entity look event.
+            if std::mem::take(&mut entity_base.look_dirty) {
+                self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
+            }
+
+            // After tick, we re-add the entity.
+            let world_entity = &mut self.entities[i];
+            debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
+            world_entity.inner = Some(entity);
+
+            // Check the potential new chunk position.
+            if let Some((new_cx, new_cz)) = new_chunk {
+                // Check if the entity chunk position has changed.
+                if (world_entity.cx, world_entity.cz) != (new_cx, new_cz) {
+
+                    // Get the previous entities list, where the current entity should
+                    // be cached in order to remove it.
+                    let entities = if world_entity.orphan {
+                        &mut self.orphan_entities
+                    } else {
+                        &mut self.chunks.get_mut(&(world_entity.cx, world_entity.cz))
+                            .expect("non-orphan entity referencing a non-existing chunk")
+                            .entities
+                    };
+
+                    // Find where the index is located in the array and remove it.
+                    let entity_index_index = entities.iter().position(|&index| index == entity_index)
+                        .expect("entity index not found where it belongs");
+                    entities.swap_remove(entity_index_index);
+
+                    // Update the world entity to its new chunk and orphan state.
+                    world_entity.cx = new_cx;
+                    world_entity.cz = new_cz;
+                    if let Some(chunk) = self.chunks.get_mut(&(new_cx, new_cz)) {
+                        world_entity.orphan = false;
+                        chunk.entities.push(entity_index);
+                    } else {
+                        world_entity.orphan = true;
+                        self.orphan_entities.push(entity_index);
+                    }
+
                 }
+            }
 
-                if std::mem::take(&mut entity_base.look_dirty) {
-                    self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
-                }
-
-                // After tick, we re-add the entity.
-                let world_entity = &mut self.entities[i];
-                debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
-                world_entity.inner = Some(entity);
-
-                // Only increment if the entity index has not changed.
-                if entity_index == i {
-                    i += 1;
-                }
-
+            // Only increment if the entity index has not changed, changed index means
+            // that our entity has been swapped to a previous index, because it was the
+            // last one. But new new entity may have been spawned, so a new entity may
+            // have replaced at 'i'.
+            if entity_index == i {
+                i += 1;
             }
 
         }
@@ -574,7 +654,7 @@ struct WorldEntity {
 
 
 /// An iterator for blocks in a world area. This returns the block id and metadata.
-struct WorldAreaBlocks<'a> {
+struct WorldBlocksIn<'a> {
     /// Back-reference to the containing world.
     world: &'a World,
     /// This contains a temporary reference to the chunk being analyzed. This is used to
@@ -588,7 +668,7 @@ struct WorldAreaBlocks<'a> {
     cursor: IVec3,
 }
 
-impl<'a> WorldAreaBlocks<'a> {
+impl<'a> WorldBlocksIn<'a> {
 
     #[inline]
     fn new(world: &'a World, mut min: IVec3, mut max: IVec3) -> Self {
@@ -604,7 +684,7 @@ impl<'a> WorldAreaBlocks<'a> {
             max = min;
         }
 
-        WorldAreaBlocks {
+        WorldBlocksIn {
             world,
             chunk: None,
             min,
@@ -616,8 +696,8 @@ impl<'a> WorldAreaBlocks<'a> {
 
 }
 
-impl<'a> FusedIterator for WorldAreaBlocks<'a> {}
-impl<'a> Iterator for WorldAreaBlocks<'a> {
+impl<'a> FusedIterator for WorldBlocksIn<'a> {}
+impl<'a> Iterator for WorldBlocksIn<'a> {
 
     type Item = (IVec3, u8, u8);
 

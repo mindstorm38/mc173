@@ -115,7 +115,7 @@ impl Server {
 
     fn handle_packet(&mut self, client: NetworkClient, packet: InPacket) {
         
-        println!("[{client:?}] Packet: {packet:?}");
+        // println!("[{client:?}] Packet: {packet:?}");
 
         match *self.clients.get(&client).unwrap() {
             ClientState::Handshaking => {
@@ -340,7 +340,7 @@ impl ServerWorld {
                 Event::SpawnPosition { pos } =>
                     self.handle_spawn_position(pos),
             }
-            println!("[WORLD] Event: {event:?}");
+            // println!("[WORLD] Event: {event:?}");
         }
 
         // Reinsert events after processing.
