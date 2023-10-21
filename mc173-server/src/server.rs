@@ -16,9 +16,9 @@ use glam::{DVec3, Vec2, IVec3, IVec2};
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::world::{World, Dimension, Event};
 use mc173::entity::{Entity, PlayerEntity};
-use mc173::overworld::new_overworld;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
+use crate::overworld::new_overworld;
 
 
 /// Target tick duration. Currently 20 TPS, so 50 ms/tick.

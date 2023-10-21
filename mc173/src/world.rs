@@ -591,17 +591,27 @@ pub enum Event {
         /// The unique id of the killed entity.
         id: u32,
     },
+    /// An entity has moved.
     EntityPosition {
         /// The unique id of the entity.
         id: u32,
         /// Absolute position of the entity.
         pos: DVec3,
     },
+    /// An entity changed its look angles.
     EntityLook {
         /// The unique id of the entity.
         id: u32,
         /// The entity look.
         look: Vec2,
+    },
+    /// An entity has collected another entity on ground, this is usually an item or 
+    /// arrow entity picked up by a player entity.
+    EntityPickup {
+        /// The entity that collected an item.
+        id: u32,
+        /// The target entity that was collected.
+        target_id: u32,
     },
     /// A block has been changed in the world.
     BlockChange {

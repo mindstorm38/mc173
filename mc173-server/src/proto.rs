@@ -1181,7 +1181,7 @@ fn read_item_stack(read: &mut impl Read) -> io::Result<Option<ItemStack>> {
     Ok(if id >= 0 {
         Some(ItemStack {
             id: id as u16,
-            size: read.read_java_byte()? as u8,
+            size: read.read_java_byte()? as u8 as u16,
             damage: read.read_java_short()? as u16,
         })
     } else {

@@ -6,6 +6,8 @@ pub mod net;
 pub mod proto;
 pub mod server;
 
+pub mod overworld;
+
 
 pub fn main() {
     use server::Server;

@@ -44,7 +44,7 @@ pub struct Item {
     /// The name of the item, used for debug purpose.
     pub name: &'static str,
     /// Maximum stack size for this item.
-    pub max_stack: u16,
+    pub max_stack_size: u16,
 }
 
 impl Item {
@@ -52,16 +52,20 @@ impl Item {
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
-            max_stack: 64,
+            max_stack_size: 64,
         }
     }
 
 }
 
 
+/// An item stack defines the actual number of items and their damage value.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ItemStack {
+    /// The item id.
     pub id: u16,
-    pub size: u8,
+    /// The stack size.
+    pub size: u16,
+    /// The damage value of the stack.
     pub damage: u16,
 }

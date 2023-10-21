@@ -4,10 +4,9 @@ pub mod util;
 
 pub mod block;
 pub mod item;
+pub mod inventory;
 pub mod entity;
 
 pub mod chunk;
 pub mod world;
 pub mod path;
-
-pub mod overworld;

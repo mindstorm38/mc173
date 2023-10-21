@@ -173,7 +173,7 @@ impl Block {
             light_emission: 0,
             item: Item {
                 name,
-                max_stack: 64,
+                max_stack_size: 64,
             },
             fn_bounding_boxes: |_| &[BoundingBox::CUBE],
         }

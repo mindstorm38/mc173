@@ -5,11 +5,13 @@ use glam::{DVec3, Vec2, IVec3};
 
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
+use crate::inventory::Inventory;
 use crate::item::ItemStack;
 use crate::world::World;
 
 pub mod base;
 pub mod item;
+pub mod living;
 pub mod pig;
 pub mod player;
 pub mod falling_block;
@@ -260,6 +262,9 @@ pub struct Player {
     pub username: String,
     /// True when the player is sleeping.
     pub sleeping: bool,
+    /// Inventory of the player, boxed because the structure is heavy and we don't want
+    /// to increase the entity enumeration size.
+    pub inventory: Box<PlayerInventory>,
 }
 
 #[derive(Debug, Default)]
@@ -372,6 +377,17 @@ impl Path {
         self.index += 1;
     }
     
+}
+
+/// A player inventory.
+#[derive(Debug, Default)]
+pub struct PlayerInventory {
+    /// Armor item stacks.
+    pub armor: [ItemStack; 4],
+    /// Main item stacks, the first row is the hotbar.
+    pub main: Inventory<4>,
+    /// Selected item in the first row (hotbar).
+    pub selected: u8,
 }
 
 

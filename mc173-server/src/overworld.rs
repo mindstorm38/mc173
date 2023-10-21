@@ -2,9 +2,9 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::chunk::{Chunk, CHUNK_WIDTH};
-use crate::world::{World, Dimension};
-use crate::block::{STONE, GRASS};
+use mc173::chunk::{Chunk, CHUNK_WIDTH};
+use mc173::world::{World, Dimension};
+use mc173::block::{STONE, GRASS};
 // use crate::entity::PigEntity;
 
 
