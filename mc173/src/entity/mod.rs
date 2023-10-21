@@ -383,9 +383,9 @@ impl Path {
 #[derive(Debug, Default)]
 pub struct PlayerInventory {
     /// Armor item stacks.
-    pub armor: [ItemStack; 4],
+    pub armor: Inventory<4>,
     /// Main item stacks, the first row is the hotbar.
-    pub main: Inventory<4>,
+    pub main: Inventory<36>,
     /// Selected item in the first row (hotbar).
     pub selected: u8,
 }

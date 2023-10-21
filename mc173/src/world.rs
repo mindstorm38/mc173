@@ -9,6 +9,7 @@ use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT};
+use crate::item::ItemStack;
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 
@@ -623,6 +624,16 @@ pub enum Event {
         id: u32,
         /// The target entity that was collected.
         target_id: u32,
+    },
+    /// An entity had an item change in its inventory. This is usually a player getting
+    /// new items in its inventory.
+    EntityInventoryItem {
+        /// Entity id.
+        id: u32,
+        /// Index of the slot where the item changed.
+        index: usize,
+        /// The item stack at the given index.
+        item: ItemStack,
     },
     /// A block has been changed in the world.
     BlockChange {

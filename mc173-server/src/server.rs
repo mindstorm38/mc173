@@ -16,6 +16,7 @@ use glam::{DVec3, Vec2, IVec3, IVec2};
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::world::{World, Dimension, Event};
 use mc173::entity::{Entity, PlayerEntity};
+use mc173::item::ItemStack;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::overworld::new_overworld;
@@ -337,6 +338,8 @@ impl ServerWorld {
                     self.handle_entity_look(id, look),
                 Event::EntityPickup { id, target_id } =>
                     self.handle_entity_pickup(id, target_id),
+                Event::EntityInventoryItem { id, index, item } =>
+                    self.handle_entity_inventory_item(id, index, item),
                 Event::BlockChange { pos, new_block, new_metadata, .. } => 
                     self.handle_block_change(pos, new_block, new_metadata),
                 Event::SpawnPosition { pos } =>
@@ -467,6 +470,26 @@ impl ServerWorld {
                 }));
             }
         }
+    }
+
+    /// Handle an entity inventory item world event. We support only this for player 
+    /// entities, therefore the index must be in range `0..36`, and the first 9 slots
+    /// are the hotbar, the rest is the inventory from top row to bottom row.
+    fn handle_entity_inventory_item(&mut self, id: u32, index: usize, item: ItemStack) {
+
+        let Some(player) = self.players.iter().find(move |p| p.entity_id == id) else { return };
+
+        let slot = match index {
+            0..=8 => 36 + index,
+            _ => index,
+        };
+
+        player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+            window_id: 0,
+            slot: slot as i16,
+            item: Some(item),
+        }));
+
     }
 
     /// Handle a block change world event.
