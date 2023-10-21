@@ -6,6 +6,7 @@ use std::iter::FusedIterator;
 use std::ops::{Add, Mul};
 
 use glam::{IVec3, Vec2, DVec3};
+use indexmap::IndexSet;
 
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT};
 use crate::util::rand::JavaRandom;
@@ -45,7 +46,7 @@ pub struct World {
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
     /// List of entities that are not belonging to any chunk at the moment.
-    orphan_entities: Vec<usize>,
+    orphan_entities: IndexSet<usize>,
     /// Index of the currently updated entity.
     updating_entity_index: Option<usize>,
     /// Next entity id apply to a newly spawned entity.
@@ -66,7 +67,7 @@ impl World {
             chunks: HashMap::new(),
             entities: Vec::new(),
             entities_map: HashMap::new(),
-            orphan_entities: Vec::new(),
+            orphan_entities: IndexSet::new(),
             updating_entity_index: None,
             next_entity_id: 0,
         }
@@ -90,6 +91,7 @@ impl World {
     /// enabled. Events queue can be swapped using [`swap_events`] method.swap_events
     #[inline]
     pub fn push_event(&mut self, event: Event) {
+        // println!("push_event({event:?})");
         if let Some(events) = &mut self.events {
             events.push(event);
         }
@@ -118,10 +120,12 @@ impl World {
         self.time = time;
     }
 
+    /// Get a reference to a chunk, if existing.
     pub fn chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
         self.chunks.get(&(cx, cz)).map(|c| &*c.inner)
     }
 
+    /// Get a mutable reference to a chunk, if existing.
     pub fn chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
         self.chunks.get_mut(&(cx, cz)).map(|c| &mut *c.inner)
     }
@@ -131,20 +135,20 @@ impl World {
     /// that are placed in this new chunk.
     pub fn insert_chunk(&mut self, cx: i32, cz: i32, chunk: Box<Chunk>) {
         match self.chunks.entry((cx, cz)) {
-            // There was no chunk here, so we check in orphan entities if there are
-            // entities currently in this chunk's position.
+            // There was no chunk here, we check in orphan entities if there are entities
+            // currently in this chunk's position.
             Entry::Vacant(v) => {
 
                 let mut world_chunk = WorldChunk {
                     inner: chunk,
-                    entities: Vec::new(),
+                    entities: IndexSet::new(),
                 };
 
                 self.orphan_entities.retain(|&entity_index| {
                     let entity = &mut self.entities[entity_index];
                     // If the entity is in the newly added chunk.
                     if (entity.cx, entity.cz) == (cx, cz) {
-                        world_chunk.entities.push(entity_index);
+                        world_chunk.entities.insert(entity_index);
                         entity.orphan = false;
                         // Do not retain entity, remove it from orphan list.
                         false
@@ -161,7 +165,7 @@ impl World {
                 // Replace the previous chunk and then move all of its entities to it.
                 let prev_chunk = o.insert(WorldChunk {
                     inner: chunk,
-                    entities: Vec::new(),
+                    entities: IndexSet::new(),
                 });
                 o.get_mut().entities = prev_chunk.entities;
             }
@@ -178,7 +182,7 @@ impl World {
             self.entities[entity_index].orphan = true;
         }
 
-        self.orphan_entities.extend_from_slice(&chunk.entities);
+        self.orphan_entities.extend(chunk.entities.into_iter());
         Some(chunk.inner)
 
     }
@@ -211,9 +215,9 @@ impl World {
         };
         
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
-            chunk.entities.push(entity_index);
+            chunk.entities.insert(entity_index);
         } else {
-            self.orphan_entities.push(entity_index);
+            self.orphan_entities.insert(entity_index);
             world_entity.orphan = true;
         }
 
@@ -237,12 +241,22 @@ impl World {
     }
 
     /// Kill an entity given its id, this function ensure coherency with chunks cache.
+    /// This returns false if the entity is not existing.
     /// 
     /// **This function is legal for entities to call on themselves when ticking.**
     pub fn kill_entity(&mut self, id: u32) -> bool {
 
         let Some(entity_index) = self.entities_map.remove(&id) else { return false };
-        let _killed_entity = self.entities.swap_remove(entity_index);
+        let killed_entity = self.entities.swap_remove(entity_index);
+
+        // Remove the killed entity from the chunk it belongs to.
+        if killed_entity.orphan {
+            &mut self.orphan_entities
+        } else {
+            &mut self.chunks.get_mut(&(killed_entity.cx, killed_entity.cz))
+                .expect("non-orphan entity referencing a non-existing chunk")
+                .entities
+        }.remove(&entity_index);
 
         // If we are removing the entity being updated, set its index to none so it will
         // not placed back into its slot.
@@ -257,11 +271,11 @@ impl World {
 
             // Get the correct entities list depending on the entity being orphan or not.
             let entities = if entity.orphan {
-                &mut self.orphan_entities[..]
+                &mut self.orphan_entities
             } else {
                 &mut self.chunks.get_mut(&(entity.cx, entity.cz))
                     .expect("non-orphan entity referencing a non-existing chunk")
-                    .entities[..]
+                    .entities
             };
 
             // The swapped entity was at the end, so the new length.
@@ -277,10 +291,9 @@ impl World {
                 self.updating_entity_index = Some(entity_index);
             }
 
-            // Find where the index is located in the array and modify it.
-            let entity_index_index = entities.iter().position(|&index| index == previous_index)
-                .expect("entity index not found where it belongs");
-            entities[entity_index_index] = entity_index;
+            let remove_success = entities.remove(&previous_index);
+            debug_assert!(remove_success, "entity index not found where it belongs");
+            entities.insert(entity_index);
 
         }
 
@@ -354,7 +367,7 @@ impl World {
     fn iter_world_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = &WorldEntity> {
 
         let (entities, orphan) = self.chunks.get(&(cx, cz))
-            .map(|c| (&c.entities[..], false))
+            .map(|c| (&c.entities, false))
             .unwrap_or((&self.orphan_entities, true));
 
         entities.iter()
@@ -535,20 +548,18 @@ impl World {
                             .entities
                     };
 
-                    // Find where the index is located in the array and remove it.
-                    let entity_index_index = entities.iter().position(|&index| index == entity_index)
-                        .expect("entity index not found where it belongs");
-                    entities.swap_remove(entity_index_index);
+                    let remove_success = entities.remove(&entity_index);
+                    debug_assert!(remove_success, "entity index not found where it belongs");
 
                     // Update the world entity to its new chunk and orphan state.
                     world_entity.cx = new_cx;
                     world_entity.cz = new_cz;
                     if let Some(chunk) = self.chunks.get_mut(&(new_cx, new_cz)) {
                         world_entity.orphan = false;
-                        chunk.entities.push(entity_index);
+                        chunk.entities.insert(entity_index);
                     } else {
                         world_entity.orphan = true;
-                        self.orphan_entities.push(entity_index);
+                        self.orphan_entities.insert(entity_index);
                     }
 
                 }
@@ -639,7 +650,7 @@ struct WorldChunk {
     /// Underlying chunk.
     inner: Box<Chunk>,
     /// Entities belonging to this chunk.
-    entities: Vec<usize>,
+    entities: IndexSet<usize>,
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.

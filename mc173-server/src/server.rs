@@ -335,6 +335,8 @@ impl ServerWorld {
                     self.handle_entity_position(id, pos),
                 Event::EntityLook { id, look } =>
                     self.handle_entity_look(id, look),
+                Event::EntityPickup { id, target_id } =>
+                    self.handle_entity_pickup(id, target_id),
                 Event::BlockChange { pos, new_block, new_metadata, .. } => 
                     self.handle_block_change(pos, new_block, new_metadata),
                 Event::SpawnPosition { pos } =>
@@ -445,12 +447,26 @@ impl ServerWorld {
         tracker.untrack_players(&mut self.players);
     }
 
+    /// Handle an entity position world event.
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
         self.trackers.get_mut(&id).unwrap().set_pos(pos);
     }
 
+    /// Handle an entity look world event.
     fn handle_entity_look(&mut self, id: u32, look: Vec2) {
         self.trackers.get_mut(&id).unwrap().set_look(look);
+    }
+
+    /// Handle an entity pickup world event.
+    fn handle_entity_pickup(&mut self, id: u32, target_id: u32) {
+        for player in &self.players {
+            if player.tracked_entities.contains(&target_id) {
+                player.send(OutPacket::EntityPickup(proto::EntityPickupPacket {
+                    entity_id: id,
+                    picked_entity_id: target_id,
+                }));
+            }
+        }
     }
 
     /// Handle a block change world event.
@@ -458,8 +474,8 @@ impl ServerWorld {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
         for player in &self.players {
             if player.tracked_chunks.contains(&(cx, cz)) {
-                player.net.send(player.client, OutPacket::BlockChange(proto::BlockChangePacket {
-                    x: pos.x, 
+                player.send(OutPacket::BlockChange(proto::BlockChangePacket {
+                    x: pos.x,
                     y: pos.y as i8,
                     z: pos.z,
                     block,

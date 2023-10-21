@@ -100,8 +100,8 @@ pub enum OutPacket {
     PlayerSpawn(PlayerSpawnPacket),
     /// An item entity to spawn.
     ItemSpawn(ItemSpawnPacket),
-    /// A player entity has picked up an item entity on ground.
-    PlayerItemPickup(PlayerItemPickupPacket),
+    /// An entity has picked up an entity on ground.
+    EntityPickup(EntityPickupPacket),
     /// An object entity to spawn.
     ObjectSpawn(ObjectSpawnPacket),
     /// A mob entity to spawn.
@@ -360,9 +360,11 @@ pub struct ItemSpawnPacket {
 
 /// Packet 22
 #[derive(Debug, Clone)]
-pub struct PlayerItemPickupPacket {
-    pub player_entity_id: u32,
-    pub item_entity_id: u32,
+pub struct EntityPickupPacket {
+    /// The entity id of the entity that picked up the item.
+    pub entity_id: u32,
+    /// The entity id of the entity that have been picked up.
+    pub picked_entity_id: u32,
 }
 
 /// Packet 23
@@ -925,10 +927,10 @@ impl net::OutPacket for OutPacket {
                 write.write_java_byte(packet.vy)?;
                 write.write_java_byte(packet.vz)?;
             }
-            OutPacket::PlayerItemPickup(packet) => {
+            OutPacket::EntityPickup(packet) => {
                 write.write_u8(22)?;
-                write.write_java_int(packet.item_entity_id as i32)?;
-                write.write_java_int(packet.player_entity_id as i32)?;
+                write.write_java_int(packet.picked_entity_id as i32)?;
+                write.write_java_int(packet.entity_id as i32)?;
             }
             OutPacket::ObjectSpawn(packet) => {
                 write.write_u8(23)?;

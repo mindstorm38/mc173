@@ -26,7 +26,9 @@ impl PlayerEntity {
                     // Add the pickup item to the main inventory.
                     let picked_item = base.kind.item;
                     let consumed_size = self.kind.kind.inventory.main.add_item(picked_item);
-                    consumed_items.push((base.id, consumed_size));
+                    if consumed_size != 0 {
+                        consumed_items.push((base.id, consumed_size));
+                    }
                 }
             }
         }
