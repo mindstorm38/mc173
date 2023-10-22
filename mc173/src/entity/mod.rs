@@ -204,7 +204,7 @@ pub struct ProjectileData {
 #[derive(Debug, Default)]
 pub struct Item {
     /// The item stack represented by this entity.
-    pub item: ItemStack,
+    pub stack: ItemStack,
     /// Tick count before this item entity can be picked up.
     pub frozen_ticks: u32,
 }
@@ -256,15 +256,37 @@ pub struct Fireball { }
 #[derive(Debug, Default)]
 pub struct Snowball { }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Player {
     /// The player username.
     pub username: String,
     /// True when the player is sleeping.
     pub sleeping: bool,
-    /// Inventory of the player, boxed because the structure is heavy and we don't want
-    /// to increase the entity enumeration size.
-    pub inventory: Box<PlayerInventory>,
+    /// Main inventory, with 36 slots.
+    pub main_inv: Inventory,
+    /// Armor inventory, with 4 slots.
+    pub armor_inv: Inventory,
+    /// The crafting matrix inventory with 4 slots.
+    pub craft_inv: Inventory,
+    /// Current item stack being hold by the player's window cursor, placed here in order
+    /// to drop it when the player dies.
+    pub cursor_stack: ItemStack,
+    /// Index of the slot selected in the hotbar.
+    pub hotbar_index: u8,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self { 
+            username: Default::default(), 
+            sleeping: false, 
+            main_inv: Inventory::new(36),
+            armor_inv: Inventory::new(4), 
+            craft_inv: Inventory::new(4),
+            cursor_stack: ItemStack::EMPTY, 
+            hotbar_index: 0,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -377,17 +399,6 @@ impl Path {
         self.index += 1;
     }
     
-}
-
-/// A player inventory.
-#[derive(Debug, Default)]
-pub struct PlayerInventory {
-    /// Armor item stacks.
-    pub armor: Inventory<4>,
-    /// Main item stacks, the first row is the hotbar.
-    pub main: Inventory<36>,
-    /// Selected item in the first row (hotbar).
-    pub selected: u8,
 }
 
 

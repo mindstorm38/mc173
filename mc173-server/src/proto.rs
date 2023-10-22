@@ -223,7 +223,7 @@ pub struct UpdateTimePacket {
 pub struct PlayerInventoryPacket {
     pub entity_id: u32,
     pub slot: i16,
-    pub item: Option<ItemStack>,
+    pub stack: Option<ItemStack>,
 }
 
 /// Packet 6
@@ -300,7 +300,7 @@ pub struct PlaceBlockPacket {
     pub y: i8,
     pub z: i32,
     pub direction: u8,
-    pub item: Option<ItemStack>,
+    pub stack: Option<ItemStack>,
 }
 
 /// Packet 16
@@ -349,7 +349,7 @@ pub struct PlayerSpawnPacket {
 #[derive(Debug, Clone)]
 pub struct ItemSpawnPacket {
     pub entity_id: u32,
-    pub item: ItemStack,
+    pub stack: ItemStack,
     pub x: i32,
     pub y: i32,
     pub z: i32,
@@ -590,15 +590,17 @@ pub struct WindowClickPacket {
     pub right_click: bool,
     pub shift_click: bool,
     pub transaction_id: u16,
-    pub item: Option<ItemStack>,
+    pub stack: Option<ItemStack>,
 }
 
 /// Packet 103
 #[derive(Debug, Clone)]
 pub struct WindowSetItemPacket {
+    /// If `window_id = 0xFF` and `slot = -1`, this is the window cursor.
     pub window_id: u8,
+    /// If `window_id = 0xFF` and `slot = -1`, this is the window cursor.
     pub slot: i16,
-    pub item: Option<ItemStack>,
+    pub stack: Option<ItemStack>,
 }
 
 /// Packet 104
@@ -606,7 +608,7 @@ pub struct WindowSetItemPacket {
 pub struct WindowItemsPacket {
     pub window_id: u8,
     pub count: i16,
-    pub items: Vec<Option<ItemStack>>,
+    pub stacks: Vec<Option<ItemStack>>,
 }
 
 /// Packet 105
@@ -759,7 +761,7 @@ impl net::InPacket for InPacket {
                 y: read.read_java_byte()?,
                 z: read.read_java_int()?,
                 direction: read.read_java_byte()? as u8,
-                item: read_item_stack(read)?,
+                stack: read_item_stack(read)?,
             }),
             16 => InPacket::HandSlot(HandSlotPacket {
                 slot: read.read_java_short()?,
@@ -782,7 +784,7 @@ impl net::InPacket for InPacket {
                 right_click: read.read_java_boolean()?,
                 transaction_id: read.read_java_short()? as u16,
                 shift_click: read.read_java_boolean()?,
-                item: read_item_stack(read)?,
+                stack: read_item_stack(read)?,
             }),
             106 => InPacket::WindowTransaction(WindowTransactionPacket {
                 window_id: read.read_java_byte()? as u8,
@@ -840,7 +842,7 @@ impl net::OutPacket for OutPacket {
                 write.write_u8(5)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_short(packet.slot)?;
-                if let Some(item) = packet.item {
+                if let Some(item) = packet.stack {
                     write.write_java_short(item.id as i16)?;
                     write.write_java_short(item.damage as i16)?;
                 } else {
@@ -917,9 +919,9 @@ impl net::OutPacket for OutPacket {
             OutPacket::ItemSpawn(packet) => {
                 write.write_u8(21)?;
                 write.write_java_int(packet.entity_id as i32)?;
-                write.write_java_short(packet.item.id as i16)?;
-                write.write_java_byte(packet.item.size as i8)?;
-                write.write_java_short(packet.item.damage as i16)?;
+                write.write_java_short(packet.stack.id as i16)?;
+                write.write_java_byte(packet.stack.size as i8)?;
+                write.write_java_short(packet.stack.damage as i16)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_int(packet.y)?;
                 write.write_java_int(packet.z)?;
@@ -1113,13 +1115,13 @@ impl net::OutPacket for OutPacket {
                 write.write_u8(103)?;
                 write.write_java_byte(packet.window_id as i8)?;
                 write.write_java_short(packet.slot)?;
-                write_item_stack(write, packet.item)?;
+                write_item_stack(write, packet.stack)?;
             }
             OutPacket::WindowItems(packet) => {
                 write.write_u8(104)?;
                 write.write_java_byte(packet.window_id as i8)?;
-                write.write_java_short(packet.items.len() as i16)?;
-                for &item_stack in &packet.items {
+                write.write_java_short(packet.stacks.len() as i16)?;
+                for &item_stack in &packet.stacks {
                     write_item_stack(write, item_stack)?;
                 }
             }

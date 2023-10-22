@@ -7,35 +7,38 @@ use crate::item;
 
 /// An base generic inventory with the given number of rows.
 #[derive(Debug)]
-pub struct Inventory<const SIZE: usize> {
+pub struct Inventory {
     /// Rows of items in the inventory, we use a two-dimensional array in order to easily
     /// multiply the `ROWS` const generic.
-    items: [ItemStack; SIZE],
+    stacks: Box<[ItemStack]>,
     /// List of slot indices where item has changed.
     changes: u64,
 }
 
-impl<const SIZE: usize> Default for Inventory<SIZE> {
-    fn default() -> Self {
+impl Inventory {
+
+    pub fn new(size: usize) -> Self {
+        assert!(size < 64);
         Self {
-            items: [ItemStack::default(); SIZE],
+            stacks: vec![ItemStack::default(); size].into_boxed_slice(),
             changes: 0,
         }
     }
-}
 
-impl<const SIZE: usize> Inventory<SIZE> {
+    /// Get an item at the given index.
+    pub fn stack(&self, index: usize) -> ItemStack {
+        self.stacks[index]
+    }
 
-    const _OK: () = assert!(SIZE < 64);
-
-    /// Get an item at the given position.
-    pub fn item(&self, index: usize) -> ItemStack {
-        self.items[index]
+    /// Set an item at the given index.
+    pub fn set_stack(&mut self, index: usize, stack: ItemStack) {
+        self.stacks[index] = stack;
+        self.changes |= 1 << index;
     }
 
     /// Add the given item to the inventory if possible. This function returns the number
     /// of items from the stack that have been successfully added in the inventory.
-    pub fn add_item(&mut self, stack: ItemStack) -> u16 {
+    pub fn add_stack(&mut self, stack: ItemStack) -> u16 {
 
         // Do nothing if stack size is 0 or the item is air.
         if stack.size == 0 || stack.id == block::AIR as u16 {
@@ -48,7 +51,7 @@ impl<const SIZE: usize> Inventory<SIZE> {
         // Only insert our item if it has no damage.
         if stack.damage == 0 {
             // Search a slot where the item is compatible.
-            for (index, slot) in self.items.iter_mut().enumerate() {
+            for (index, slot) in self.stacks.iter_mut().enumerate() {
 
                 // If the slot is of the same item and has space left in the stack size.
                 if slot.id == stack.id && slot.damage == 0 && slot.size < item.max_stack_size {
@@ -75,7 +78,7 @@ impl<const SIZE: usize> Inventory<SIZE> {
         // If we land here, some items are remaining to insert in the empty slots.
         // We can also land here if the item has damage value.
         // We search empty slots.
-        for (index, slot) in self.items.iter_mut().enumerate() {
+        for (index, slot) in self.stacks.iter_mut().enumerate() {
             if slot.id == block::AIR as u16 {
                 // We found an empty slot, insert the whole remaining stack size.
                 *slot = stack;
@@ -95,7 +98,7 @@ impl<const SIZE: usize> Inventory<SIZE> {
     pub fn changes(&self) -> impl Iterator<Item = (usize, ItemStack)> + '_ {
         (0..64usize).filter_map(|i| {
             if self.changes & (1 << i) != 0 {
-                Some((i, self.items[i]))
+                Some((i, self.stacks[i]))
             } else {
                 None
             }

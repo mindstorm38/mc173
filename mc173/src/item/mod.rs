@@ -60,7 +60,7 @@ impl Item {
 
 
 /// An item stack defines the actual number of items and their damage value.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ItemStack {
     /// The item id.
     pub id: u16,
@@ -68,4 +68,37 @@ pub struct ItemStack {
     pub size: u16,
     /// The damage value of the stack.
     pub damage: u16,
+}
+
+impl ItemStack {
+
+    pub const EMPTY: Self = Self { id: block::AIR as u16, size: 0, damage: 0 };
+
+    pub fn with_size(mut self, size: u16) -> ItemStack {
+        self.size = size;
+        self
+    }
+
+    pub fn with_damage(mut self, damage: u16) -> ItemStack {
+        self.damage = damage;
+        self
+    }
+
+    /// Return true if this item stack is air, which is a special case where the item 
+    /// stack represent an empty slot.
+    pub fn is_empty(self) -> bool {
+        self.id == block::AIR as u16 || self.size == 0
+    }
+
+    /// Simplify this item stack by converting it into `None` if the item is just a air
+    /// block, which is equivalent to no item for Minecraft, regardless of the damage 
+    /// value or stack size.
+    pub fn to_non_empty(self) -> Option<ItemStack> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self)
+        }
+    }
+
 }

@@ -468,8 +468,8 @@ impl World {
         entity.vel.x = self.rand.next_double() * 0.2 - 0.1;
         entity.vel.y = 0.2;
         entity.vel.z = self.rand.next_double() * 0.2 - 0.1;
-        entity.kind.item.id = prev_block as u16;
-        entity.kind.item.size = 1;
+        entity.kind.stack.id = prev_block as u16;
+        entity.kind.stack.size = 1;
         entity.kind.frozen_ticks = 10;
         
         self.spawn_entity(Entity::Item(entity));

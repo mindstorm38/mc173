@@ -18,7 +18,7 @@ impl PlayerEntity {
         // bounding box to account for the new position.
         self.update_bounding_box_from_pos();
         
-        let main_inventory = &mut self.kind.kind.inventory.main;
+        let main_inv = &mut self.kind.kind.main_inv;
 
         // First check immutable item if it's possible to pickup, if possible we append
         // them to consumed items and apply the change just after.
@@ -27,8 +27,8 @@ impl PlayerEntity {
             if let Entity::Item(base) = entity {
                 if base.kind.frozen_ticks == 0 {
                     // Add the pickup item to the main inventory.
-                    let picked_item = base.kind.item;
-                    let consumed_size = main_inventory.add_item(picked_item);
+                    let picked_item = base.kind.stack;
+                    let consumed_size = main_inv.add_stack(picked_item);
                     if consumed_size != 0 {
                         consumed_items.push((base.id, consumed_size));
                     }
@@ -46,22 +46,22 @@ impl PlayerEntity {
 
             // Consume the item entity.
             let Some(Entity::Item(base)) = world.entity_mut(entity_id) else { panic!() };
-            base.kind.item.size -= consumed_size;
-            if base.kind.item.size == 0 {
+            base.kind.stack.size -= consumed_size;
+            if base.kind.stack.size == 0 {
                 world.kill_entity(entity_id);
             }
 
         }
 
-        for (index, item) in main_inventory.changes() {
+        for (index, item) in main_inv.changes() {
             world.push_event(Event::EntityInventoryItem {
                 id: self.data.id,
                 index,
                 item,
             });
         }
-        
-        main_inventory.clear_changes();
+
+        main_inv.clear_changes();
 
     }
 

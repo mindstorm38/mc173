@@ -14,9 +14,10 @@ use flate2::Compression;
 use glam::{DVec3, Vec2, IVec3, IVec2};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
+use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::{World, Dimension, Event};
-use mc173::entity::{Entity, PlayerEntity};
-use mc173::item::ItemStack;
+use mc173::item::{self, ItemStack};
+use mc173::inventory::Inventory;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::overworld::new_overworld;
@@ -487,7 +488,7 @@ impl ServerWorld {
         player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
             window_id: 0,
             slot: slot as i16,
-            item: Some(item),
+            stack: item.to_non_empty(),
         }));
 
     }
@@ -568,6 +569,7 @@ impl ServerPlayer {
         
         match packet {
             InPacket::KeepAlive => {}
+            InPacket::Flying(_) => {}, // Ignore because it doesn't update anything.
             InPacket::Disconnect(_) =>
                 self.handle_disconnect(),
             InPacket::Position(packet) => 
@@ -578,7 +580,11 @@ impl ServerPlayer {
                 self.handle_position_look(world, packet),
             InPacket::BreakBlock(packet) =>
                 self.handle_break_block(world, packet),
-            _ => {}
+            InPacket::HandSlot(packet) =>
+                self.handle_hand_slot(world, packet.slot),
+            InPacket::WindowClick(packet) =>
+                self.handle_window_click(world, packet),
+            _ => println!("[{:?}] Packet: {packet:?}", self.client)
         }
 
     }
@@ -643,7 +649,209 @@ impl ServerPlayer {
                     world.break_block(pos);
                 }
             }
+        } else if packet.status == 4 {
+            // Drop the selected item.
+            if let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) {
+
+                let main_inv = &mut base.kind.kind.main_inv;
+                let index = base.kind.kind.hotbar_index as usize;
+                let mut stack = main_inv.stack(index);
+
+                if !stack.is_empty() {
+                    
+                    stack.size -= 1;
+                    main_inv.set_stack(index, if stack.size == 0 { ItemStack::EMPTY } else { stack });
+                    
+                    self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                        window_id: 0,
+                        slot: 36 + index as i16,
+                        stack: main_inv.stack(index).to_non_empty(),
+                    }));
+
+                    self.drop_item(world, stack.with_size(1), false);
+
+                }
+                
+            }
         }
+
+    }
+
+    /// Handle a hand slot packet.
+    fn handle_hand_slot(&mut self, world: &mut World, slot: i16) {
+
+        // This packet only works if the player's entity is a player.
+        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        base.kind.kind.hotbar_index = slot as u8;
+
+    }
+
+    /// Handle a window click packet.
+    fn handle_window_click(&mut self, world: &mut World, packet: proto::WindowClickPacket) {
+
+        // This packet only works if the player's entity is a player.
+        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        
+        // Holding the target slot's item stack.
+        let mut cursor_stack = base.kind.kind.cursor_stack;
+        let slot_stack;
+
+        if packet.slot == -999 {
+            slot_stack = ItemStack::EMPTY;
+            if !cursor_stack.is_empty() {
+
+                let mut drop_stack = cursor_stack;
+                if packet.right_click {
+                    drop_stack = drop_stack.with_size(1);
+                }
+
+                cursor_stack.size -= drop_stack.size;
+                self.drop_item(world, drop_stack, false);
+
+            }
+        } else if packet.shift_click {
+            todo!()
+        } else {
+
+            // TODO: Check cast.
+            let slot = packet.slot as usize;
+
+            let mut slots = if packet.window_id == 0 {
+                Slots::Player {
+                    main_inv: &mut base.kind.kind.main_inv,
+                    armor_inv: &mut base.kind.kind.armor_inv,
+                    craft_inv: &mut base.kind.kind.craft_inv,
+                }
+            } else {
+                // Unsupported window type...
+                return;
+            };
+
+            slot_stack = slots.stack(slot);
+            if slot_stack.is_empty() {
+                if !cursor_stack.is_empty() && slots.valid(slot, cursor_stack) {
+                    
+                    let drop_size = if packet.right_click { 1 } else { cursor_stack.size };
+                    let drop_size = drop_size.min(slots.max_stack_size(slot));
+                    
+                    slots.set_stack(slot, cursor_stack.with_size(drop_size));
+                    cursor_stack.size -= drop_size;
+
+                }
+            } else if cursor_stack.is_empty() {
+                
+                cursor_stack = slot_stack;
+                if packet.right_click {
+                    cursor_stack.size = (cursor_stack.size + 1) / 2;
+                }
+
+                let mut new_slot_stack = slot_stack;
+                new_slot_stack.size -= cursor_stack.size;
+                if new_slot_stack.size == 0 {
+                    slots.set_stack(slot, ItemStack::EMPTY);
+                } else {
+                    slots.set_stack(slot, new_slot_stack);
+                }
+
+            } else if slots.valid(slot, cursor_stack) {
+
+                let cursor_item = item::from_id(cursor_stack.id);
+
+                if slot_stack.id != cursor_stack.id || slot_stack.damage != cursor_stack.damage {
+                    // Not the same item, we just swap with hand.
+                    if cursor_stack.size <= slots.max_stack_size(slot) {
+                        slots.set_stack(slot, cursor_stack);
+                        cursor_stack = slot_stack;
+                    }
+                } else {
+                    // Same item, just drop some into the existing stack.
+                    let max_stack_size = cursor_item.max_stack_size.min(slots.max_stack_size(slot));
+                    // Only drop if the stack is not full.
+                    if slot_stack.size < max_stack_size {
+                        
+                        let drop_size = if packet.right_click { 1 } else { cursor_stack.size };
+                        let drop_size = drop_size.min(max_stack_size - slot_stack.size);
+                        cursor_stack.size -= drop_size;
+
+                        let mut new_slot_stack = slot_stack;
+                        new_slot_stack.size += drop_size;
+                        slots.set_stack(slot, new_slot_stack);
+
+                    }
+                }
+
+            } else {
+                // TODO:
+            }
+
+        }
+            
+        // Answer with a transaction packet that is accepted if the packet's stack is
+        // the same as the server's slot stack.
+        self.send(OutPacket::WindowTransaction(proto::WindowTransactionPacket {
+            window_id: packet.window_id,
+            transaction_id: packet.transaction_id,
+            accepted: slot_stack.to_non_empty() == packet.stack,
+        }));
+
+        // Send the new cursor item.
+        if cursor_stack.size == 0 {
+            cursor_stack = ItemStack::EMPTY;
+        }
+
+        self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
+            window_id: 0xFF,
+            slot: -1,
+            stack: cursor_stack.to_non_empty(),
+        }));
+
+        // At the end where the world is no longer borrowed, re-borrow our player entity
+        // and set the new cursor stack.
+        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        base.kind.kind.cursor_stack = cursor_stack;
+
+    }
+
+    /// Drop an item from the player's entity, items are drop in front of the player, but
+    /// the `on_ground` argument can be set to true in order to drop item on the ground.
+    fn drop_item(&mut self, world: &mut World, stack: ItemStack, on_ground: bool) {
+
+        let entity = world.entity_mut(self.entity_id).expect("incoherent player entity");
+        let base = entity.base_mut();
+
+        let mut item_entity = ItemEntity::default();
+        item_entity.pos = base.pos;
+        item_entity.pos.y += 1.3;  // TODO: Adjust depending on eye height.
+
+        if on_ground {
+
+            let rand_drop_speed = base.rand.next_float() * 0.5;
+            let rand_yaw = base.rand.next_float() * std::f32::consts::TAU;
+
+            item_entity.vel.x = (rand_yaw.sin() * rand_drop_speed) as f64;
+            item_entity.vel.z = (rand_yaw.cos() * rand_drop_speed) as f64;
+            item_entity.vel.y = 0.2;
+
+        } else {
+
+            let drop_speed = 0.3;
+            let rand_yaw = base.rand.next_float() * std::f32::consts::TAU;
+            let rand_drop_speed = base.rand.next_float() * 0.02;
+            let rand_vel_y = (base.rand.next_float() - base.rand.next_float()) * 0.1;
+
+            item_entity.vel.x = (-base.look.x.sin() * base.look.y.cos() * drop_speed) as f64;
+            item_entity.vel.z = (base.look.x.cos() * base.look.y.cos() * drop_speed) as f64;
+            item_entity.vel.y = (-base.look.y.sin() * drop_speed + 0.1) as f64;
+            item_entity.vel.x += (rand_yaw.cos() * rand_drop_speed) as f64;
+            item_entity.vel.z += (rand_yaw.sin() * rand_drop_speed) as f64;
+            item_entity.vel.y += rand_vel_y as f64;
+
+        }
+
+        item_entity.kind.frozen_ticks = 40;
+        item_entity.kind.stack = stack;
+        
+        world.spawn_entity(Entity::Item(item_entity));
 
     }
 
@@ -907,7 +1115,7 @@ impl EntityTracker {
                 let vel = base.vel.mul(128.0).as_ivec3();
                 player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
                     entity_id: base.id, 
-                    item: base.kind.item, 
+                    stack: base.kind.stack, 
                     x: self.sent_pos.x, 
                     y: self.sent_pos.y, 
                     z: self.sent_pos.z, 
@@ -938,6 +1146,92 @@ impl EntityTracker {
         player.send(OutPacket::EntityKill(proto::EntityKillPacket { 
             entity_id: self.entity_id
         }));
+    }
+
+}
+
+/// This enumeration is used to represent a slots array for a window, linked to 
+/// inventories.
+enum Slots<'a> {
+    /// The player window.
+    Player {
+        main_inv: &'a mut Inventory,
+        armor_inv: &'a mut Inventory,
+        craft_inv: &'a mut Inventory,
+    }
+}
+
+impl Slots<'_> {
+
+    /// Get the number of slots in this window.
+    fn size(&self) -> usize {
+        match self {
+            Slots::Player { .. } => 45,
+        }
+    }
+
+    fn valid(&self, slot: usize, stack: ItemStack) -> bool {
+        match self {
+            Self::Player { .. } => {
+                match slot {
+                    // Craft result slot.
+                    0 => false,
+                    // Armor head.
+                    5 => true,
+                    // Armor chest.
+                    6 => true,
+                    // Armor legs.
+                    7 => true,
+                    // Armor feet.
+                    8 => true,
+                    // Rest of the inventory is valid.
+                    _ => true,
+                }
+            }
+        }
+    }
+
+    /// Get the maximum stack size for the given slot.
+    fn max_stack_size(&self, slot: usize) -> u16 {
+        match self {
+            Self::Player { .. } => {
+                match slot {
+                    5..=8 => 1,
+                    _ => 64
+                }
+            }
+        }
+    }
+
+    /// Get stack at the given slot.
+    fn stack(&self, slot: usize) -> ItemStack {
+        match self {
+            Self::Player { main_inv, armor_inv, craft_inv } => {
+                match slot {
+                    0 => ItemStack::EMPTY,
+                    1..=4 => craft_inv.stack(slot as usize - 1),
+                    5..=8 => armor_inv.stack(slot as usize - 5),
+                    9..=35 => main_inv.stack(slot as usize),
+                    36..=44 => main_inv.stack(slot as usize - 36),
+                    _ => unimplemented!()
+                }
+            }
+        }
+    }
+
+    fn set_stack(&mut self, slot: usize, stack: ItemStack) {
+        match self {
+            Self::Player { main_inv, armor_inv, craft_inv } => {
+                match slot {
+                    0 => {},
+                    1..=4 => craft_inv.set_stack(slot as usize - 1, stack),
+                    5..=8 => armor_inv.set_stack(slot as usize - 5, stack),
+                    9..=35 => main_inv.set_stack(slot as usize, stack),
+                    36..=44 => main_inv.set_stack(slot as usize - 36, stack),
+                    _ => unimplemented!()
+                }
+            }
+        }
     }
 
 }
