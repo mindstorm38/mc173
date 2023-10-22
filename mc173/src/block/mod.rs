@@ -115,7 +115,7 @@ blocks! {
     SNOW_BLOCK/80:      Block::new("snow_block", Material::SnowBlock, 0.2, 0.0),
     CACTUS/81:          Block::new("cactus", Material::Cactus, 0.4, 0.0),
     CLAY/82:            Block::new("clay", Material::Clay, 0.6, 0.0),
-    SUGAR_CANE/83:      Block::new("sugar_cane", Material::Plant, 0.0, 0.0),
+    SUGAR_CANES/83:     Block::new("sugar_canes", Material::Plant, 0.0, 0.0),
     JUKEBOX/84:         Block::new("jukebox", Material::Wood, 2.0, 30.0),
     FENCE/85:           Block::new("fence", Material::Wood, 2.0, 5.0),
     PUMPKIN/86:         Block::new("pumpkin", Material::Pumpkin, 1.0, 0.0),
@@ -178,6 +178,7 @@ impl Block {
                 name,
                 block: true,
                 max_stack_size: 64,
+                max_damage: 0,
             },
             fn_bounding_boxes: |_, _| &[BoundingBox::CUBE],
         }

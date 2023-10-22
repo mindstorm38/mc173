@@ -565,6 +565,11 @@ impl ServerPlayer {
         self.net.send(self.client, packet);
     }
 
+    /// Send a chat message to this player.
+    fn send_chat(&self, message: String) {
+        self.send(OutPacket::Chat(proto::ChatPacket { message }));
+    }
+
     /// Handle an incoming packet from this player.
     fn handle(&mut self, world: &mut World, packet: InPacket) {
         
@@ -573,6 +578,8 @@ impl ServerPlayer {
             InPacket::Flying(_) => {}, // Ignore because it doesn't update anything.
             InPacket::Disconnect(_) =>
                 self.handle_disconnect(),
+            InPacket::Chat(packet) =>
+                self.handle_chat(world, packet.message),
             InPacket::Position(packet) => 
                 self.handle_position(world, packet),
             InPacket::Look(packet) => 
@@ -595,6 +602,47 @@ impl ServerPlayer {
     /// Just disconnect itself, this will produce a lost event from the network.
     fn handle_disconnect(&mut self) {
         self.net.disconnect(self.client);
+    }
+
+    /// Handle a chat message packet.
+    fn handle_chat(&mut self, world: &mut World, message: String) {
+
+        // Parse chat command if needed.
+        if message.starts_with('/') {
+
+            let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+
+            let mut parser = message.split_whitespace();
+            match parser.next().unwrap() {
+                "/give" => {
+                    if let Some(id_raw) = parser.next() {
+                        if let Ok(id) = id_raw.parse::<u16>() {
+                            
+                            let mut stack = ItemStack { id, size: 1, damage: 0 };
+
+                            if let Some(size_raw) = parser.next() {
+                                if let Ok(size) = size_raw.parse::<u16>() {
+                                    stack.size = size;
+                                } else {
+                                    self.send_chat(format!("Error: invalid stack size: {size_raw}"));
+                                }
+                            }
+
+                            base.kind.kind.main_inv.add_stack(stack);
+
+                        } else {
+                            self.send_chat(format!("Error: invalid stack item: {id_raw}"));
+                        }
+                    }
+                    self.send_chat(format!("Usage: /give <item> [<size>]"));
+                }
+                _ => {
+                    self.send_chat(format!("Unknown command!"));
+                }
+            }
+
+        }
+
     }
 
     /// Handle a position packet.
