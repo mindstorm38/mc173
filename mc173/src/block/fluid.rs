@@ -7,7 +7,7 @@ use crate::world::World;
 
 /// Calculate the fluid height based on its metadata.
 #[inline]
-pub fn calc_fluid_height(metadata: u8) -> f32 {
+pub fn calc_height(metadata: u8) -> f32 {
     if metadata >= 8 {
         0.0
     } else {
@@ -18,7 +18,7 @@ pub fn calc_fluid_height(metadata: u8) -> f32 {
 
 /// Calculate the velocity applied by a fluid block at the given position. You must 
 /// ensure before calling that this position contains a fluid block.
-pub fn calc_fluid_velocity(world: &mut World, pos: IVec3) -> Option<DVec3> {
+pub fn calc_velocity(world: &mut World, pos: IVec3) -> Option<DVec3> {
 
     let _ = (world, pos);
     todo!()

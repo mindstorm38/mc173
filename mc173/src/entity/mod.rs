@@ -272,7 +272,7 @@ pub struct Player {
     /// to drop it when the player dies.
     pub cursor_stack: ItemStack,
     /// Index of the slot selected in the hotbar.
-    pub hotbar_index: u8,
+    pub hand_slot: u8,
 }
 
 impl Default for Player {
@@ -284,7 +284,7 @@ impl Default for Player {
             armor_inv: Inventory::new(4), 
             craft_inv: Inventory::new(4),
             cursor_stack: ItemStack::EMPTY, 
-            hotbar_index: 0,
+            hand_slot: 0,
         }
     }
 }

@@ -1,9 +1,12 @@
 //! Block enumeration and behaviors.
 
+use glam::IVec3;
+
 use crate::util::bb::BoundingBox;
 use crate::item::Item;
 
 pub mod fluid;
+pub mod door;
 
 
 /// Internal macro to easily define blocks registry.
@@ -157,7 +160,7 @@ pub struct Block {
     /// This function is used to get the bounding box list of this block, given its 
     /// metadata. By default, this function just return a full block, the bounding box
     /// also needs to have its origin at 0/0/0, it will be offset when doing computations.
-    pub fn_bounding_boxes: fn(u8) -> &'static [BoundingBox],
+    pub fn_bounding_boxes: fn(u8, u8) -> &'static [BoundingBox],
 }
 
 impl Block {
@@ -173,9 +176,10 @@ impl Block {
             light_emission: 0,
             item: Item {
                 name,
+                block: true,
                 max_stack_size: 64,
             },
-            fn_bounding_boxes: |_| &[BoundingBox::CUBE],
+            fn_bounding_boxes: |_, _| &[BoundingBox::CUBE],
         }
     }
 
@@ -195,18 +199,18 @@ impl Block {
     }
     
     const fn set_no_collide(self) -> Self {
-        self.set_fn_bounding_boxes(|_| &[])
+        self.set_fn_bounding_boxes(|_, _| &[])
     }
 
-    const fn set_fn_bounding_boxes(mut self, func: fn(u8) -> &'static [BoundingBox]) -> Self {
+    const fn set_fn_bounding_boxes(mut self, func: fn(u8, u8) -> &'static [BoundingBox]) -> Self {
         self.fn_bounding_boxes = func;
         self
     }
 
     /// Get bounding boxes for this block and given metadata.
     #[inline]
-    pub fn bounding_boxes(&self, metadata: u8) -> &'static [BoundingBox] {
-        (self.fn_bounding_boxes)(metadata)
+    pub fn bounding_boxes(&self, id: u8, metadata: u8) -> &'static [BoundingBox] {
+        (self.fn_bounding_boxes)(id, metadata)
     }
 
 }
@@ -267,8 +271,29 @@ impl Material {
 }
 
 
-/// If the block is a door (iron/wood), get if it's in open state.
-#[inline]
-pub fn is_door_open(metadata: u8) -> bool {
-    metadata & 4 != 0
+/// Represent a block's face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Face {
+    NegY,
+    PosY,
+    NegZ,
+    PosZ,
+    NegX,
+    PosX,
+}
+
+impl Face {
+
+    /// Get the delta vector for this face.
+    pub fn delta(self) -> IVec3 {
+        match self {
+            Face::NegY => IVec3::NEG_Y,
+            Face::PosY => IVec3::Y,
+            Face::NegZ => IVec3::NEG_Z,
+            Face::PosZ => IVec3::Z,
+            Face::NegX => IVec3::NEG_X,
+            Face::PosX => IVec3::X,
+        }
+    }
+
 }

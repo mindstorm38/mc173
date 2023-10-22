@@ -13,6 +13,7 @@ use flate2::Compression;
 
 use glam::{DVec3, Vec2, IVec3, IVec2};
 
+use mc173::block::Face;
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::{World, Dimension, Event};
@@ -580,6 +581,8 @@ impl ServerPlayer {
                 self.handle_position_look(world, packet),
             InPacket::BreakBlock(packet) =>
                 self.handle_break_block(world, packet),
+            InPacket::PlaceBlock(packet) =>
+                self.handle_place_block(world, packet),
             InPacket::HandSlot(packet) =>
                 self.handle_hand_slot(world, packet.slot),
             InPacket::WindowClick(packet) =>
@@ -654,7 +657,7 @@ impl ServerPlayer {
             if let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) {
 
                 let main_inv = &mut base.kind.kind.main_inv;
-                let index = base.kind.kind.hotbar_index as usize;
+                let index = base.kind.kind.hand_slot as usize;
                 let mut stack = main_inv.stack(index);
 
                 if !stack.is_empty() {
@@ -677,12 +680,60 @@ impl ServerPlayer {
 
     }
 
+    /// Handle a place block packet.
+    fn handle_place_block(&mut self, world: &mut World, packet: proto::PlaceBlockPacket) {
+
+        // This packet only works if the player's entity is a player.
+        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+
+        let face = match packet.direction {
+            0 => Face::NegY,
+            1 => Face::PosY,
+            2 => Face::NegZ,
+            3 => Face::PosZ,
+            4 => Face::NegX,
+            5 => Face::PosX,
+            0xFF => return, // TODO: special case with direction
+            _ => return,
+        };
+
+        let pos = IVec3 {
+            x: packet.x,
+            y: packet.y as i32,
+            z: packet.z,
+        };
+
+        let mut new_hand_stack = None;
+
+        let block_dist = base.pos.distance_squared(pos.as_dvec3() + 0.5);
+        if block_dist < 64.0 {
+            // TODO: Try interaction with the block before using the item.
+            let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
+            new_hand_stack = item::interact::use_on(world, hand_stack, pos, face);
+        }
+
+        if let Some(hand_stack) = new_hand_stack {
+            let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
+            base.kind.kind.main_inv.set_stack(base.kind.kind.hand_slot as usize, hand_stack);
+        }
+
+        // world.block_and_metadata(pos);
+        // self.send(OutPacket::BlockChange(proto::BlockChangePacket {
+        //     x: pos.x,
+        //     y: pos.y as i8,
+        //     z: pos.z,
+        //     block: todo!(),
+        //     metadata: todo!(),
+        // }))
+
+    }
+
     /// Handle a hand slot packet.
     fn handle_hand_slot(&mut self, world: &mut World, slot: i16) {
 
         // This packet only works if the player's entity is a player.
         let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
-        base.kind.kind.hotbar_index = slot as u8;
+        base.kind.kind.hand_slot = slot as u8;
 
     }
 
@@ -807,7 +858,7 @@ impl ServerPlayer {
 
         // At the end where the world is no longer borrowed, re-borrow our player entity
         // and set the new cursor stack.
-        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
         base.kind.kind.cursor_stack = cursor_stack;
 
     }

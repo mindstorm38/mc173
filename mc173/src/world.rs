@@ -343,7 +343,7 @@ impl World {
     pub fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
         self.iter_blocks_in(min, max).flat_map(|(pos, block, metadata)| {
             let pos = pos.as_dvec3();
-            block::from_id(block).bounding_boxes(metadata).iter()
+            block::from_id(block).bounding_boxes(block, metadata).iter()
                 .map(move |bb| bb.offset(pos))
         })
     }
@@ -444,8 +444,8 @@ impl World {
             pos,
             prev_block, 
             prev_metadata, 
-            new_block: 0, 
-            new_metadata: 0,
+            new_block: block, 
+            new_metadata: metadata,
         });
         Some((prev_block, prev_metadata))
     }

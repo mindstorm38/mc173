@@ -2,6 +2,8 @@
 
 use crate::block;
 
+pub mod interact;
+
 
 /// Internal macro to easily define blocks registry.
 macro_rules! items {
@@ -43,6 +45,8 @@ pub fn from_id(id: u16) -> &'static Item {
 pub struct Item {
     /// The name of the item, used for debug purpose.
     pub name: &'static str,
+    /// Set to true if this item is derived from a block.
+    pub block: bool,
     /// Maximum stack size for this item.
     pub max_stack_size: u16,
 }
@@ -52,6 +56,7 @@ impl Item {
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
+            block: false,
             max_stack_size: 64,
         }
     }

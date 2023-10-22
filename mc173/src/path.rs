@@ -84,7 +84,7 @@ impl<'a> PathFinder<'a> {
             match block {
                 block::AIR => {}
                 block::IRON_DOOR | block::WOOD_DOOR => {
-                    if !block::is_door_open(metadata) {
+                    if !block::door::is_open(metadata) {
                         return PathClearance::Blocked;
                     }
                 }
