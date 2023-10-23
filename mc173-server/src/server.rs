@@ -19,7 +19,7 @@ use mc173::world::{World, Dimension, Event};
 use mc173::item::crafting::CraftingTracker;
 use mc173::item::inventory::Inventory;
 use mc173::item::{self, ItemStack};
-use mc173::block::Face;
+use mc173::block::{self, Face};
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::overworld::new_overworld;
@@ -634,8 +634,16 @@ impl ServerPlayer {
                     metadata_raw
                 ) = item_raw.split_once(':').unwrap_or((item_raw, ""));
 
-                let id = id_raw.parse::<u16>()
-                    .map_err(|_| format!("§cError: invalid item id: {id_raw}"))?;
+                let id;
+                if let Ok(direct_id) = id_raw.parse::<u16>() {
+                    id = direct_id;
+                } else if let Some(name_id) = item::from_name(id_raw.trim_start_matches("i/")) {
+                    id = name_id;
+                } else if let Some(block_id) = block::from_name(id_raw.trim_start_matches("b/")) {
+                    id = block_id as u16;
+                } else {
+                    return Err(format!("§cError: unknown item name or id: {id_raw}"));
+                }
 
                 let item = item::from_id(id);
                 if item.name.is_empty() {
@@ -655,7 +663,7 @@ impl ServerPlayer {
                 }
 
                 base.kind.kind.main_inv.add_stack(stack);
-                self.send_chat(format!("§aGave {}:{} x{} to {}", item.name, stack.damage, stack.size, self.username));
+                self.send_chat(format!("§aGave {} ({}:{}) x{} to {}", item.name, stack.id, stack.damage, stack.size, self.username));
                 Ok(())
 
             }

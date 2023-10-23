@@ -71,7 +71,7 @@ blocks! {
     PISTON/33:          Block::new("piston", Material::Piston, 0.5, 0.0),
     PISTON_EXT/34:      Block::new("piston_ext", Material::Piston, 0.5, 0.0),
     WOOL/35:            Block::new("wool", Material::Cloth, 0.8, 0.0),
-    PISTON_MOVING/36:   Block::new("piston_ext", Material::Piston, -1.0, 0.0),
+    PISTON_MOVING/36:   Block::new("piston_moving", Material::Piston, -1.0, 0.0),
     DANDELION/37:       Block::new("dandelion", Material::Plant, 0.0, 0.0),
     POPPY/38:           Block::new("poppy", Material::Plant, 0.0, 0.0),
     BROWN_MUSHROOM/39:  Block::new("brown_mushroom", Material::Plant, 0.0, 0.0),
@@ -138,6 +138,13 @@ blocks! {
 /// Get a block from its numeric id.
 pub fn from_id(id: u8) -> &'static Block {
     &BLOCKS[id as usize]
+}
+
+/// Find a block id from its name.
+pub fn from_name(name: &str) -> Option<u8> {
+    BLOCKS.iter().enumerate()
+        .find(|(_, item)| item.name == name)
+        .map(|(i, _)| i as u8)
 }
 
 

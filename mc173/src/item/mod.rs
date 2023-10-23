@@ -149,6 +149,13 @@ pub fn from_id(id: u16) -> &'static Item {
     }
 }
 
+/// Find an item id from its name. **Note that this will not find block items.
+pub fn from_name(name: &str) -> Option<u16> {
+    ITEMS.iter().enumerate()
+        .find(|(_, item)| item.name == name)
+        .map(|(i, _)| (i + 256) as u16)
+}
+
 
 /// This structure describe a block.
 #[derive(Debug, Clone, Copy)]
