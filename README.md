@@ -50,3 +50,5 @@ on them. The priority of each feature is defined by its order in the list.
         - [ ] Block breaking duration check
     - [ ] Entity tracking
         - [ ] Client-side spawn (partial)
+- [ ] World generation
+- [ ] Lighting engine
