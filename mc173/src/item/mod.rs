@@ -2,6 +2,7 @@
 
 use crate::block;
 
+pub mod inventory;
 pub mod interact;
 
 

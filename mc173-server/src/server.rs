@@ -17,8 +17,8 @@ use mc173::block::Face;
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::{World, Dimension, Event};
+use mc173::item::inventory::Inventory;
 use mc173::item::{self, ItemStack};
-use mc173::inventory::Inventory;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::overworld::new_overworld;

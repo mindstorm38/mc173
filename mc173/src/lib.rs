@@ -4,8 +4,6 @@ pub mod util;
 
 pub mod block;
 pub mod item;
-pub mod inventory;
-pub mod craft;
 pub mod entity;
 
 pub mod chunk;
