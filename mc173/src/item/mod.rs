@@ -208,6 +208,16 @@ impl ItemStack {
 
     pub const EMPTY: Self = Self { id: block::AIR as u16, size: 0, damage: 0 };
 
+    /// Shortcut constructor for an item stack with single item.
+    pub const fn new_single(id: u16, damage: u16) -> Self {
+        Self { id, size: 1, damage }
+    }
+
+    /// Shortcut constructor for an item stack constructed from a block id and metadata.
+    pub const fn new_block(id: u8, metadata: u8) -> Self {
+        Self { id: id as u16, size: 1, damage: metadata as u16}
+    }
+
     pub fn with_size(mut self, size: u16) -> ItemStack {
         self.size = size;
         self

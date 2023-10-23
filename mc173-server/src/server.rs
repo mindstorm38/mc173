@@ -681,7 +681,7 @@ impl ServerPlayer {
 
     /// Handle a break block packet.
     fn handle_break_block(&mut self, world: &mut World, packet: proto::BreakBlockPacket) {
-
+        
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
         if packet.status == 0 {

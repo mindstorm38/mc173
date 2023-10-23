@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
-use std::ops::{Add, Mul};
+use std::ops::Add;
 
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
@@ -13,7 +13,7 @@ use crate::item::ItemStack;
 use crate::util::rand::JavaRandom;
 use crate::util::bb::BoundingBox;
 
-use crate::entity::{Entity, ItemEntity};
+use crate::entity::Entity;
 use crate::block;
 
 
@@ -119,6 +119,10 @@ impl World {
 
     pub fn set_time(&mut self, time: u64) {
         self.time = time;
+    }
+
+    pub fn rand_mut(&mut self) -> &mut JavaRandom {
+        &mut self.rand
     }
 
     /// Get a reference to a chunk, if existing.
@@ -454,28 +458,12 @@ impl World {
     /// of the block break and the items spawn. This returns true if successful, false
     /// if the chunk/pos was not valid.
     pub fn break_block(&mut self, pos: IVec3) -> bool {
-
-        let Some((prev_block, _)) = self.set_block_and_metadata(pos, 0, 0) else { return false };
-
-        const SPREAD: f32 = 0.7;
-        let delta = self.rand.next_vec3()
-            .mul(SPREAD)
-            .as_dvec3()
-            .add((1.0 - SPREAD as f64) * 0.5);
-
-        let mut entity = ItemEntity::default();
-        entity.pos = pos.as_dvec3() + delta;
-        entity.vel.x = self.rand.next_double() * 0.2 - 0.1;
-        entity.vel.y = 0.2;
-        entity.vel.z = self.rand.next_double() * 0.2 - 0.1;
-        entity.kind.stack.id = prev_block as u16;
-        entity.kind.stack.size = 1;
-        entity.kind.frozen_ticks = 10;
-        
-        self.spawn_entity(Entity::Item(entity));
-
-        true
-        
+        if let Some((prev_id, prev_metadata)) = self.set_block_and_metadata(pos, 0, 0) {
+            block::drop::drop_at(self, pos, prev_id, prev_metadata, 1.0);
+            true
+        } else {
+            false
+        }
     }
 
     /// Tick the world, this ticks all entities.

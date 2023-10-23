@@ -1,7 +1,6 @@
 //! Inventory data structure storing item stacks.
 
 use crate::item::ItemStack;
-use crate::block;
 use crate::item;
 
 
@@ -41,20 +40,20 @@ impl Inventory {
     pub fn add_stack(&mut self, stack: ItemStack) -> u16 {
 
         // Do nothing if stack size is 0 or the item is air.
-        if stack.size == 0 || stack.id == block::AIR as u16 {
+        if stack.is_empty() {
             return stack.size;
         }
 
         let item = item::from_id(stack.id);
         let mut remaining_size = stack.size;
 
-        // Only insert our item if it has no damage.
-        if stack.damage == 0 {
+        // Only accumulate of stack size is greater than 1.
+        if item.max_stack_size > 1 {
             // Search a slot where the item is compatible.
             for (index, slot) in self.stacks.iter_mut().enumerate() {
 
                 // If the slot is of the same item and has space left in the stack size.
-                if slot.id == stack.id && slot.damage == 0 && slot.size < item.max_stack_size {
+                if slot.id == stack.id && slot.damage == stack.damage && slot.size < item.max_stack_size {
 
                     let available = item.max_stack_size - slot.size;
                     let to_add = available.min(remaining_size);
@@ -79,7 +78,7 @@ impl Inventory {
         // We can also land here if the item has damage value.
         // We search empty slots.
         for (index, slot) in self.stacks.iter_mut().enumerate() {
-            if slot.id == block::AIR as u16 {
+            if slot.is_empty() {
                 // We found an empty slot, insert the whole remaining stack size.
                 *slot = stack;
                 slot.size = remaining_size;

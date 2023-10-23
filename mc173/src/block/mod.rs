@@ -5,8 +5,11 @@ use glam::IVec3;
 use crate::util::bb::BoundingBox;
 use crate::item::Item;
 
+pub mod drop;
+
 pub mod fluid;
 pub mod door;
+pub mod bed;
 
 
 /// Internal macro to easily define blocks registry.
