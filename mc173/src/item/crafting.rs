@@ -39,6 +39,29 @@ impl CraftingTracker {
 
     }
 
+    /// If there is a selected recipe, consume the recipe items from the given inventory,
+    /// this inventory should be coherent with the one that selected this recipe through
+    /// the `update` method. You need to call the `update` method again in order to update
+    /// the tracker for the new inventory.
+    pub fn consume(&self, inv: &mut Inventory) {
+
+        if self.current_recipe.is_none() {
+            return;
+        }
+
+        // We just decrement all stack's size in the grid, because stack size is ignored
+        // in current patterns.
+        for index in 0..inv.size() {
+            let stack = inv.stack(index);
+            if stack.is_empty() || stack.size == 1 {
+                inv.set_stack(index, ItemStack::EMPTY);
+            } else {
+                inv.set_stack(index, stack.with_size(stack.size - 1));
+            }
+        }
+
+    }
+
     /// If a crafting recipe is currently selected, return the result item.
     pub fn recipe(&self) -> Option<ItemStack> {
         self.current_recipe.map(|(_, item)| item)
@@ -54,6 +77,8 @@ macro_rules! def_const_stack {
         $( const $name: ItemStack = ItemStack { id: $value as u16, size: 1, damage: 0 }; )*
     };
 }
+
+const EMPTY: ItemStack = ItemStack::EMPTY;
 
 def_const_stack! {
     SUGAR_CANES     = item::SUGAR_CANES;
@@ -99,10 +124,15 @@ const RECIPES: &'static [Recipe] = &[
     Recipe::new_shaped(TNT, &[GUNPOWDER, SAND, GUNPOWDER, SAND, GUNPOWDER, SAND, GUNPOWDER, SAND, GUNPOWDER], 3),
 
     Recipe::new_shaped(BED, &[WOOL, WOOL, WOOL, WOOD, WOOD], 3),
+
+    // FIXME: The following is just for testing custom recipes.
+    Recipe::new_shaped(STICK, &[STRING, EMPTY, EMPTY, STRING], 2),
 ];
 
 
 /// The recipe enumeration stores different types of recipes.
+/// 
+/// **Note that crafting recipes currently ignore the stack size in of patterns.**
 enum Recipe {
     /// A shaped crafting recipe requires the items to be in a specific pattern, the 
     /// pattern has a size and if smaller than 3x3 it can be moved everywhere in the 
@@ -184,8 +214,6 @@ impl ShapedRecipe {
                 return false;
             } else if (pat_stack.id, pat_stack.damage) != (stack.id, stack.damage) {
                 return false;
-            } else if stack.size < pat_stack.size {
-                return false;
             }
 
             if flip {
@@ -214,8 +242,6 @@ impl ShapedRecipe {
 impl ShapelessRecipe {
 
     /// Check if this shapeless recipe can be crafted with the given inventory items.
-    /// 
-    /// **Note that shapeless crafting currently ignore the stack size in of pattern.**
     fn check(&self, inv: &Inventory) -> Option<ItemStack> {
         
         // Too few stacks for the current pattern: discard immediately.

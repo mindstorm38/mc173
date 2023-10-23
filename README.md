@@ -27,8 +27,8 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Definitions
     - [x] Inventory data structure
     - [ ] Crafting
-        - [ ] Definitions
-        - [ ] Manager
+        - [ ] Definitions (partial)
+        - [x] Tracker
     - [ ] Use/place behaviors
     - [ ] Break behaviors
 - [ ] Entities
@@ -39,7 +39,7 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Network threading
     - [ ] Player window
         - [x] Left and right click support
-        - [ ] Player inventory crafting grid
+        - [x] Player inventory crafting grid
         - [ ] Crafting table
         - [ ] Chest
         - [ ] Furnace
@@ -49,6 +49,6 @@ on them. The priority of each feature is defined by its order in the list.
         - [ ] Instant block breaking
         - [ ] Block breaking duration check
     - [ ] Entity tracking
-        - [ ] Client-side spawn (partial)
+        - [ ] Client-side spawn (partial) 
 - [ ] World generation
 - [ ] Lighting engine

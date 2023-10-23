@@ -223,6 +223,7 @@ impl Server {
             look: offline_player.look,
             tracked_chunks: HashSet::new(),
             tracked_entities: HashSet::new(),
+            slot_changes: Vec::new(),
             crafting_tracker: CraftingTracker::default(),
             breaking_block: None,
         });
@@ -544,8 +545,11 @@ struct ServerPlayer {
     /// known and rendered by the client, when the entity will disappear, a kill packet
     /// should be sent.
     tracked_entities: HashSet<u32>,
+    /// A temporary list of item changes in the current window, each item is associated 
+    /// to its slot number.
+    slot_changes: Vec<(i16, ItemStack)>,
     /// This crafting tracker is used to update the current craft being constructed by 
-    /// the player.
+    /// the player in the current window (player inventory or crafting table interface).
     crafting_tracker: CraftingTracker,
     /// If the player is breaking a block, this record the breaking state.
     breaking_block: Option<BreakingBlock>,
@@ -839,12 +843,10 @@ impl ServerPlayer {
             todo!()
         } else {
 
-            // TODO: Check cast.
-            let slot = packet.slot as usize;
             let mut slot_handle;
 
             if packet.window_id == 0 {
-                slot_handle = SlotHandle::new_player(slot, base, &mut self.crafting_tracker);
+                slot_handle = SlotHandle::new_player(self, packet.slot, base);
             } else {
                 todo!()
             }
@@ -852,7 +854,7 @@ impl ServerPlayer {
             slot_stack = slot_handle.stack();
 
             if slot_stack.is_empty() {
-                if !cursor_stack.is_empty() && slot_handle.is_valid(cursor_stack) {
+                if !cursor_stack.is_empty() && slot_handle.can_drop(cursor_stack) {
                     
                     let drop_size = if packet.right_click { 1 } else { cursor_stack.size };
                     let drop_size = drop_size.min(slot_handle.max_stack_size());
@@ -862,9 +864,13 @@ impl ServerPlayer {
 
                 }
             } else if cursor_stack.is_empty() {
+
+                // Here the slot is not empty, but the cursor is.
                 
+                // NOTE: Splitting is equivalent of taking and then drop (half), we check 
+                // if the slot would accept that drop by checking validity.
                 cursor_stack = slot_stack;
-                if packet.right_click {
+                if packet.right_click && slot_handle.can_drop(cursor_stack) {
                     cursor_stack.size = (cursor_stack.size + 1) / 2;
                 }
 
@@ -876,11 +882,14 @@ impl ServerPlayer {
                     slot_handle.set_stack(new_slot_stack);
                 }
 
-            } else if slot_handle.is_valid(cursor_stack) {
+            } else if slot_handle.can_drop(cursor_stack) {
+
+                // Here the slot and the cursor are not empty, we check if we can
+                // drop some item if compatible, or swap if not.
 
                 let cursor_item = item::from_id(cursor_stack.id);
 
-                if slot_stack.id != cursor_stack.id || slot_stack.damage != cursor_stack.damage {
+                if (slot_stack.id, slot_stack.damage) != (cursor_stack.id, cursor_stack.damage) {
                     // Not the same item, we just swap with hand.
                     if cursor_stack.size <= slot_handle.max_stack_size() {
                         slot_handle.set_stack(cursor_stack);
@@ -903,6 +912,20 @@ impl ServerPlayer {
                     }
                 }
 
+            } else {
+
+                // This last case is when the slot and the cursor are not empty, but we
+                // can't drop the cursor into the slot, in such case we try to pick the 
+
+                if (slot_stack.id, slot_stack.damage) == (cursor_stack.id, cursor_stack.damage) {
+                    let cursor_item = item::from_id(cursor_stack.id);
+                    if slot_stack.size + cursor_stack.size <= cursor_item.max_stack_size {
+                        cursor_stack.size += slot_stack.size;
+                        // NOTE: We can only drop EMPTY stack if drop is forbidden.
+                        slot_handle.set_stack(ItemStack::EMPTY);
+                    }
+                }
+
             }
 
         }
@@ -914,6 +937,16 @@ impl ServerPlayer {
             transaction_id: packet.transaction_id,
             accepted: slot_stack.to_non_empty() == packet.stack,
         }));
+
+        // This temporary vector is filled by slot handles and contains stacks to update
+        // in the current window.
+        for (slot, stack) in self.slot_changes.drain(..) {
+            self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
+                window_id: packet.window_id,
+                slot,
+                stack: stack.to_non_empty(),
+            }));
+        }
 
         // Send the new cursor item.
         if cursor_stack.size == 0 {
@@ -930,19 +963,6 @@ impl ServerPlayer {
         // and set the new cursor stack.
         let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
         base.kind.kind.cursor_stack = cursor_stack;
-
-        // If we are in the player inventory, update the current recipe and send the item.
-        if packet.window_id == 0 {
-            // If there are changes in the crafting inventory, find a crafting recipe.
-            if base.kind.kind.craft_inv.has_changes() {
-                self.crafting_tracker.update(&base.kind.kind.craft_inv, 2, 2);
-                self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-                    window_id: 0,
-                    slot: 0,  // Crafting slot 0.
-                    stack: self.crafting_tracker.recipe(),
-                }))
-            }
-        }
 
     }
 
@@ -1285,102 +1305,161 @@ impl EntityTracker {
 }
 
 /// A pointer to a slot in an inventory, its type affects the behavior of interactions 
-/// with it.
-enum SlotHandle<'p, 'c> {
+/// with it. Lifetimes are `'w` for references to world, and `'p` for references to the
+/// `ServerPlayer` structure that is using the slot.
+struct SlotHandle<'p, 'w> {
+    player: &'p mut ServerPlayer,
+    slot: i16,
+    kind: SlotKind<'w>,
+}
+
+/// Different kind of slots, these kind of slots are generic and are made to adapt to
+/// a variety of containers and interfaces.
+enum SlotKind<'w> {
     /// This slot is a regular storage slot in the given inventory and index into it.
     Storage {
-        inv: &'p mut Inventory,
+        inv: &'w mut Inventory,
         index: usize,
     },
     /// This slot is a player armor slot.
     Armor {
-        inv: &'p mut Inventory,
+        inv: &'w mut Inventory,
         index: usize,
     },
     /// This slot is part of a crafting grid.
     CraftingGrid {
-        inv: &'p mut Inventory,
+        inv: &'w mut Inventory,
+        inv_width: u8,
+        inv_height: u8,
         index: usize,
-        crafting_tracker: &'c mut CraftingTracker,
+        result_slot: i16,
     },
     /// This slot is used for the result of a crafting recipe.
     CraftingResult {
-        inv: &'p mut Inventory,
-        crafting_tracker: &'c CraftingTracker,
+        inv: &'w mut Inventory,
+        inv_width: u8,
+        inv_height: u8,
+        grid_first_slot: i16,
     },
 }
 
-impl<'p, 'c> SlotHandle<'p, 'c> {
+impl<'p, 'w> SlotHandle<'p, 'w> {
 
     /// Create a new slot handle for a player inventory slot.
-    fn new_player(slot: usize, player: &'p mut PlayerEntity, crafting_tracker: &'c mut CraftingTracker) -> Self {
-        match slot {
-            0 => Self::CraftingResult {
-                inv: &mut player.kind.kind.craft_inv,
-                crafting_tracker,
+    fn new_player(player: &'p mut ServerPlayer, slot: i16, base: &'w mut PlayerEntity) -> Self {
+        Self::new(player, slot, match slot {
+            0 => SlotKind::CraftingResult {
+                inv: &mut base.kind.kind.craft_inv,
+                inv_width: 2,
+                inv_height: 2,
+                grid_first_slot: 1,
             },
-            1..=4 => Self::CraftingGrid { 
-                inv: &mut player.kind.kind.craft_inv, 
+            1..=4 => SlotKind::CraftingGrid { 
+                inv: &mut base.kind.kind.craft_inv, 
+                inv_width: 2,
+                inv_height: 2,
                 index: slot as usize - 1, 
-                crafting_tracker,
+                result_slot: 0,
             },
-            5..=8 => Self::Armor { 
-                inv: &mut player.kind.kind.armor_inv, 
+            5..=8 => SlotKind::Armor { 
+                inv: &mut base.kind.kind.armor_inv, 
                 index: slot as usize - 5,
             },
-            9..=35 => Self::Storage { 
-                inv: &mut player.kind.kind.main_inv, 
+            9..=35 => SlotKind::Storage { 
+                inv: &mut base.kind.kind.main_inv, 
                 index: slot as usize,
             },
-            36..=44 => Self::Storage { 
-                inv: &mut player.kind.kind.main_inv, 
+            36..=44 => SlotKind::Storage { 
+                inv: &mut base.kind.kind.main_inv, 
                 index: slot as usize - 36,
             },
             _ => panic!()
-        }
+        })
+    }
+
+    fn new(player: &'p mut ServerPlayer, slot: i16, kind: SlotKind<'w>) -> Self {
+        Self { player, slot, kind }
     }
 
     /// Get the maximum stack size for that slot.
     fn max_stack_size(&self) -> u16 {
-        match self {
-            SlotHandle::Armor { .. } => 1,
+        match self.kind {
+            SlotKind::Armor { .. } => 1,
             _ => 64,
         }
     }
 
-    /// Check if the given item stack can be put in the slot.
-    fn is_valid(&self, stack: ItemStack) -> bool {
-        match self {
-            SlotHandle::Storage { .. } => true,
-            SlotHandle::Armor { .. } => true, // TODO:
-            SlotHandle::CraftingGrid { .. } => true,
-            SlotHandle::CraftingResult { .. } => false,
+    /// Check if the given item stack can be dropped in the slot.
+    fn can_drop(&self, _stack: ItemStack) -> bool {
+        match self.kind {
+            SlotKind::Storage { .. } => true,
+            SlotKind::Armor { .. } => true, // TODO:
+            SlotKind::CraftingGrid { .. } => true,
+            SlotKind::CraftingResult { .. } => false,
         }
     }
 
     /// Get the stack in this slot.
     fn stack(&self) -> ItemStack {
-        match self {
-            SlotHandle::Storage { inv, index } |
-            SlotHandle::Armor { inv, index } |
-            SlotHandle::CraftingGrid { inv, index, .. } => {
-                inv.stack(*index)
+        match self.kind {
+            SlotKind::Storage { ref inv, index } |
+            SlotKind::Armor { ref inv, index } |
+            SlotKind::CraftingGrid { ref inv, index, .. } => {
+                inv.stack(index)
             }
-            SlotHandle::CraftingResult { crafting_tracker, .. } => {
-                crafting_tracker.recipe().unwrap_or(ItemStack::EMPTY)
+            SlotKind::CraftingResult { .. } => {
+                self.player.crafting_tracker.recipe().unwrap_or(ItemStack::EMPTY)
             }
         }
     }
 
-    /// Set the stack in this slot, only called if `is_valid` previously returned `true`.
+    /// Set the stack in this slot, called if `is_valid` previously returned `true`, if
+    /// the latter return `false`, this function can only be called with `EMPTY` stack.
+    /// 
+    /// This function also push the slot changes that happened into `slot_changes` of the
+    /// server player temporary vector.
     fn set_stack(&mut self, stack: ItemStack) {
-        match self {
-            SlotHandle::Storage { inv, index } |
-            SlotHandle::Armor { inv, index } |
-            SlotHandle::CraftingGrid { inv, index, .. } => {
-                inv.set_stack(*index, stack)
+        match self.kind {
+            SlotKind::Storage { ref mut inv, index } |
+            SlotKind::Armor { ref mut inv, index } => {
+                inv.set_stack(index, stack);
             }
-            SlotHandle::CraftingResult { inv, crafting_tracker } => {
+            SlotKind::CraftingGrid { 
+                ref mut inv, inv_width, inv_height, 
+                index, 
+                result_slot,
+            } => {
+
+                inv.set_stack(index, stack);
+                self.player.crafting_tracker.update(inv, inv_width, inv_height);
+
+                let result_stack = self.player.crafting_tracker.recipe()
+                    .unwrap_or(ItemStack::EMPTY);
+
+                self.player.slot_changes.push((self.slot, stack));
+                self.player.slot_changes.push((result_slot, result_stack));
+
+            }
+            SlotKind::CraftingResult { 
+                ref mut inv, inv_width, inv_height,
+                grid_first_slot,
+            } => {
+
+                // NOTE: The 'can_drop' method always return false for this slot.
+                // This means that this result slot has been picked up.
+                debug_assert_eq!(stack, ItemStack::EMPTY);
+
+                self.player.crafting_tracker.consume(inv);
+                self.player.crafting_tracker.update(inv, inv_width, inv_height);
+
+                let result_stack = self.player.crafting_tracker.recipe()
+                    .unwrap_or(ItemStack::EMPTY);
+                
+                for (i, grid_stack) in inv.stacks().iter().copied().enumerate() {
+                    self.player.slot_changes.push((grid_first_slot + i as i16, grid_stack));
+                } 
+
+                self.player.slot_changes.push((self.slot, result_stack));
 
             }
         }
