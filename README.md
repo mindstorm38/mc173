@@ -8,8 +8,8 @@ such as worlds, chunks and entities, but also the behaviors for blocks, items an
 entities.
 
 ## Server
-The server crate is available at [mc173-server/](/mc173-server/) an implementation of the
-*Notchian* server protocol, it is built on top of the logic crate and has threaded 
+The server crate is available at [mc173-server/](/mc173-server/), it's an implementation 
+of the *Notchian* server protocol, it is built on top of the logic crate and has threaded 
 networking, it also defines protocol structures.
 
 ## Roadmap
