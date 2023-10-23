@@ -841,26 +841,23 @@ impl ServerPlayer {
 
             // TODO: Check cast.
             let slot = packet.slot as usize;
+            let mut slot_handle;
 
-            let mut slots = if packet.window_id == 0 {
-                Slots::Player {
-                    main_inv: &mut base.kind.kind.main_inv,
-                    armor_inv: &mut base.kind.kind.armor_inv,
-                    craft_inv: &mut base.kind.kind.craft_inv,
-                }
+            if packet.window_id == 0 {
+                slot_handle = SlotHandle::new_player(slot, base, &mut self.crafting_tracker);
             } else {
-                // Unsupported window type...
-                return;
-            };
+                todo!()
+            }
 
-            slot_stack = slots.stack(slot);
+            slot_stack = slot_handle.stack();
+
             if slot_stack.is_empty() {
-                if !cursor_stack.is_empty() && slots.valid(slot, cursor_stack) {
+                if !cursor_stack.is_empty() && slot_handle.is_valid(cursor_stack) {
                     
                     let drop_size = if packet.right_click { 1 } else { cursor_stack.size };
-                    let drop_size = drop_size.min(slots.max_stack_size(slot));
+                    let drop_size = drop_size.min(slot_handle.max_stack_size());
                     
-                    slots.set_stack(slot, cursor_stack.with_size(drop_size));
+                    slot_handle.set_stack(cursor_stack.with_size(drop_size));
                     cursor_stack.size -= drop_size;
 
                 }
@@ -874,24 +871,24 @@ impl ServerPlayer {
                 let mut new_slot_stack = slot_stack;
                 new_slot_stack.size -= cursor_stack.size;
                 if new_slot_stack.size == 0 {
-                    slots.set_stack(slot, ItemStack::EMPTY);
+                    slot_handle.set_stack(ItemStack::EMPTY);
                 } else {
-                    slots.set_stack(slot, new_slot_stack);
+                    slot_handle.set_stack(new_slot_stack);
                 }
 
-            } else if slots.valid(slot, cursor_stack) {
+            } else if slot_handle.is_valid(cursor_stack) {
 
                 let cursor_item = item::from_id(cursor_stack.id);
 
                 if slot_stack.id != cursor_stack.id || slot_stack.damage != cursor_stack.damage {
                     // Not the same item, we just swap with hand.
-                    if cursor_stack.size <= slots.max_stack_size(slot) {
-                        slots.set_stack(slot, cursor_stack);
+                    if cursor_stack.size <= slot_handle.max_stack_size() {
+                        slot_handle.set_stack(cursor_stack);
                         cursor_stack = slot_stack;
                     }
                 } else {
                     // Same item, just drop some into the existing stack.
-                    let max_stack_size = cursor_item.max_stack_size.min(slots.max_stack_size(slot));
+                    let max_stack_size = cursor_item.max_stack_size.min(slot_handle.max_stack_size());
                     // Only drop if the stack is not full.
                     if slot_stack.size < max_stack_size {
                         
@@ -901,13 +898,11 @@ impl ServerPlayer {
 
                         let mut new_slot_stack = slot_stack;
                         new_slot_stack.size += drop_size;
-                        slots.set_stack(slot, new_slot_stack);
+                        slot_handle.set_stack(new_slot_stack);
 
                     }
                 }
 
-            } else {
-                // TODO:
             }
 
         }
@@ -1289,88 +1284,104 @@ impl EntityTracker {
 
 }
 
-/// This enumeration is used to represent a slots array for a window, linked to 
-/// inventories.
-enum Slots<'a> {
-    /// The player window.
-    Player {
-        main_inv: &'a mut Inventory,
-        armor_inv: &'a mut Inventory,
-        craft_inv: &'a mut Inventory,
-    }
+/// A pointer to a slot in an inventory, its type affects the behavior of interactions 
+/// with it.
+enum SlotHandle<'p, 'c> {
+    /// This slot is a regular storage slot in the given inventory and index into it.
+    Storage {
+        inv: &'p mut Inventory,
+        index: usize,
+    },
+    /// This slot is a player armor slot.
+    Armor {
+        inv: &'p mut Inventory,
+        index: usize,
+    },
+    /// This slot is part of a crafting grid.
+    CraftingGrid {
+        inv: &'p mut Inventory,
+        index: usize,
+        crafting_tracker: &'c mut CraftingTracker,
+    },
+    /// This slot is used for the result of a crafting recipe.
+    CraftingResult {
+        inv: &'p mut Inventory,
+        crafting_tracker: &'c CraftingTracker,
+    },
 }
 
-impl Slots<'_> {
+impl<'p, 'c> SlotHandle<'p, 'c> {
 
-    /// Get the number of slots in this window.
-    fn size(&self) -> usize {
-        match self {
-            Slots::Player { .. } => 45,
+    /// Create a new slot handle for a player inventory slot.
+    fn new_player(slot: usize, player: &'p mut PlayerEntity, crafting_tracker: &'c mut CraftingTracker) -> Self {
+        match slot {
+            0 => Self::CraftingResult {
+                inv: &mut player.kind.kind.craft_inv,
+                crafting_tracker,
+            },
+            1..=4 => Self::CraftingGrid { 
+                inv: &mut player.kind.kind.craft_inv, 
+                index: slot as usize - 1, 
+                crafting_tracker,
+            },
+            5..=8 => Self::Armor { 
+                inv: &mut player.kind.kind.armor_inv, 
+                index: slot as usize - 5,
+            },
+            9..=35 => Self::Storage { 
+                inv: &mut player.kind.kind.main_inv, 
+                index: slot as usize,
+            },
+            36..=44 => Self::Storage { 
+                inv: &mut player.kind.kind.main_inv, 
+                index: slot as usize - 36,
+            },
+            _ => panic!()
         }
     }
 
-    /// This indicates if the given stack can be put in the given slot.
-    fn valid(&self, slot: usize, stack: ItemStack) -> bool {
+    /// Get the maximum stack size for that slot.
+    fn max_stack_size(&self) -> u16 {
         match self {
-            Self::Player { .. } => {
-                match slot {
-                    // Craft result slot.
-                    0 => false,
-                    // Armor head.
-                    5 => true,
-                    // Armor chest.
-                    6 => true,
-                    // Armor legs.
-                    7 => true,
-                    // Armor feet.
-                    8 => true,
-                    // Rest of the inventory is valid.
-                    _ => true,
-                }
+            SlotHandle::Armor { .. } => 1,
+            _ => 64,
+        }
+    }
+
+    /// Check if the given item stack can be put in the slot.
+    fn is_valid(&self, stack: ItemStack) -> bool {
+        match self {
+            SlotHandle::Storage { .. } => true,
+            SlotHandle::Armor { .. } => true, // TODO:
+            SlotHandle::CraftingGrid { .. } => true,
+            SlotHandle::CraftingResult { .. } => false,
+        }
+    }
+
+    /// Get the stack in this slot.
+    fn stack(&self) -> ItemStack {
+        match self {
+            SlotHandle::Storage { inv, index } |
+            SlotHandle::Armor { inv, index } |
+            SlotHandle::CraftingGrid { inv, index, .. } => {
+                inv.stack(*index)
+            }
+            SlotHandle::CraftingResult { crafting_tracker, .. } => {
+                crafting_tracker.recipe().unwrap_or(ItemStack::EMPTY)
             }
         }
     }
 
-    /// Get the maximum stack size for the given slot.
-    fn max_stack_size(&self, slot: usize) -> u16 {
+    /// Set the stack in this slot, only called if `is_valid` previously returned `true`.
+    fn set_stack(&mut self, stack: ItemStack) {
         match self {
-            Self::Player { .. } => {
-                match slot {
-                    5..=8 => 1,
-                    _ => 64
-                }
+            SlotHandle::Storage { inv, index } |
+            SlotHandle::Armor { inv, index } |
+            SlotHandle::CraftingGrid { inv, index, .. } => {
+                inv.set_stack(*index, stack)
             }
-        }
-    }
+            SlotHandle::CraftingResult { inv, crafting_tracker } => {
 
-    /// Get stack at the given slot.
-    fn stack(&self, slot: usize) -> ItemStack {
-        match self {
-            Self::Player { main_inv, armor_inv, craft_inv } => {
-                match slot {
-                    0 => ItemStack::EMPTY,
-                    1..=4 => craft_inv.stack(slot as usize - 1),
-                    5..=8 => armor_inv.stack(slot as usize - 5),
-                    9..=35 => main_inv.stack(slot as usize),
-                    36..=44 => main_inv.stack(slot as usize - 36),
-                    _ => unimplemented!()
-                }
-            }
-        }
-    }
-
-    /// Set stack at the given slot.
-    fn set_stack(&mut self, slot: usize, stack: ItemStack) {
-        match self {
-            Self::Player { main_inv, armor_inv, craft_inv } => {
-                match slot {
-                    0 => {},
-                    1..=4 => craft_inv.set_stack(slot as usize - 1, stack),
-                    5..=8 => armor_inv.set_stack(slot as usize - 5, stack),
-                    9..=35 => main_inv.set_stack(slot as usize, stack),
-                    36..=44 => main_inv.set_stack(slot as usize - 36, stack),
-                    _ => unimplemented!()
-                }
             }
         }
     }
