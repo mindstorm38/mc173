@@ -94,17 +94,24 @@ pub trait WriteJavaExt: Write {
     }
 
     fn write_java_char(&mut self, c: char) -> io::Result<()> {
-        // FIXME: Write real UTF-16 char.
-        Ok(WriteBytesExt::write_u16::<BE>(self, c as u16)?)
+        // NOTE: Java chars are UTF-16.
+        let mut buf = [0u16; 2];
+        let buf = c.encode_utf16(&mut buf);
+        for code in buf {
+            WriteBytesExt::write_u16::<BE>(self, *code)?;
+        }
+        Ok(())
     }
 
     fn write_java_string16(&mut self, s: &str) -> io::Result<()> {
         
-        if s.len() > i16::MAX as usize {
+        // Count the number of UTF-16 java character.
+        let len = s.chars().map(|c| c.len_utf16()).sum::<usize>();
+        if len > i16::MAX as usize {
             return Err(new_invalid_data_err("string too big"));
         }
         
-        self.write_java_short(s.len() as i16)?;
+        self.write_java_short(len as i16)?;
         for c in s.chars() {
             self.write_java_char(c)?;
         }

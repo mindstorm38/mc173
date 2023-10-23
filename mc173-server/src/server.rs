@@ -566,7 +566,6 @@ impl ServerPlayer {
 
     /// Send a packet to this player.
     fn send(&self, packet: OutPacket) {
-        println!("send({packet:?})");
         self.net.send(self.client, packet);
     }
 
