@@ -20,7 +20,7 @@ macro_rules! blocks {
 
         static BLOCKS: [Block; 256] = {
 
-            const DEFAULT: Block = Block::new("undefined", Material::Air, 0.0, 0.0)
+            const DEFAULT: Block = Block::new("", Material::Air, 0.0, 0.0)
                 .set_no_collide();
 
             let mut arr = [DEFAULT; 256];

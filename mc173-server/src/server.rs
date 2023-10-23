@@ -13,12 +13,13 @@ use flate2::Compression;
 
 use glam::{DVec3, Vec2, IVec3, IVec2};
 
-use mc173::block::Face;
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::{World, Dimension, Event};
+use mc173::item::crafting::CraftingTracker;
 use mc173::item::inventory::Inventory;
 use mc173::item::{self, ItemStack};
+use mc173::block::Face;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::overworld::new_overworld;
@@ -222,6 +223,7 @@ impl Server {
             look: offline_player.look,
             tracked_chunks: HashSet::new(),
             tracked_entities: HashSet::new(),
+            crafting_tracker: CraftingTracker::default(),
             breaking_block: None,
         });
 
@@ -531,7 +533,6 @@ struct ServerPlayer {
     /// The entity id linked to this player.
     entity_id: u32,
     /// Its username.
-    #[allow(unused)] // FIXME: Use this for chat message for example.
     username: String,
     /// Last position sent by the client.
     pos: DVec3,
@@ -543,6 +544,9 @@ struct ServerPlayer {
     /// known and rendered by the client, when the entity will disappear, a kill packet
     /// should be sent.
     tracked_entities: HashSet<u32>,
+    /// This crafting tracker is used to update the current craft being constructed by 
+    /// the player.
+    crafting_tracker: CraftingTracker,
     /// If the player is breaking a block, this record the breaking state.
     breaking_block: Option<BreakingBlock>,
 }
@@ -562,6 +566,7 @@ impl ServerPlayer {
 
     /// Send a packet to this player.
     fn send(&self, packet: OutPacket) {
+        println!("send({packet:?})");
         self.net.send(self.client, packet);
     }
 
@@ -606,43 +611,58 @@ impl ServerPlayer {
 
     /// Handle a chat message packet.
     fn handle_chat(&mut self, world: &mut World, message: String) {
-
-        // Parse chat command if needed.
         if message.starts_with('/') {
-
-            let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
-
-            let mut parser = message.split_whitespace();
-            match parser.next().unwrap() {
-                "/give" => {
-                    if let Some(id_raw) = parser.next() {
-                        if let Ok(id) = id_raw.parse::<u16>() {
-                            
-                            let mut stack = ItemStack { id, size: 1, damage: 0 };
-
-                            if let Some(size_raw) = parser.next() {
-                                if let Ok(size) = size_raw.parse::<u16>() {
-                                    stack.size = size;
-                                } else {
-                                    self.send_chat(format!("Error: invalid stack size: {size_raw}"));
-                                }
-                            }
-
-                            base.kind.kind.main_inv.add_stack(stack);
-
-                        } else {
-                            self.send_chat(format!("Error: invalid stack item: {id_raw}"));
-                        }
-                    }
-                    self.send_chat(format!("Usage: /give <item> [<size>]"));
-                }
-                _ => {
-                    self.send_chat(format!("Unknown command!"));
-                }
+            let parts = message.split_whitespace().collect::<Vec<_>>();
+            if let Err(message) = self.handle_chat_command(world, &parts) {
+                self.send_chat(message);
             }
-
         }
+    }
 
+    /// Handle a chat command, parsed from a chat message packet starting with '/'.
+    fn handle_chat_command(&mut self, world: &mut World, parts: &[&str]) -> Result<(), String> {
+
+        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else {
+            return Err(format!("§cCould not retrieve player entity!"));
+        };
+
+        match *parts {
+            ["/give", item_raw, _] |
+            ["/give", item_raw] => {
+
+                let (
+                    id_raw, 
+                    metadata_raw
+                ) = item_raw.split_once(':').unwrap_or((item_raw, ""));
+
+                let id = id_raw.parse::<u16>()
+                    .map_err(|_| format!("§cError: invalid item id: {id_raw}"))?;
+
+                let item = item::from_id(id);
+                if item.name.is_empty() {
+                    return Err(format!("§cError: unknown item id: {id_raw}"));
+                }
+
+                let mut stack = ItemStack::new_single(id, 0);
+
+                if !metadata_raw.is_empty() {
+                    stack.damage = metadata_raw.parse::<u16>()
+                        .map_err(|_| format!("§cError: invalid item damage: {metadata_raw}"))?;
+                }
+
+                if let Some(size_raw) = parts.get(2) {
+                    stack.size = size_raw.parse::<u16>()
+                        .map_err(|_| format!("§cError: invalid stack size: {size_raw}"))?;
+                }
+
+                base.kind.kind.main_inv.add_stack(stack);
+                self.send_chat(format!("§aGave {}:{} x{} to {}", item.name, stack.damage, stack.size, self.username));
+                Ok(())
+
+            }
+            ["/give", ..] => Err(format!("§eUsage: /give <item>[:<damage>] [<size>]")),
+            _ => Err(format!("§eUnknown command!"))
+        }
     }
 
     /// Handle a position packet.
@@ -908,6 +928,19 @@ impl ServerPlayer {
         // and set the new cursor stack.
         let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
         base.kind.kind.cursor_stack = cursor_stack;
+
+        // If we are in the player inventory, update the current recipe and send the item.
+        if packet.window_id == 0 {
+            // If there are changes in the crafting inventory, find a crafting recipe.
+            if base.kind.kind.craft_inv.has_changes() {
+                self.crafting_tracker.update(&base.kind.kind.craft_inv, 2, 2);
+                self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                    window_id: 0,
+                    slot: 0,  // Crafting slot 0.
+                    stack: self.crafting_tracker.recipe(),
+                }))
+            }
+        }
 
     }
 
@@ -1269,6 +1302,7 @@ impl Slots<'_> {
         }
     }
 
+    /// This indicates if the given stack can be put in the given slot.
     fn valid(&self, slot: usize, stack: ItemStack) -> bool {
         match self {
             Self::Player { .. } => {
@@ -1318,6 +1352,7 @@ impl Slots<'_> {
         }
     }
 
+    /// Set stack at the given slot.
     fn set_stack(&mut self, slot: usize, stack: ItemStack) {
         match self {
             Self::Player { main_inv, armor_inv, craft_inv } => {

@@ -24,6 +24,16 @@ impl Inventory {
         }
     }
 
+    /// Return the size of this inventory.
+    pub fn size(&self) -> usize {
+        self.stacks.len()
+    }
+
+    /// Get a slice of all stacks in this inventory.
+    pub fn stacks(&self) -> &[ItemStack] {
+        &self.stacks
+    }
+
     /// Get an item at the given index.
     pub fn stack(&self, index: usize) -> ItemStack {
         self.stacks[index]
@@ -92,6 +102,17 @@ impl Inventory {
 
     }
 
+    /// Clear changes registered in this 
+    pub fn clear_changes(&mut self) {
+        self.changes = 0;
+    }
+
+    /// Return true if this inventory has been modified since the last call to 
+    /// `clear_changes`.
+    pub fn has_changes(&self) -> bool {
+        self.changes != 0
+    }
+
     /// Iterate over item changes that happened in this inventory, this also returns the
     /// new item at the changed position.
     pub fn changes(&self) -> impl Iterator<Item = (usize, ItemStack)> + '_ {
@@ -102,11 +123,6 @@ impl Inventory {
                 None
             }
         })
-    }
-
-    /// Clear changes registered in this 
-    pub fn clear_changes(&mut self) {
-        self.changes = 0;
     }
 
 }

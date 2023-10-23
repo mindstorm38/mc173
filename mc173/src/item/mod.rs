@@ -3,6 +3,7 @@
 use crate::block;
 
 pub mod inventory;
+pub mod crafting;
 pub mod interact;
 
 
@@ -13,7 +14,7 @@ macro_rules! items {
     ) => {
 
         static ITEMS: [Item; 2002] = {
-            let mut arr = [Item::new("undefined"); 2002];
+            let mut arr = [Item::new(""); 2002];
             $(arr[$id as usize] = $init;)*
             arr
         };
