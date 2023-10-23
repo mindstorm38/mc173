@@ -1390,10 +1390,34 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     }
 
     /// Check if the given item stack can be dropped in the slot.
-    fn can_drop(&self, _stack: ItemStack) -> bool {
+    fn can_drop(&self, stack: ItemStack) -> bool {
         match self.kind {
             SlotKind::Storage { .. } => true,
-            SlotKind::Armor { .. } => true, // TODO:
+            SlotKind::Armor { index, .. } if index == 0 => matches!(stack.id, 
+                item::LEATHER_HELMET | 
+                item::GOLD_HELMET | 
+                item::CHAIN_HELMET | 
+                item::IRON_HELMET | 
+                item::DIAMOND_HELMET) || stack.id == block::PUMPKIN as u16,
+            SlotKind::Armor { index, .. } if index == 1 => matches!(stack.id, 
+                item::LEATHER_CHESTPLATE | 
+                item::GOLD_CHESTPLATE | 
+                item::CHAIN_CHESTPLATE | 
+                item::IRON_CHESTPLATE | 
+                item::DIAMOND_CHESTPLATE),
+            SlotKind::Armor { index, .. } if index == 2 => matches!(stack.id, 
+                item::LEATHER_LEGGINGS | 
+                item::GOLD_LEGGINGS | 
+                item::CHAIN_LEGGINGS | 
+                item::IRON_LEGGINGS | 
+                item::DIAMOND_LEGGINGS),
+            SlotKind::Armor { index, .. } if index == 3 => matches!(stack.id, 
+                item::LEATHER_BOOTS | 
+                item::GOLD_BOOTS | 
+                item::CHAIN_BOOTS | 
+                item::IRON_BOOTS | 
+                item::DIAMOND_BOOTS),
+            SlotKind::Armor { .. } => false,
             SlotKind::CraftingGrid { .. } => true,
             SlotKind::CraftingResult { .. } => false,
         }
@@ -1422,7 +1446,10 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
         match self.kind {
             SlotKind::Storage { ref mut inv, index } |
             SlotKind::Armor { ref mut inv, index } => {
+                
                 inv.set_stack(index, stack);
+                self.player.slot_changes.push((self.slot, stack));
+
             }
             SlotKind::CraftingGrid { 
                 ref mut inv, inv_width, inv_height, 
