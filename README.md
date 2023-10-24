@@ -22,7 +22,10 @@ on them. The priority of each feature is defined by its order in the list.
 - [ ] Blocks
     - [x] Definitions
     - [x] Drop behaviors
+    - [ ] Scheduled ticks
     - [ ] Break behaviors
+    - [ ] Interact behaviors
+    - [ ] Redstone
 - [ ] Items
     - [x] Definitions
     - [x] Inventory data structure
