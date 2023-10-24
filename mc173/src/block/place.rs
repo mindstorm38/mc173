@@ -25,14 +25,32 @@ pub fn can_place_at(world: &mut World, pos: IVec3, face: Face, id: u8) -> bool {
         block::POPPY |
         block::SAPLING |
         block::TALL_GRASS => is_block_at(world, pos - IVec3::Y, &[block::GRASS, block::DIRT, block::FARMLAND]),
-        block::RED_MUSHROOM |
-        block::BROWN_MUSHROOM => is_block_opaque_at(world, pos - IVec3::Y),
         block::WHEAT => is_block_at(world, pos - IVec3::Y, &[block::FARMLAND]),
         block::CACTUS => can_place_cactus_at(world, pos),
+        block::SUGAR_CANES => true, // TODO:
         block::CAKE => is_block_solid_at(world, pos - IVec3::Y),
         block::CHEST => can_place_chest_at(world, pos),
         block::WOOD_DOOR |
         block::IRON_DOOR => can_place_door_at(world, pos),
+        block::FENCE => is_block_at(world, pos - IVec3::Y, &[block::FENCE]) || is_block_solid_at(world, pos - IVec3::Y),
+        block::FIRE => true, // TODO:
+        block::TORCH |
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT => true, // TODO:
+        // Common blocks that needs opaque block below.
+        block::RED_MUSHROOM |
+        block::BROWN_MUSHROOM |
+        block::WOOD_PRESSURE_PLATE |
+        block::STONE_PRESSURE_PLATE |
+        block::PUMPKIN |
+        block::PUMPKIN_LIT |
+        block::RAIL | 
+        block::POWERED_RAIL |
+        block::DETECTOR_RAIL |
+        block::REPEATER |
+        block::REPEATER_LIT |
+        block::REDSTONE |
+        block::SNOW => is_block_opaque_at(world, pos - IVec3::Y),
         _ => true,
     };
     base && is_block_replaceable_at(world, pos)

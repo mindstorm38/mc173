@@ -1,4 +1,7 @@
 //! Item interaction behaviors.
+//! 
+//! TODO: Rename all behavioral modules with the "-ing" suffix, for example "using", 
+//!       "breaking" or "placing".
 
 use glam::{IVec3, Vec2};
 
