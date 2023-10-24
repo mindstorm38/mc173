@@ -8,6 +8,7 @@ use crate::item::Item;
 pub mod tick;
 pub mod click;
 pub mod drop;
+pub mod place;
 
 pub mod button;
 pub mod fluid;
@@ -267,19 +268,41 @@ impl Material {
 
     pub fn is_solid(self) -> bool {
         !matches!(self, 
-            Material::Air |
-            Material::Water |
-            Material::Lava |
-            Material::Plant |
-            Material::Snow |
-            Material::Circuit |
-            Material::Portal |
-            Material::Fire
-        )
+            Self::Air |
+            Self::Water |
+            Self::Lava |
+            Self::Plant |
+            Self::Snow |
+            Self::Circuit |
+            Self::Portal |
+            Self::Fire)
     }
 
     pub fn is_fluid(self) -> bool {
-        matches!(self, Material::Water | Material::Lava)
+        matches!(self, Self::Water | Self::Lava)
+    }
+
+    pub fn is_translucent(self) -> bool {
+        matches!(self, 
+            Self::Leaves | 
+            Self::Glass | 
+            Self::Tnt | 
+            Self::Ice | 
+            Self::Snow | 
+            Self::Cactus)
+    }
+
+    pub fn is_opaque(self) -> bool {
+        !self.is_translucent() && self.is_solid()
+    }
+
+    pub fn is_replaceable(self) -> bool {
+        matches!(self, 
+            Self::Air |
+            Self::Water |
+            Self::Lava |
+            Self::Snow |
+            Self::Fire)
     }
 
 }
@@ -299,6 +322,7 @@ pub enum Face {
 impl Face {
 
     /// Get the delta vector for this face.
+    #[inline]
     pub fn delta(self) -> IVec3 {
         match self {
             Face::NegY => IVec3::NEG_Y,
@@ -308,6 +332,33 @@ impl Face {
             Face::NegX => IVec3::NEG_X,
             Face::PosX => IVec3::X,
         }
+    }
+
+    #[inline]
+    pub fn opposite(self) -> Self {
+        match self {
+            Face::NegY => Face::PosY,
+            Face::PosY => Face::NegY,
+            Face::NegZ => Face::PosZ,
+            Face::PosZ => Face::NegZ,
+            Face::NegX => Face::PosX,
+            Face::PosX => Face::NegX,
+        }
+    }
+
+    #[inline]
+    pub fn is_y(self) -> bool {
+        matches!(self, Self::NegY | Self::PosY)
+    }
+
+    #[inline]
+    pub fn is_x(self) -> bool {
+        matches!(self, Self::NegX | Self::PosX)
+    }
+
+    #[inline]
+    pub fn is_z(self) -> bool {
+        matches!(self, Self::NegZ | Self::PosZ)
     }
 
 }

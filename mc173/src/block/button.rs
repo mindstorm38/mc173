@@ -15,6 +15,19 @@ pub fn get_face(metadata: u8) -> Face {
     }
 }
 
+#[inline]
+pub fn set_face(metadata: &mut u8, face: Face) {
+    *metadata &= !7;
+    *metadata |= match face {
+        Face::NegY => 0,
+        Face::PosY => 0,
+        Face::NegZ => 3,
+        Face::PosZ => 4,
+        Face::NegX => 1,
+        Face::PosX => 2,
+    }
+}
+
 /// Return true if the button is currently active.
 #[inline]
 pub fn is_active(metadata: u8) -> bool {

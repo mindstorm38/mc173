@@ -461,7 +461,7 @@ impl World {
             pos,
             prev_block, 
             prev_metadata, 
-            new_block: block, 
+            new_block: block, // TODO: Change 'block' into 'id' EVERYWHERE!!
             new_metadata: metadata,
         });
         Some((prev_block, prev_metadata))

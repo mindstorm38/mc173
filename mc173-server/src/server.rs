@@ -563,7 +563,7 @@ struct BreakingBlock {
     /// The position of the block.
     pos: IVec3,
     /// The block id.
-    block: u8,
+    id: u8,
 }
 
 impl ServerPlayer {
@@ -717,17 +717,18 @@ impl ServerPlayer {
 
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.
-            if let Some((block, _)) = world.block_and_metadata(pos) {
+            if let Some((id, metadata)) = world.block_and_metadata(pos) {
+                block::click::click_at(world, pos, id, metadata);
                 self.breaking_block = Some(BreakingBlock {
                     time: world.time(),
                     pos,
-                    block,
+                    id,
                 });
             }
         } else if packet.status == 2 {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
-                if state.pos == pos && matches!(world.block_and_metadata(pos), Some((block, _)) if block == state.block) {
+                if state.pos == pos && matches!(world.block_and_metadata(pos), Some((id, _)) if id == state.id) {
                     world.break_block(pos);
                 }
             }
@@ -761,7 +762,7 @@ impl ServerPlayer {
 
     /// Handle a place block packet.
     fn handle_place_block(&mut self, world: &mut World, packet: proto::PlaceBlockPacket) {
-        println!("handle_place_block({packet:?})");
+        
         // This packet only works if the player's entity is a player.
         let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
 
@@ -787,7 +788,7 @@ impl ServerPlayer {
         let block_dist = base.pos.distance_squared(pos.as_dvec3() + 0.5);
         if block_dist < 64.0 {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
-            new_hand_stack = item::click::click_at(world, hand_stack, pos, face);
+            new_hand_stack = item::click::click_at(world, pos, face, hand_stack);
         }
 
         if let Some(hand_stack) = new_hand_stack {
