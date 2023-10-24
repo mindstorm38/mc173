@@ -15,6 +15,8 @@ pub fn can_place_at(world: &mut World, pos: IVec3, face: Face, id: u8) -> bool {
         block::LEVER if face == Face::PosY => false,
         block::LEVER => is_block_opaque_at(world, pos, face),
         block::LADDER => is_block_opaque_around(world, pos),
+        block::TRAPDOOR if face.is_y() => false,
+        block::TRAPDOOR => is_block_opaque_at(world, pos, face),
         _ => true,
     };
     base && is_block_replaceable_at(world, pos)
@@ -28,6 +30,7 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
         block::BUTTON => place_button_at(world, pos, face, metadata),
         block::LEVER => place_lever_at(world, pos, face, metadata),
         block::LADDER => place_ladder_at(world, pos, face, metadata),
+        block::TRAPDOOR => place_trapdoor(world, pos, face, metadata),
         _ => {
             world.set_block_and_metadata(pos, id, metadata);
         }
@@ -61,6 +64,11 @@ fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: 
     }
     block::ladder::set_face(&mut metadata, face);
     world.set_block_and_metadata(pos, block::LADDER, metadata);
+}
+
+fn place_trapdoor(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
+    block::trapdoor::set_face(&mut metadata, face);
+    world.set_block_and_metadata(pos, block::TRAPDOOR, metadata);
 }
 
 /// Check is there are at least one opaque block around horizontally.

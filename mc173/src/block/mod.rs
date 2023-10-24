@@ -17,6 +17,7 @@ pub mod lever;
 pub mod ladder;
 pub mod bed;
 pub mod door;
+pub mod trapdoor;
 
 pub mod fluid;
 
@@ -316,12 +317,12 @@ impl Material {
 /// Represent a block's face.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
-    NegY,
-    PosY,
-    NegZ,
-    PosZ,
-    NegX,
-    PosX,
+    NegY = 0,
+    PosY = 1,
+    NegZ = 2,
+    PosZ = 3,
+    NegX = 4,
+    PosX = 5,
 }
 
 impl Face {
