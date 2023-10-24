@@ -1,4 +1,4 @@
-//! Button special functions for metadata.
+//! Lever special functions for metadata.
 
 use super::Face;
 

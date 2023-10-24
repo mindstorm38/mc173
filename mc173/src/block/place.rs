@@ -14,6 +14,7 @@ pub fn can_place_at(world: &mut World, pos: IVec3, face: Face, id: u8) -> bool {
         block::BUTTON => is_block_opaque_at(world, pos, face),
         block::LEVER if face == Face::PosY => false,
         block::LEVER => is_block_opaque_at(world, pos, face),
+        block::LADDER => is_block_opaque_around(world, pos),
         _ => true,
     };
     base && is_block_replaceable_at(world, pos)
@@ -26,6 +27,7 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
     match id {
         block::BUTTON => place_button_at(world, pos, face, metadata),
         block::LEVER => place_lever_at(world, pos, face, metadata),
+        block::LADDER => place_ladder_at(world, pos, face, metadata),
         _ => {
             world.set_block_and_metadata(pos, id, metadata);
         }
@@ -44,6 +46,31 @@ fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
         _ => Face::PosY,
     });
     world.set_block_and_metadata(pos, block::LEVER, metadata);
+}
+
+fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: u8) {
+    // Privileging desired face, but if desired face cannot support a ladder.
+    if face.is_y() || !is_block_opaque_at(world, pos, face) {
+        // NOTE: Order is important for parity with client.
+        for around_face in [Face::PosZ, Face::NegZ, Face::PosX, Face::NegX] {
+            if is_block_opaque_at(world, pos, around_face) {
+                face = around_face;
+                break;
+            }
+        }
+    }
+    block::ladder::set_face(&mut metadata, face);
+    world.set_block_and_metadata(pos, block::LADDER, metadata);
+}
+
+/// Check is there are at least one opaque block around horizontally.
+fn is_block_opaque_around(world: &mut World, pos: IVec3) -> bool {
+    for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+        if is_block_opaque_at(world, pos, face) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Return true if the block at given position + face is opaque.

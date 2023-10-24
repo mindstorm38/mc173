@@ -5,17 +5,20 @@ use glam::IVec3;
 use crate::util::bb::BoundingBox;
 use crate::item::Item;
 
+// Block behaviors.
 pub mod tick;
 pub mod click;
 pub mod drop;
 pub mod place;
 
+// Block specific functions for their metadata.
 pub mod button;
 pub mod lever;
+pub mod ladder;
+pub mod bed;
+pub mod door;
 
 pub mod fluid;
-pub mod door;
-pub mod bed;
 
 
 /// Internal macro to easily define blocks registry.
