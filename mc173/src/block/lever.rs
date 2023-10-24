@@ -1,6 +1,6 @@
 //! Lever special functions for metadata.
 
-use super::Face;
+use crate::util::Face;
 
 
 /// The the face the lever is connected to. In b1.7.3, levers can only attach to X/Z and

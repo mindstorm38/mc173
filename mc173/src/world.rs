@@ -10,9 +10,8 @@ use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT};
+use crate::util::{JavaRandom, BoundingBox};
 use crate::item::ItemStack;
-use crate::util::rand::JavaRandom;
-use crate::util::bb::BoundingBox;
 
 use crate::entity::Entity;
 use crate::block;

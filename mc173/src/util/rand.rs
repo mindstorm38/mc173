@@ -16,13 +16,13 @@ const DOUBLE_DIV: f64 = (1u64 << 53) as f64;
 
 
 #[inline]
-pub fn initial_scramble(seed: i64) -> Wrapping<i64> {
+fn initial_scramble(seed: i64) -> Wrapping<i64> {
     (Wrapping(seed) ^ MULTIPLIER) & MASK
 }
 
 
 /// Generate a new seed in the same way as `java.f.Random` (same constants).
-pub fn gen_seed() -> i64 {
+fn gen_seed() -> i64 {
     static SEED: AtomicI64 = AtomicI64::new(8682522807148012);
     let mut current = SEED.load(Ordering::Relaxed);
     loop {

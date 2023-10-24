@@ -1,6 +1,6 @@
 //! Bed special functions for metadata.
 
-use super::Face;
+use crate::util::Face;
 
 
 /// Get the facing of a bed from its metadata.

@@ -4,7 +4,7 @@ use glam::{IVec3, DVec3};
 
 use mc173::chunk::{Chunk, CHUNK_WIDTH};
 use mc173::world::{World, Dimension};
-use mc173::util::rand::JavaRandom;
+use mc173::util::JavaRandom;
 use mc173::block;
 
 

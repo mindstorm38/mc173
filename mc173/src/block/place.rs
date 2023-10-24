@@ -2,8 +2,9 @@
 
 use glam::IVec3;
 
-use crate::block::{self, Face};
 use crate::world::World;
+use crate::util::Face;
+use crate::block;
 
 
 /// This function checks if the given block id can be placed at a particular position in
@@ -11,16 +12,71 @@ use crate::world::World;
 pub fn can_place_at(world: &mut World, pos: IVec3, face: Face, id: u8) -> bool {
     let base = match id {
         block::BUTTON if face.is_y() => false,
-        block::BUTTON => is_block_opaque_at(world, pos, face),
+        block::BUTTON => is_block_opaque_at(world, pos + face.delta()),
         block::LEVER if face == Face::PosY => false,
-        block::LEVER => is_block_opaque_at(world, pos, face),
+        block::LEVER => is_block_opaque_at(world, pos + face.delta()),
         block::LADDER => is_block_opaque_around(world, pos),
         block::TRAPDOOR if face.is_y() => false,
-        block::TRAPDOOR => is_block_opaque_at(world, pos, face),
+        block::TRAPDOOR => is_block_opaque_at(world, pos + face.delta()),
+        block::PISTON_EXT |
+        block::PISTON_MOVING => false,
+        block::DEAD_BUSH => is_block_at(world, pos - IVec3::Y, &[block::SAND]),
+        block::DANDELION |
+        block::POPPY |
+        block::SAPLING |
+        block::TALL_GRASS => is_block_at(world, pos - IVec3::Y, &[block::GRASS, block::DIRT, block::FARMLAND]),
+        block::RED_MUSHROOM |
+        block::BROWN_MUSHROOM => is_block_opaque_at(world, pos - IVec3::Y),
+        block::WHEAT => is_block_at(world, pos - IVec3::Y, &[block::FARMLAND]),
+        block::CACTUS => can_place_cactus_at(world, pos),
+        block::CAKE => is_block_solid_at(world, pos - IVec3::Y),
+        block::CHEST => can_place_chest_at(world, pos),
+        block::WOOD_DOOR |
+        block::IRON_DOOR => can_place_door_at(world, pos),
         _ => true,
     };
     base && is_block_replaceable_at(world, pos)
 }
+
+fn can_place_cactus_at(world: &mut World, pos: IVec3) -> bool {
+    for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+        if is_block_solid_at(world, pos + face.delta()) {
+            return false;
+        }
+    }
+    is_block_at(world, pos - IVec3::Y, &[block::CACTUS, block::SAND])
+}
+
+fn can_place_chest_at(world: &mut World, pos: IVec3) -> bool {
+    let mut found_single_chest = false;
+    for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+        // If block on this face is a chest, check if that block also has a chest.
+        let neighbor_pos = pos + face.delta();
+        if is_block_at(world, neighbor_pos, &[block::CHEST]) {
+            // We can't put chest
+            if found_single_chest {
+                return false;
+            }
+            // Check if the chest we found isn't a double chest.
+            for neighbor_face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+                // Do not check our potential position.
+                if face != neighbor_face.opposite() {
+                    if is_block_at(world, neighbor_pos + neighbor_face.delta(), &[block::CHEST]) {
+                        return false; // The chest found already is double.
+                    }
+                }
+            }
+            // No other chest found, it's a single chest.
+            found_single_chest = true;
+        }
+    }
+    true
+}
+
+fn can_place_door_at(world: &mut World, pos: IVec3) -> bool {
+    is_block_opaque_at(world, pos - IVec3::Y) && is_block_replaceable_at(world, pos + IVec3::Y)
+}
+
 
 /// Place the block at the given position in the world oriented toward given face. Note
 /// that this function do not check if this is legal, it will do what's asked. Also, the
@@ -53,10 +109,10 @@ fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
 
 fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: u8) {
     // Privileging desired face, but if desired face cannot support a ladder.
-    if face.is_y() || !is_block_opaque_at(world, pos, face) {
+    if face.is_y() || !is_block_opaque_at(world, pos + face.delta()) {
         // NOTE: Order is important for parity with client.
         for around_face in [Face::PosZ, Face::NegZ, Face::PosX, Face::NegX] {
-            if is_block_opaque_at(world, pos, around_face) {
+            if is_block_opaque_at(world, pos + around_face.delta()) {
                 face = around_face;
                 break;
             }
@@ -71,19 +127,29 @@ fn place_trapdoor(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
     world.set_block_and_metadata(pos, block::TRAPDOOR, metadata);
 }
 
+
 /// Check is there are at least one opaque block around horizontally.
-fn is_block_opaque_around(world: &mut World, pos: IVec3) -> bool {
+pub fn is_block_opaque_around(world: &mut World, pos: IVec3) -> bool {
     for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
-        if is_block_opaque_at(world, pos, face) {
+        if is_block_opaque_at(world, pos + face.delta()) {
             return true;
         }
     }
     false
 }
 
-/// Return true if the block at given position + face is opaque.
-fn is_block_opaque_at(world: &mut World, pos: IVec3, face: Face) -> bool {
-    if let Some((id, _)) = world.block_and_metadata(pos + face.delta()) {
+/// Return true if the block at given position can be replaced.
+pub fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
+    if let Some((id, _)) = world.block_and_metadata(pos) {
+        block::from_id(id).material.is_replaceable()
+    } else {
+        false
+    }
+}
+
+/// Return true if the block at position is opaque.
+pub fn is_block_opaque_at(world: &mut World, pos: IVec3) -> bool {
+    if let Some((id, _)) = world.block_and_metadata(pos) {
         let block = block::from_id(id);
         // FIXME: The notchian server checks for a seconq property "isACube" on the block.
         // For example slabs have "Rock" material but are not a cube: ANNOYING!!
@@ -92,12 +158,19 @@ fn is_block_opaque_at(world: &mut World, pos: IVec3, face: Face) -> bool {
         false
     }
 }
-
-/// Return true if the block at given position can be replaced.
-fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
+/// Return true if the block at position is material solid.
+pub fn is_block_solid_at(world: &mut World, pos: IVec3) -> bool {
     if let Some((id, _)) = world.block_and_metadata(pos) {
-        let block = block::from_id(id);
-        block.material.is_replaceable()
+        block::from_id(id).material.is_solid()
+    } else {
+        false
+    }
+}
+
+/// Return true if the block at given position is in the valid slice.
+pub fn is_block_at(world: &mut World, pos: IVec3, valid: &[u8]) -> bool {
+    if let Some((id, _)) = world.block_and_metadata(pos) {
+        valid.iter().any(|&valid_id| valid_id == id)
     } else {
         false
     }

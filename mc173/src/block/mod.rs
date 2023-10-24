@@ -1,8 +1,6 @@
 //! Block enumeration and behaviors.
 
-use glam::IVec3;
-
-use crate::util::bb::BoundingBox;
+use crate::util::BoundingBox;
 use crate::item::Item;
 
 // Block behaviors.
@@ -309,62 +307,6 @@ impl Material {
             Self::Lava |
             Self::Snow |
             Self::Fire)
-    }
-
-}
-
-
-/// Represent a block's face.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Face {
-    NegY = 0,
-    PosY = 1,
-    NegZ = 2,
-    PosZ = 3,
-    NegX = 4,
-    PosX = 5,
-}
-
-impl Face {
-
-    /// Get the delta vector for this face.
-    #[inline]
-    pub fn delta(self) -> IVec3 {
-        match self {
-            Face::NegY => IVec3::NEG_Y,
-            Face::PosY => IVec3::Y,
-            Face::NegZ => IVec3::NEG_Z,
-            Face::PosZ => IVec3::Z,
-            Face::NegX => IVec3::NEG_X,
-            Face::PosX => IVec3::X,
-        }
-    }
-
-    #[inline]
-    pub fn opposite(self) -> Self {
-        match self {
-            Face::NegY => Face::PosY,
-            Face::PosY => Face::NegY,
-            Face::NegZ => Face::PosZ,
-            Face::PosZ => Face::NegZ,
-            Face::NegX => Face::PosX,
-            Face::PosX => Face::NegX,
-        }
-    }
-
-    #[inline]
-    pub fn is_y(self) -> bool {
-        matches!(self, Self::NegY | Self::PosY)
-    }
-
-    #[inline]
-    pub fn is_x(self) -> bool {
-        matches!(self, Self::NegX | Self::PosX)
-    }
-
-    #[inline]
-    pub fn is_z(self) -> bool {
-        matches!(self, Self::NegZ | Self::PosZ)
     }
 
 }

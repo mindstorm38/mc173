@@ -1,6 +1,6 @@
 //! LAdder special functions for metadata.
 
-use super::Face;
+use crate::util::Face;
 
 
 /// The the face the button is connected to. In b1.7.3, buttons can only attach to X/Z 

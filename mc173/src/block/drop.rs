@@ -5,8 +5,8 @@ use std::ops::Mul;
 
 use glam::IVec3;
 
-use crate::util::rand::JavaRandom;
 use crate::entity::ItemEntity;
+use crate::util::JavaRandom;
 use crate::item::ItemStack;
 use crate::entity::Entity;
 use crate::world::World;

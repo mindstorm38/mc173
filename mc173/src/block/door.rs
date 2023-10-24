@@ -1,12 +1,47 @@
 //! Door block specific logic.
 
+use crate::util::Face;
+
+
+/// Get the face of this door.
+pub fn get_face(metadata: u8) -> Face {
+    match metadata & 3 {
+        0 => Face::NegX,
+        1 => Face::NegZ,
+        2 => Face::PosX,
+        3 => Face::PosZ,
+        _ => unreachable!()
+    }
+}
+
+pub fn set_face(metadata: &mut u8, face: Face) {
+    *metadata &= !3;
+    *metadata |= match face {
+        Face::NegY => 0,
+        Face::PosY => 0,
+        Face::NegX => 0,
+        Face::PosX => 2,
+        Face::NegZ => 1,
+        Face::PosZ => 3,
+    }
+}
 
 /// If the block is a door (iron/wood), get if it's in open state.
 pub fn is_open(metadata: u8) -> bool {
     metadata & 4 != 0
 }
 
+pub fn set_open(metadata: &mut u8, open: bool) {
+    *metadata &= !4;
+    *metadata |= (open as u8) << 2;
+}
+
 /// Return true if this door block is the upper part.
 pub fn is_upper(metadata: u8) -> bool {
     metadata & 8 != 0
+}
+
+pub fn set_upper(metadata: &mut u8, upper: bool) {
+    *metadata &= !8;
+    *metadata |= (upper as u8) << 3;
 }

@@ -5,7 +5,7 @@ use std::ops::Sub;
 use glam::{DVec3, Vec2};
 
 use crate::block::{self, Material};
-use crate::util::bb::BoundingBox;
+use crate::util::BoundingBox;
 use crate::world::World;
 
 use super::{Base, Size};

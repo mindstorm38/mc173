@@ -7,7 +7,7 @@ use std::ops::{Sub, Add};
 use glam::{IVec3, DVec3};
 
 use crate::block::{self, Material};
-use crate::util::bb::BoundingBox;
+use crate::util::BoundingBox;
 use crate::world::World;
 
 

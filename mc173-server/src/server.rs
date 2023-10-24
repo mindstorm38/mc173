@@ -19,7 +19,8 @@ use mc173::world::{World, Dimension, Event};
 use mc173::item::crafting::CraftingTracker;
 use mc173::item::inventory::Inventory;
 use mc173::item::{self, ItemStack};
-use mc173::block::{self, Face};
+use mc173::util::Face;
+use mc173::block;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::overworld::new_overworld;
@@ -788,7 +789,8 @@ impl ServerPlayer {
         let block_dist = base.pos.distance_squared(pos.as_dvec3() + 0.5);
         if block_dist < 64.0 {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
-            new_hand_stack = item::click::click_at(world, pos, face, hand_stack);
+            let look = base.look;
+            new_hand_stack = item::click::click_at(world, pos, face, hand_stack, look);
         }
 
         if let Some(hand_stack) = new_hand_stack {

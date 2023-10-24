@@ -13,6 +13,8 @@ pub fn click_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) -> bool {
         block::BUTTON => click_button(world, pos, metadata),
         block::LEVER => click_lever(world, pos, metadata),
         block::TRAPDOOR => click_trapdoor(world, pos, metadata),
+        block::IRON_DOOR => true,
+        block::WOOD_DOOR => click_wood_door(world, pos, metadata),
         _ => return false
     }
 }
@@ -48,4 +50,28 @@ fn click_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     block::trapdoor::set_open(&mut metadata, !active);
     world.set_block_and_metadata(pos, block::TRAPDOOR, metadata);
     true
+}
+
+fn click_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
+
+    if block::door::is_upper(metadata) {
+        if let Some((block::WOOD_DOOR, metadata)) = world.block_and_metadata(pos - IVec3::Y) {
+            click_wood_door(world, pos - IVec3::Y, metadata);
+        }
+    } else {
+
+        let open = block::door::is_open(metadata);
+        block::door::set_open(&mut metadata, !open);
+
+        world.set_block_and_metadata(pos, block::WOOD_DOOR, metadata);
+
+        if let Some((block::WOOD_DOOR, _)) = world.block_and_metadata(pos + IVec3::Y) {
+            block::door::set_upper(&mut metadata, true);
+            world.set_block_and_metadata(pos + IVec3::Y, block::WOOD_DOOR, metadata);
+        }
+
+    }
+
+    true
+
 }

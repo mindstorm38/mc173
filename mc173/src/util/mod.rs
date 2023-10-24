@@ -1,4 +1,10 @@
 //! Various math utilities.
 
-pub mod rand;
-pub mod bb;
+mod rand;
+mod face;
+mod bb;
+
+
+pub use rand::JavaRandom;
+pub use bb::BoundingBox;
+pub use face::Face;
