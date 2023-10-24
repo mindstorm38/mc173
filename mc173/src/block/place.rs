@@ -77,6 +77,8 @@ fn is_block_opaque_around(world: &mut World, pos: IVec3) -> bool {
 fn is_block_opaque_at(world: &mut World, pos: IVec3, face: Face) -> bool {
     if let Some((id, _)) = world.block_and_metadata(pos + face.delta()) {
         let block = block::from_id(id);
+        // FIXME: The notchian server checks for a seconq property "isACube" on the block.
+        // For example slabs have "Rock" material but are not a cube: ANNOYING!!
         block.material.is_opaque()
     } else {
         false
