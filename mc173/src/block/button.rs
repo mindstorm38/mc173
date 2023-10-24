@@ -3,16 +3,17 @@
 use super::Face;
 
 
-/// The the face the button is connected to. Note that `PosY` is not possible.
+/// The the face the button is connected to. In b1.7.3, buttons can only attach to X/Z 
+/// faces, not neg/pos Y.
 #[inline]
-pub fn get_face(metadata: u8) -> Face {
-    match metadata & 7 {
+pub fn get_face(metadata: u8) -> Option<Face> {
+    Some(match metadata & 7 {
         1 => Face::NegX,
         2 => Face::PosX,
         3 => Face::NegZ,
         4 => Face::PosZ,
-        _ => Face::NegY,
-    }
+        _ => return None
+    })
 }
 
 #[inline]

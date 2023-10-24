@@ -135,6 +135,8 @@ impl JavaRandom {
         (high.wrapping_add(low) as f64) / DOUBLE_DIV
     }
     
+    /// Get the next pseudo-random single-precision float vector, x, y and z.
+    /// **This is not part of the standard Java class.**
     pub fn next_vec3(&mut self) -> Vec3 {
         Vec3 { 
             x: self.next_float(), 
@@ -143,12 +145,21 @@ impl JavaRandom {
         }
     }
 
+    /// Get the next pseudo-random double-precision float vector, x, y and z.
+    /// **This is not part of the standard Java class.**
     pub fn next_dvec3(&mut self) -> DVec3 {
         DVec3 {
             x: self.next_double(), 
             y: self.next_double(),
             z: self.next_double(),
         }
+    }
+
+    /// Randomly pick an item in the given slice.
+    /// **This is not part of the standard Java class.**
+    #[inline]
+    pub fn next_choice<T: Copy>(&mut self, items: &[T]) -> T {
+        items[self.next_int_bounded(items.len() as i32) as usize]
     }
 
 }

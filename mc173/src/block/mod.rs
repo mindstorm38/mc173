@@ -11,6 +11,8 @@ pub mod drop;
 pub mod place;
 
 pub mod button;
+pub mod lever;
+
 pub mod fluid;
 pub mod door;
 pub mod bed;
