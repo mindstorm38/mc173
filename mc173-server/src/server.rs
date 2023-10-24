@@ -786,7 +786,6 @@ impl ServerPlayer {
 
         let block_dist = base.pos.distance_squared(pos.as_dvec3() + 0.5);
         if block_dist < 64.0 {
-            // TODO: Try interaction with the block before using the item.
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
             new_hand_stack = item::interact::use_on(world, hand_stack, pos, face);
         }

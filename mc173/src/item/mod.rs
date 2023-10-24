@@ -221,18 +221,26 @@ impl ItemStack {
     pub const fn new_single(id: u16, damage: u16) -> Self {
         Self { id, size: 1, damage }
     }
+    
+    pub const fn new_sized(id: u16, damage: u16, size: u16) -> Self {
+        Self { id, size, damage }
+    }
 
     /// Shortcut constructor for an item stack constructed from a block id and metadata.
     pub const fn new_block(id: u8, metadata: u8) -> Self {
         Self { id: id as u16, size: 1, damage: metadata as u16}
     }
 
-    pub fn with_size(mut self, size: u16) -> ItemStack {
+    pub const fn new_block_sized(id: u8, metadata: u8, size: u16) -> Self {
+        Self { id: id as u16, size, damage: metadata as u16 }
+    }
+
+    pub const fn with_size(mut self, size: u16) -> ItemStack {
         self.size = size;
         self
     }
 
-    pub fn with_damage(mut self, damage: u16) -> ItemStack {
+    pub const fn with_damage(mut self, damage: u16) -> ItemStack {
         self.damage = damage;
         self
     }

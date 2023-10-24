@@ -26,8 +26,8 @@ on them. The priority of each feature is defined by its order in the list.
 - [ ] Items
     - [x] Definitions
     - [x] Inventory data structure
-    - [ ] Crafting
-        - [ ] Definitions (partial)
+    - [x] Crafting
+        - [x] Definitions
         - [x] Tracker
     - [ ] Use/place behaviors
     - [ ] Break behaviors

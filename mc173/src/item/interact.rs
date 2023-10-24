@@ -17,6 +17,8 @@ pub fn use_on(world: &mut World, stack: ItemStack, pos: IVec3, face: Face) -> Op
         return None;
     }
 
+    // TODO: Try interaction with the block before using the item.
+
     match stack.id {
         0..=255 => use_block_on(world, stack, pos, face).then_some(stack.with_size(stack.size - 1)),
         _ => None
