@@ -21,10 +21,11 @@ on them. The priority of each feature is defined by its order in the list.
 - [x] World and chunk data structures
 - [ ] Blocks
     - [x] Definitions
-    - [x] Drop behaviors
-    - [ ] Scheduled ticks
-    - [ ] Break behaviors
-    - [ ] Interact behaviors
+    - [x] Item drop
+    - [x] Tick scheduling
+    - [ ] Placing (partial)
+    - [ ] Clicking (partial)
+    - [ ] Breaking
     - [ ] Redstone
 - [ ] Items
     - [x] Definitions
