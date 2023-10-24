@@ -1,8 +1,9 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeSet};
 use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
+use std::cmp::Ordering;
 use std::ops::Add;
 
 use glam::{IVec3, Vec2, DVec3};
@@ -52,6 +53,8 @@ pub struct World {
     updating_entity_index: Option<usize>,
     /// Next entity id apply to a newly spawned entity.
     next_entity_id: u32,
+    /// Mapping of scheduled ticks in the future.
+    scheduled_ticks: BTreeSet<ScheduledTick>,
 }
 
 impl World {
@@ -71,6 +74,7 @@ impl World {
             orphan_entities: IndexSet::new(),
             updating_entity_index: None,
             next_entity_id: 0,
+            scheduled_ticks: BTreeSet::new(),
         }
     }
 
@@ -92,7 +96,6 @@ impl World {
     /// enabled. Events queue can be swapped using [`swap_events`] method.swap_events
     #[inline]
     pub fn push_event(&mut self, event: Event) {
-        // println!("push_event({event:?})");
         if let Some(events) = &mut self.events {
             events.push(event);
         }
@@ -327,6 +330,16 @@ impl World {
             .expect("entity is being updated"))
     }
 
+    /// Schedule a tick update to happen at the given position, for the given block id
+    /// and in a given time.
+    pub fn schedule_tick(&mut self, pos: IVec3, id: u8, time: u64) {
+        self.scheduled_ticks.insert(ScheduledTick {
+            time: self.time + time,
+            pos,
+            id,
+        });
+    }
+
     /// Iterate over all blocks in the given area.
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
@@ -470,6 +483,23 @@ impl World {
     pub fn tick(&mut self) {
 
         self.time += 1;
+
+        // Schedule ticks...
+        while let Some(tick) = self.scheduled_ticks.first() {
+            if self.time >= tick.time {
+                // This tick should be activated.
+                let tick = self.scheduled_ticks.pop_first().unwrap();
+                // Check coherency of the scheduled tick and current block.
+                if let Some((id, metadata)) = self.block_and_metadata(tick.pos) {
+                    if id == tick.id {
+                        block::tick::tick_at(self, tick.pos, id, metadata);
+                    }
+                }
+            } else {
+                // Our set is ordered by time first, so we break when past current time. 
+                break;
+            }
+        }
 
         // Update every entity's bounding box prior to actually ticking.
         for world_entity in &mut self.entities {
@@ -670,6 +700,35 @@ struct WorldEntity {
     /// bounding box isn't coherent, which is the default when the entity has just been
     /// spawned.
     bb: Option<BoundingBox>,
+}
+
+/// A block tick scheduled in the future, it's associated to a world time in a tree map.
+/// This structure is ordered by time and then by position, this allows to have multiple
+/// block update at the same time but for different positions.
+#[derive(PartialEq, Eq)]
+struct ScheduledTick {
+    /// The time to tick the block.
+    time: u64,
+    /// Position of the block to tick.
+    pos: IVec3,
+    /// The expected id of the block, if the block has no longer this id, this tick is
+    /// ignored.
+    id: u8,
+}
+
+impl PartialOrd for ScheduledTick {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+impl Ord for ScheduledTick {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.time.cmp(&other.time)
+            .then(self.pos.x.cmp(&other.pos.x))
+            .then(self.pos.z.cmp(&other.pos.z))
+            .then(self.pos.y.cmp(&other.pos.y))
+    }
 }
 
 

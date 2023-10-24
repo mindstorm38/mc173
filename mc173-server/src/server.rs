@@ -761,7 +761,7 @@ impl ServerPlayer {
 
     /// Handle a place block packet.
     fn handle_place_block(&mut self, world: &mut World, packet: proto::PlaceBlockPacket) {
-
+        println!("handle_place_block({packet:?})");
         // This packet only works if the player's entity is a player.
         let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
 
@@ -787,7 +787,7 @@ impl ServerPlayer {
         let block_dist = base.pos.distance_squared(pos.as_dvec3() + 0.5);
         if block_dist < 64.0 {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
-            new_hand_stack = item::interact::use_on(world, hand_stack, pos, face);
+            new_hand_stack = item::click::click_at(world, hand_stack, pos, face);
         }
 
         if let Some(hand_stack) = new_hand_stack {

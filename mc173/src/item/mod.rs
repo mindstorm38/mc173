@@ -4,7 +4,7 @@ use crate::block;
 
 pub mod inventory;
 pub mod crafting;
-pub mod interact;
+pub mod click;
 
 
 /// Internal macro to easily define blocks registry.

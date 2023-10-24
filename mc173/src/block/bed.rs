@@ -1,3 +1,5 @@
+//! Bed special functions for metadata.
+
 use super::Face;
 
 
