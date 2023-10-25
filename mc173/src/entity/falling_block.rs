@@ -21,6 +21,7 @@ impl FallingBlockEntity {
 
         self.lifetime += 1;
         
+        self.vel_dirty = true;
         self.vel.y -= 0.04;
         self.update_pos_move(world, self.vel, 0.0);
 

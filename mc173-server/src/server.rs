@@ -11,7 +11,7 @@ use anyhow::Result as AnyResult;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 
-use glam::{DVec3, Vec2, IVec3, IVec2};
+use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
@@ -342,6 +342,8 @@ impl ServerWorld {
                     self.handle_entity_position(id, pos),
                 Event::EntityLook { id, look } =>
                     self.handle_entity_look(id, look),
+                Event::EntityVelocity { id, vel } =>
+                    self.handle_entity_velocity(id, vel),
                 Event::EntityPickup { id, target_id } =>
                     self.handle_entity_pickup(id, target_id),
                 Event::EntityInventoryItem { id, index, item } =>
@@ -464,6 +466,11 @@ impl ServerWorld {
     /// Handle an entity look world event.
     fn handle_entity_look(&mut self, id: u32, look: Vec2) {
         self.trackers.get_mut(&id).unwrap().set_look(look);
+    }
+
+    /// Handle an entity look world event.
+    fn handle_entity_velocity(&mut self, id: u32, vel: DVec3) {
+        self.trackers.get_mut(&id).unwrap().set_vel(vel);
     }
 
     /// Handle an entity pickup world event.
@@ -1064,41 +1071,50 @@ struct EntityTracker {
     distance: u16,
     /// Update interval for this type of entity.
     interval: u16,
-    /// Last known position of the entity.
-    pos: IVec3,
-    /// Last known look of the entity.
-    look: IVec2,
-    /// Last encoded position sent to clients.
-    sent_pos: IVec3,
-    /// Last encoded look sent to clients.
-    sent_look: IVec2,
-    /// This counter is forced 
+    /// This countdown is reset when the absolute position is sent, if the absolute 
+    /// position has not been sent for 400 ticks (20 seconds), it's sent.
     forced_countdown_ticks: u16,
+    /// Last known position of the entity.
+    pos: (i32, i32, i32),
+    /// Last known look of the entity.
+    look: (i8, i8),
+    /// Last encoded position sent to clients.
+    sent_pos: (i32, i32, i32),
+    /// Last encoded look sent to clients.
+    sent_look: (i8, i8),
+    /// If this tracker should track entity velocity, this contains the tracker.
+    vel: Option<EntityVelocityTracker>,
+}
+
+/// Some entity velocity tracking if enabled for that entity.
+#[derive(Debug)]
+struct EntityVelocityTracker {
+    /// Last known velocity of the entity.
+    vel: (i16, i16, i16),
+    /// Last encoded velocity sent to clients.
+    sent_vel: (i16, i16, i16),
 }
 
 impl EntityTracker {
 
     fn new(entity: &Entity) -> Self {
 
-        let (distance, interval) = match entity {
-            Entity::Player(_) => (512, 2),
-            Entity::Fish(_) => (64, 5),
-            Entity::Arrow(_) => (64, 20),
-            Entity::Fireball(_) => (64, 10),
-            Entity::Snowball(_) => (64, 10),
-            Entity::Item(_) => (64, 20),
-            Entity::Minecart(_) => (160, 5),
-            Entity::Boat(_) => (160, 5),
-            Entity::Squid(_) => (160, 3),
-            Entity::Chicken(_) |
-            Entity::Cow(_) |
-            Entity::Sheep(_) |
-            Entity::Wolf(_) |
-            Entity::Pig(_) => (160, 3),
-            Entity::Tnt(_) => (160, 10),
-            Entity::FallingBlock(_) => (160, 20),
-            Entity::Painting(_) => (160, 0),
-            _ => unimplemented!("unsupported entity")
+        let (distance, interval, velocity) = match entity {
+            Entity::Player(_) => (512, 2, false),
+            Entity::Fish(_) => (64, 5, true),
+            Entity::Arrow(_) => (64, 20, false),
+            Entity::Fireball(_) => (64, 10, false),
+            Entity::Snowball(_) => (64, 10, true),
+            Entity::Egg(_) => (64, 10, true),
+            Entity::Item(_) => (64, 5, true), // Notchian use 20 ticks
+            Entity::Minecart(_) => (160, 5, true),
+            Entity::Boat(_) => (160, 5, true),
+            Entity::Squid(_) => (160, 3, true),
+            Entity::Tnt(_) => (160, 10, true),
+            Entity::FallingBlock(_) => (160, 20, true),
+            Entity::Painting(_) => (160, 0, false),
+            // All remaining animals and mobs.
+            _ => (160, 3, true)
         };
 
         let entity_base = entity.base();
@@ -1108,10 +1124,14 @@ impl EntityTracker {
             distance,
             interval,
             forced_countdown_ticks: 0,
-            pos: IVec3::ZERO,
-            look: IVec2::ZERO,
-            sent_pos: IVec3::ZERO,
-            sent_look: IVec2::ZERO,
+            pos: (0, 0, 0),
+            look: (0, 0),
+            sent_pos: (0, 0, 0),
+            sent_look: (0, 0),
+            vel: velocity.then_some(EntityVelocityTracker { 
+                vel: (0, 0, 0),
+                sent_vel: (0, 0, 0),
+            }),
         };
         
         tracker.set_pos(entity_base.pos);
@@ -1122,27 +1142,40 @@ impl EntityTracker {
 
     } 
 
+    /// Update the last known position of this tracked entity.
     fn set_pos(&mut self, pos: DVec3) {
-        self.pos = pos.mul(32.0).floor().as_ivec3();
+        let scaled = pos.mul(32.0).floor().as_ivec3();
+        self.pos = (scaled.x, scaled.y, scaled.z);
     }
 
+    /// Update the last known look of this tracked entity.
     fn set_look(&mut self, look: Vec2) {
-        self.look = look.div(std::f32::consts::TAU).mul(256.0).as_ivec2();
+        // Rebase 0..2PI to 0..256. 
+        let scaled = look.mul(256.0).div(std::f32::consts::TAU);
+        // We can cast to i8, this will take the low 8 bits and wrap around.
+        self.look = (scaled.x as i8, scaled.y as i8);
+    }
+
+    /// Update the last known 
+    fn set_vel(&mut self, vel: DVec3) {
+        if let Some(tracker) = &mut self.vel {
+            // The Notchian client clamps the input velocity, this ensure that the scaled 
+            // vector is in i16 range or integers.
+            let scaled = vel.clamp(DVec3::splat(-3.9), DVec3::splat(3.9)).mul(8000.0).as_ivec3();
+            tracker.vel = (scaled.x as i16, scaled.y as i16, scaled.z as i16);
+        }
     }
 
     /// Update this tracker to determine which move packet to send and to which players.
     fn update_players(&mut self, players: &[ServerPlayer]) {
 
-        let delta_pos = self.pos - self.sent_pos;
-        let delta_look = self.look - self.sent_look;
-
         let mut send_pos = true;
-        let send_look = delta_look.x.abs() >= 8 || delta_look.y.abs() >= 8;
+        let send_look = self.look.0.abs_diff(self.sent_look.0) >= 8 || self.look.1.abs_diff(self.sent_look.1) >= 8;
 
         // Check if the delta can be sent with a move packet.
-        let dx = i8::try_from(delta_pos.x).ok();
-        let dy = i8::try_from(delta_pos.y).ok();
-        let dz = i8::try_from(delta_pos.z).ok();
+        let dx = i8::try_from(self.pos.0 - self.sent_pos.0).ok();
+        let dy = i8::try_from(self.pos.1 - self.sent_pos.1).ok();
+        let dz = i8::try_from(self.pos.2 - self.sent_pos.2).ok();
 
         let mut move_packet = None;
         let forced_position = self.forced_countdown_ticks > 400;
@@ -1158,8 +1191,8 @@ impl EntityTracker {
                     dx,
                     dy,
                     dz,
-                    yaw: self.look.x as i8,
-                    pitch: self.look.y as i8,
+                    yaw: self.look.0,
+                    pitch: self.look.1,
                 }))
             } else if send_pos {
                 move_packet = Some(OutPacket::EntityMove(proto::EntityMovePacket {
@@ -1171,8 +1204,8 @@ impl EntityTracker {
             } else if send_look {
                 move_packet = Some(OutPacket::EntityLook(proto::EntityLookPacket {
                     entity_id: self.entity_id,
-                    yaw: self.look.x as i8,
-                    pitch: self.look.y as i8,
+                    yaw: self.look.0,
+                    pitch: self.look.1,
                 }))
             }
 
@@ -1180,11 +1213,11 @@ impl EntityTracker {
             self.forced_countdown_ticks = 0;
             move_packet = Some(OutPacket::EntityPositionAndLook(proto::EntityPositionAndLookPacket {
                 entity_id: self.entity_id,
-                x: self.pos.x,
-                y: self.pos.y,
-                z: self.pos.z,
-                yaw: self.look.x as i8,
-                pitch: self.look.y as i8,
+                x: self.pos.0,
+                y: self.pos.1,
+                z: self.pos.2,
+                yaw: self.look.0,
+                pitch: self.look.1,
             }));
         }
 
@@ -1194,6 +1227,28 @@ impl EntityTracker {
 
         if send_look {
             self.sent_look = self.look;
+        }
+
+        // If velocity tracking is enabled...
+        if let Some(tracker) = &mut self.vel {
+            // We differ from the Notchian server because we don't check for the distance.
+            let dvx = tracker.vel.0 as i32 - tracker.sent_vel.0 as i32;
+            let dvy = tracker.vel.1 as i32 - tracker.sent_vel.1 as i32;
+            let dvz = tracker.vel.2 as i32 - tracker.sent_vel.2 as i32;
+            // If any axis velocity change by 0.0125 (100 when encoded *8000).
+            if dvx.abs() > 100 || dvy.abs() > 100 || dvz.abs() > 100 {
+                for player in players {
+                    if player.tracked_entities.contains(&self.entity_id) {
+                        player.send(OutPacket::EntityVelocity(proto::EntityVelocityPacket {
+                            entity_id: self.entity_id,
+                            vx: tracker.vel.0,
+                            vy: tracker.vel.1,
+                            vz: tracker.vel.2,
+                        }));
+                    }
+                }
+                tracker.sent_vel = tracker.vel;
+            }
         }
 
         if let Some(packet) = move_packet {
@@ -1222,7 +1277,7 @@ impl EntityTracker {
             return;
         }
 
-        let delta = player.pos - self.pos.as_dvec3() / 32.0;
+        let delta = player.pos - IVec3::new(self.pos.0, self.pos.1, self.pos.2).as_dvec3() / 32.0;
         if delta.x.abs() <= self.distance as f64 && delta.z.abs() <= self.distance as f64 {
             if player.tracked_entities.insert(self.entity_id) {
                 self.spawn_player_entity(player, world);
@@ -1253,17 +1308,23 @@ impl EntityTracker {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
         let Some(entity) = world.entity(self.entity_id) else { return };
+
+        let x = self.sent_pos.0;
+        let y = self.sent_pos.1;
+        let z = self.sent_pos.2;
+        let yaw = self.sent_look.0;
+        let pitch = self.sent_look.1;
         
         match entity {
             Entity::Player(base) => {
                 player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
                     entity_id: base.id,
                     username: base.kind.kind.username.clone(),
-                    x: self.sent_pos.x, 
-                    y: self.sent_pos.y, 
-                    z: self.sent_pos.z, 
-                    yaw: self.sent_look.x as i8,
-                    pitch: self.sent_look.y as i8,
+                    x, 
+                    y, 
+                    z, 
+                    yaw,
+                    pitch,
                     current_item: 0, // TODO:
                 }));
             }
@@ -1272,9 +1333,9 @@ impl EntityTracker {
                 player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
                     entity_id: base.id, 
                     stack: base.kind.stack, 
-                    x: self.sent_pos.x, 
-                    y: self.sent_pos.y, 
-                    z: self.sent_pos.z, 
+                    x, 
+                    y, 
+                    z, 
                     vx: vel.x as i8,
                     vy: vel.y as i8,
                     vz: vel.z as i8,
@@ -1284,11 +1345,11 @@ impl EntityTracker {
                 player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
                     entity_id: base.id,
                     kind: 90,
-                    x: self.sent_pos.x, 
-                    y: self.sent_pos.y, 
-                    z: self.sent_pos.z, 
-                    yaw: self.sent_look.x as i8,
-                    pitch: self.sent_look.y as i8,
+                    x, 
+                    y, 
+                    z, 
+                    yaw,
+                    pitch,
                     metadata: Vec::new(), // TODO:
                 }));
             }

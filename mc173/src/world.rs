@@ -545,6 +545,11 @@ impl World {
                 self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
             }
 
+            // If the look is dirt, trigger an entity look event.
+            if std::mem::take(&mut entity_base.vel_dirty) {
+                self.push_event(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
+            }
+
             // After tick, we re-add the entity.
             let world_entity = &mut self.entities[i];
             debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
@@ -632,6 +637,13 @@ pub enum Event {
         id: u32,
         /// The entity look.
         look: Vec2,
+    },
+    /// An entity changed its velocity.
+    EntityVelocity {
+        /// The unique id of the entity.
+        id: u32,
+        /// The entity velocity.
+        vel: DVec3
     },
     /// An entity has collected another entity on ground, this is usually an item or 
     /// arrow entity picked up by a player entity.

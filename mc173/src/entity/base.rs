@@ -132,14 +132,17 @@ impl<I> Base<I> {
 
             if collided_x {
                 self.vel.x = 0.0;
+                self.vel_dirty = true;
             }
 
             if collided_y {
                 self.vel.y = 0.0;
+                self.vel_dirty = true;
             }
 
             if collided_z {
                 self.vel.z = 0.0;
+                self.vel_dirty = true;
             }
 
         }

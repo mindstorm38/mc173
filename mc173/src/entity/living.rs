@@ -25,8 +25,10 @@ impl<I> Base<Living<I>> {
 
         if self.kind.jumping {
             if self.in_water || self.in_lava {
+                self.vel_dirty = true;
                 self.vel.y += 0.04;
             } else if self.kind.jumping {
+                self.vel_dirty = true;
                 self.vel.y += 0.42;
             }
         }
@@ -49,6 +51,7 @@ impl<I> Base<Living<I>> {
             strafing *= dist;
             forward *= dist;
             let (yaw_sin, yaw_cos) = self.look.x.sin_cos();
+            self.vel_dirty = true;
             self.vel.x += (strafing * yaw_cos - forward * yaw_sin) as f64;
             self.vel.z += (forward * yaw_cos + strafing * yaw_sin) as f64;
         }
@@ -103,6 +106,8 @@ impl<I> Base<Living<I>> {
             self.vel.z *= slipperiness as f64;
 
         }
+        
+        self.vel_dirty = true;
 
         // TODO: Remaining?
 

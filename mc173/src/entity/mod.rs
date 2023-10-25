@@ -125,6 +125,8 @@ pub struct BaseData {
     pub pos_dirty: bool,
     /// The current entity velocity.
     pub vel: DVec3,
+    /// True if an entity velocity event should be sent after update.
+    pub vel_dirty: bool,
     /// Yaw a pitch angles of this entity's look. These are in radians with no range 
     /// guarantee, although this will often be normalized in 2pi range.
     pub look: Vec2,

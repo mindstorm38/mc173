@@ -20,6 +20,7 @@ impl ItemEntity {
         }
     
         // Update item velocity.
+        self.vel_dirty = true;
         self.vel.y -= 0.04;
     
         // If the item is in lava, apply random motion like it's burning.
