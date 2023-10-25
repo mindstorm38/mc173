@@ -1,5 +1,7 @@
 use glam::IVec3;
 
+use super::BoundingBox;
+
 
 /// Represent a cube facing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +43,7 @@ impl Face {
         matches!(self, Face::NegZ | Face::PosZ)
     }
 
+    /// Get the opposite face.
     #[inline]
     pub fn opposite(self) -> Self {
         match self {
@@ -53,6 +56,7 @@ impl Face {
         }
     }
 
+    /// Rotate this face horizontally to right, Y faces don't change.
     #[inline]
     pub fn rotate_right(self) -> Self {
         match self {
@@ -64,6 +68,7 @@ impl Face {
         }
     }
 
+    /// Rotate this face horizontally to left, Y faces don't change.
     #[inline]
     pub fn rotate_left(self) -> Self {
         match self {
@@ -85,6 +90,20 @@ impl Face {
             Face::PosZ => IVec3::Z,
             Face::NegX => IVec3::NEG_X,
             Face::PosX => IVec3::X,
+        }
+    }
+
+    /// Extrude a face and form a bounding box. The face is extruded toward the opposite
+    /// face.
+    #[inline]
+    pub fn extrude(self, depth: f64) -> BoundingBox {
+        match self {
+            Face::NegY => BoundingBox::new(0.0, 0.0, 0.0, 1.0, depth, 1.0),
+            Face::PosY => BoundingBox::new(0.0, 1.0 - depth, 0.0, 1.0, 1.0, 1.0),
+            Face::NegZ => BoundingBox::new(0.0, 0.0, 0.0, 1.0, 1.0, depth),
+            Face::PosZ => BoundingBox::new(0.0, 0.0, 1.0 - depth, 1.0, 1.0, 1.0),
+            Face::NegX => BoundingBox::new(0.0, 0.0, 0.0, depth, 1.0, 1.0),
+            Face::PosX => BoundingBox::new(1.0 - depth, 0.0, 0.0, 1.0, 1.0, 1.0),
         }
     }
 

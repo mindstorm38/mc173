@@ -4,20 +4,20 @@ use crate::util::BoundingBox;
 use crate::item::Item;
 
 // Block behaviors.
-pub mod tick;
-pub mod click;
-pub mod drop;
-pub mod place;
+pub mod colliding;
+pub mod dropping;
+pub mod ticking;
+pub mod placing;
+pub mod using;
 
 // Block specific functions for their metadata.
-pub mod button;
-pub mod lever;
-pub mod ladder;
-pub mod bed;
-pub mod door;
 pub mod trapdoor;
-
+pub mod button;
+pub mod ladder;
+pub mod lever;
 pub mod fluid;
+pub mod door;
+pub mod bed;
 
 
 /// Internal macro to easily define blocks registry.

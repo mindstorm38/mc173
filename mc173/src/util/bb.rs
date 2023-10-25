@@ -15,12 +15,13 @@ pub struct BoundingBox {
 
 impl BoundingBox {
 
-    pub const CUBE: Self = Self::new(DVec3::ZERO, DVec3::ONE);
+    pub const CUBE: Self = Self { min: DVec3::ZERO, max: DVec3::ONE };
 
-    pub const fn new(min: DVec3, max: DVec3) -> Self {
+    /// Construct a new bounding box from the minimum and maximum points.
+    pub const fn new(min_x: f64, min_y: f64, min_z: f64, max_x: f64, max_y: f64, max_z: f64) -> Self {
         Self {
-            min,
-            max,
+            min: DVec3::new(min_x, min_y, min_z),
+            max: DVec3::new(max_x, max_y, max_z),
         }
     }
 

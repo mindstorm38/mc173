@@ -45,3 +45,13 @@ pub fn set_upper(metadata: &mut u8, upper: bool) {
     *metadata &= !8;
     *metadata |= (upper as u8) << 3;
 }
+
+/// Get the actual face of this door, depending on its face and open state.
+pub fn get_actual_face(metadata: u8) -> Face {
+    let face = get_face(metadata);
+    if is_open(metadata) {
+        face.rotate_right()
+    } else {
+        face
+    }
+}

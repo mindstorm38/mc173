@@ -471,7 +471,7 @@ impl World {
     /// if the chunk/pos was not valid.
     pub fn break_block(&mut self, pos: IVec3) -> bool {
         if let Some((prev_id, prev_metadata)) = self.set_block_and_metadata(pos, 0, 0) {
-            block::drop::drop_at(self, pos, prev_id, prev_metadata, 1.0);
+            block::dropping::drop_at(self, pos, prev_id, prev_metadata, 1.0);
             true
         } else {
             false
@@ -491,7 +491,7 @@ impl World {
                 // Check coherency of the scheduled tick and current block.
                 if let Some((id, metadata)) = self.block_and_metadata(tick.pos) {
                     if id == tick.id {
-                        block::tick::tick_at(self, tick.pos, id, metadata);
+                        block::ticking::tick_at(self, tick.pos, id, metadata);
                     }
                 }
             } else {

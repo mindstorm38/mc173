@@ -8,19 +8,19 @@ use crate::block;
 
 /// Interact with a block at given position. This function returns true if an interaction
 /// happened.
-pub fn click_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) -> bool {
+pub fn use_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) -> bool {
     match id {
-        block::BUTTON => click_button(world, pos, metadata),
-        block::LEVER => click_lever(world, pos, metadata),
-        block::TRAPDOOR => click_trapdoor(world, pos, metadata),
+        block::BUTTON => use_button(world, pos, metadata),
+        block::LEVER => use_lever(world, pos, metadata),
+        block::TRAPDOOR => use_trapdoor(world, pos, metadata),
         block::IRON_DOOR => true,
-        block::WOOD_DOOR => click_wood_door(world, pos, metadata),
+        block::WOOD_DOOR => use_wood_door(world, pos, metadata),
         _ => return false
     }
 }
 
 /// Interact with a button block.
-fn click_button(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
+fn use_button(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     
     if block::button::is_active(metadata) {
         return true;
@@ -38,25 +38,25 @@ fn click_button(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
 }
 
-fn click_lever(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
+fn use_lever(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     let active = block::lever::is_active(metadata);
     block::lever::set_active(&mut metadata, !active);
     world.set_block_and_metadata(pos, block::LEVER, metadata);
     true
 }
 
-fn click_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
+fn use_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     let active = block::trapdoor::is_open(metadata);
     block::trapdoor::set_open(&mut metadata, !active);
     world.set_block_and_metadata(pos, block::TRAPDOOR, metadata);
     true
 }
 
-fn click_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
+fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
     if block::door::is_upper(metadata) {
         if let Some((block::WOOD_DOOR, metadata)) = world.block_and_metadata(pos - IVec3::Y) {
-            click_wood_door(world, pos - IVec3::Y, metadata);
+            use_wood_door(world, pos - IVec3::Y, metadata);
         }
     } else {
 

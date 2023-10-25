@@ -43,6 +43,9 @@ fn gen_seed() -> i64 {
     }
 }
 
+
+/// A pseudo-random number generator ported from the Java standard *RNG* with additional
+/// utility methods better suited for rust.
 #[derive(Debug, Clone)]
 pub struct JavaRandom {
     seed: Wrapping<i64>

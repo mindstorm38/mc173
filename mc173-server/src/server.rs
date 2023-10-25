@@ -719,7 +719,7 @@ impl ServerPlayer {
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.
             if let Some((id, metadata)) = world.block_and_metadata(pos) {
-                block::click::click_at(world, pos, id, metadata);
+                block::using::use_at(world, pos, id, metadata);
                 self.breaking_block = Some(BreakingBlock {
                     time: world.time(),
                     pos,
@@ -790,7 +790,7 @@ impl ServerPlayer {
         if block_dist < 64.0 {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
             let look = base.look;
-            new_hand_stack = item::click::click_at(world, pos, face, hand_stack, look);
+            new_hand_stack = item::using::use_at(world, pos, face, hand_stack, look);
         }
 
         if let Some(hand_stack) = new_hand_stack {

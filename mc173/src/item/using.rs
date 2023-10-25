@@ -1,7 +1,4 @@
 //! Item interaction behaviors.
-//! 
-//! TODO: Rename all behavioral modules with the "-ing" suffix, for example "using", 
-//!       "breaking" or "placing".
 
 use glam::{IVec3, Vec2};
 
@@ -14,13 +11,13 @@ use crate::block;
 /// Use an item stack on a given block with a left click. This function returns the item 
 /// stack after, if used, this may return an item stack with size of 0. If the given item
 /// stack is empty, a block click is still processed, but the item will not be used.
-pub fn click_at(world: &mut World, pos: IVec3, face: Face, stack: ItemStack, look: Vec2) -> Option<ItemStack> {
+pub fn use_at(world: &mut World, pos: IVec3, face: Face, stack: ItemStack, look: Vec2) -> Option<ItemStack> {
 
     // Only continue if position is legal.
     let (id, metadata) = world.block_and_metadata(pos)?;
 
     // If the block has been clicked, do not use the item.
-    if block::click::click_at(world, pos, id, metadata) {
+    if block::using::use_at(world, pos, id, metadata) {
         return None;
     }
 
@@ -59,11 +56,11 @@ fn place_block_at(world: &mut World, mut pos: IVec3, face: Face, stack: ItemStac
     let block = block::from_id(block_id);
     if pos.y >= 127 && block.material.is_solid() {
         return false;
-    } if !block::place::can_place_at(world, pos, place_face, block_id) {
+    } if !block::placing::can_place_at(world, pos, place_face, block_id) {
         return false;
     }
 
-    block::place::place_at(world, pos, place_face, block_id, block_metadata);
+    block::placing::place_at(world, pos, place_face, block_id, block_metadata);
     true
 
 }
@@ -80,7 +77,7 @@ fn place_door_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, block_id
 
     if pos.y >= 127 {
         return false;
-    } else if !block::place::can_place_at(world, pos, face.opposite(), block_id) {
+    } else if !block::placing::can_place_at(world, pos, face.opposite(), block_id) {
         return false;
     }
 
@@ -94,24 +91,24 @@ fn place_door_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, block_id
     let right_pos = pos + door_face.rotate_right().delta();
 
     let left_door = 
-        block::place::is_block_at(world, left_pos, &[block_id]) || 
-        block::place::is_block_at(world, left_pos + IVec3::Y, &[block_id]);
+        block::placing::is_block_at(world, left_pos, &[block_id]) || 
+        block::placing::is_block_at(world, left_pos + IVec3::Y, &[block_id]);
 
     let right_door = 
-        block::place::is_block_at(world, right_pos, &[block_id]) || 
-        block::place::is_block_at(world, right_pos + IVec3::Y, &[block_id]);
+        block::placing::is_block_at(world, right_pos, &[block_id]) || 
+        block::placing::is_block_at(world, right_pos + IVec3::Y, &[block_id]);
 
     if right_door && !left_door {
         flip = true;
     } else {
 
         let left_count = 
-            block::place::is_block_opaque_at(world, left_pos) as u8 + 
-            block::place::is_block_opaque_at(world, left_pos + IVec3::Y) as u8;
+            block::placing::is_block_opaque_at(world, left_pos) as u8 + 
+            block::placing::is_block_opaque_at(world, left_pos + IVec3::Y) as u8;
     
         let right_count = 
-            block::place::is_block_opaque_at(world, right_pos) as u8 + 
-            block::place::is_block_opaque_at(world, right_pos + IVec3::Y) as u8;
+            block::placing::is_block_opaque_at(world, right_pos) as u8 + 
+            block::placing::is_block_opaque_at(world, right_pos + IVec3::Y) as u8;
 
         if left_count > right_count {
             flip = true;
