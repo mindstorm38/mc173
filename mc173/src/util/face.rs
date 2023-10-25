@@ -94,16 +94,18 @@ impl Face {
     }
 
     /// Extrude a face and form a bounding box. The face is extruded toward the opposite
-    /// face.
+    /// face. The given inset allows shrinking the face toward the center axis.
     #[inline]
-    pub fn extrude(self, depth: f64) -> BoundingBox {
+    pub fn extrude(self, inset: f64, depth: f64) -> BoundingBox {
+        let pos = inset;
+        let neg = 1.0 - inset;
         match self {
-            Face::NegY => BoundingBox::new(0.0, 0.0, 0.0, 1.0, depth, 1.0),
-            Face::PosY => BoundingBox::new(0.0, 1.0 - depth, 0.0, 1.0, 1.0, 1.0),
-            Face::NegZ => BoundingBox::new(0.0, 0.0, 0.0, 1.0, 1.0, depth),
-            Face::PosZ => BoundingBox::new(0.0, 0.0, 1.0 - depth, 1.0, 1.0, 1.0),
-            Face::NegX => BoundingBox::new(0.0, 0.0, 0.0, depth, 1.0, 1.0),
-            Face::PosX => BoundingBox::new(1.0 - depth, 0.0, 0.0, 1.0, 1.0, 1.0),
+            Face::NegY => BoundingBox::new(pos, 0.0, pos, neg, depth, neg),
+            Face::PosY => BoundingBox::new(pos, 1.0 - depth, pos, neg, 1.0, neg),
+            Face::NegZ => BoundingBox::new(pos, pos, 0.0, neg, neg, depth),
+            Face::PosZ => BoundingBox::new(pos, pos, 1.0 - depth, neg, neg, 1.0),
+            Face::NegX => BoundingBox::new(0.0, pos, pos, depth, neg, neg),
+            Face::PosX => BoundingBox::new(1.0 - depth, pos, pos, 1.0, neg, neg),
         }
     }
 

@@ -357,10 +357,9 @@ impl World {
     /// Iterate over all bounding boxes in the given area.
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
-        self.iter_blocks_in(min, max).flat_map(|(pos, block, metadata)| {
+        self.iter_blocks_in(min, max).flat_map(|(pos, id, metadata)| {
             let pos = pos.as_dvec3();
-            block::from_id(block).bounding_boxes(block, metadata).iter()
-                .map(move |bb| bb.offset(pos))
+            block::colliding::iter_bounding_box(self, id, metadata).map(move |bb| bb.offset(pos))
         })
     }
 

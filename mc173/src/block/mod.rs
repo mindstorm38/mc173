@@ -1,6 +1,5 @@
 //! Block enumeration and behaviors.
 
-use crate::util::BoundingBox;
 use crate::item::Item;
 
 // Block behaviors.
@@ -14,7 +13,9 @@ pub mod using;
 pub mod trapdoor;
 pub mod button;
 pub mod ladder;
+pub mod piston;
 pub mod lever;
+pub mod stair;
 pub mod fluid;
 pub mod door;
 pub mod bed;
@@ -28,8 +29,7 @@ macro_rules! blocks {
 
         static BLOCKS: [Block; 256] = {
 
-            const DEFAULT: Block = Block::new("", Material::Air, 0.0, 0.0)
-                .set_no_collide();
+            const DEFAULT: Block = Block::new("", Material::Air, 0.0, 0.0);
 
             let mut arr = [DEFAULT; 256];
             $(arr[$id as usize] = $init;)*
@@ -43,7 +43,7 @@ macro_rules! blocks {
 }
 
 blocks! {
-    AIR/0:              Block::new("air", Material::Air, 0.0, 0.0).set_no_collide(),
+    AIR/0:              Block::new("air", Material::Air, 0.0, 0.0),
     STONE/1:            Block::new("stone", Material::Rock, 1.5, 30.0),
     GRASS/2:            Block::new("grass", Material::Grass, 0.6, 0.0),
     DIRT/3:             Block::new("dirt", Material::Ground, 0.5, 0.0),
@@ -175,10 +175,6 @@ pub struct Block {
     pub light_emission: u8,
     /// The item corresponding to this block.
     pub item: Item,
-    /// This function is used to get the bounding box list of this block, given its 
-    /// metadata. By default, this function just return a full block, the bounding box
-    /// also needs to have its origin at 0/0/0, it will be offset when doing computations.
-    pub fn_bounding_boxes: fn(u8, u8) -> &'static [BoundingBox],
 }
 
 impl Block {
@@ -198,7 +194,6 @@ impl Block {
                 max_stack_size: 64,
                 max_damage: 0,
             },
-            fn_bounding_boxes: |_, _| &[BoundingBox::CUBE],
         }
     }
 
@@ -215,21 +210,6 @@ impl Block {
     const fn set_light_emission(mut self, light: u8) -> Self {
         self.light_emission = light;
         self
-    }
-    
-    const fn set_no_collide(self) -> Self {
-        self.set_fn_bounding_boxes(|_, _| &[])
-    }
-
-    const fn set_fn_bounding_boxes(mut self, func: fn(u8, u8) -> &'static [BoundingBox]) -> Self {
-        self.fn_bounding_boxes = func;
-        self
-    }
-
-    /// Get bounding boxes for this block and given metadata.
-    #[inline]
-    pub fn bounding_boxes(&self, id: u8, metadata: u8) -> &'static [BoundingBox] {
-        (self.fn_bounding_boxes)(id, metadata)
     }
 
 }
