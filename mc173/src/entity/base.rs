@@ -8,7 +8,7 @@ use crate::block::{self, Material};
 use crate::util::BoundingBox;
 use crate::world::World;
 
-use super::{Base, Size};
+use super::{Base, Size, Entity};
 
 
 impl<I> Base<I> {
@@ -73,7 +73,17 @@ impl<I> Base<I> {
             // TODO: Sneaking on ground
 
             let colliding_bb = self.bb.expand(delta);
-            let colliding_bbs: Vec<_> = world.iter_boxes_colliding(colliding_bb).collect();
+            let colliding_bbs: Vec<_> = world.iter_blocks_boxes_colliding(colliding_bb)
+                .chain(world.iter_entities_colliding(colliding_bb)
+                    .filter_map(|(entity, entity_bb)| {
+                        // Only the boat entity acts like a hard bounding box.
+                        if let Entity::Boat(_) = entity {
+                            Some(entity_bb)
+                        } else {
+                            None
+                        }
+                    }))
+                .collect();
             
             // Compute a new delta that doesn't collide with above boxes.
             let mut new_delta = delta;

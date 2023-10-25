@@ -412,7 +412,7 @@ impl World {
 
     /// Iterate over all entities colliding with the given bounding box.
     /// *This function can't return the current updated entity.*
-    pub fn iter_entities_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (&Entity, BoundingBox)> {
+    pub fn iter_entities_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (&Entity, BoundingBox)> {
 
         let (min_cx, min_cz) = calc_entity_chunk_pos(bb.min - 2.0);
         let (max_cx, max_cz) = calc_entity_chunk_pos(bb.max + 2.0);
@@ -430,14 +430,14 @@ impl World {
 
     }
 
-    /// Iterate over all bounding box in the world that collides with the given one, this
-    /// includes blocks and entities bounding boxes. *Note however that this will not 
-    /// return the bounding box of the updating entity.*
-    pub fn iter_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
-        let bb_for_entities = bb.inflate(DVec3::splat(0.25));
-        self.iter_blocks_boxes_colliding(bb)
-            .chain(self.iter_entities_boxes_colliding(bb_for_entities).map(|(_, bb)| bb))
-    }
+    // /// Iterate over all bounding box in the world that collides with the given one, this
+    // /// includes blocks and entities bounding boxes. *Note however that this will not 
+    // /// return the bounding box of the updating entity.*
+    // pub fn iter_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
+    //     let bb_for_entities = bb.inflate(DVec3::splat(0.25));
+    //     self.iter_blocks_boxes_colliding(bb)
+    //         .chain(self.iter_entities_colliding(bb_for_entities).map(|(_, bb)| bb))
+    // }
 
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.

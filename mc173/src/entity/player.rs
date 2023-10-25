@@ -23,7 +23,7 @@ impl PlayerEntity {
         // First check immutable item if it's possible to pickup, if possible we append
         // them to consumed items and apply the change just after.
         let mut consumed_items = Vec::new();
-        for (entity, _) in world.iter_entities_boxes_colliding(self.data.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
+        for (entity, _) in world.iter_entities_colliding(self.data.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
             if let Entity::Item(base) = entity {
                 if base.kind.frozen_ticks == 0 {
                     // Add the pickup item to the main inventory.
