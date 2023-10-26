@@ -23,10 +23,10 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Definitions
     - [x] Item drop
     - [x] Tick scheduling
-    - [ ] Placing (partial)
+    - [x] Placing
+    - [ ] Redstone (partial)
     - [ ] Clicking (partial)
     - [ ] Breaking
-    - [ ] Redstone
 - [ ] Items
     - [x] Definitions
     - [x] Inventory data structure

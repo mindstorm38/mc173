@@ -662,7 +662,7 @@ impl ServerPlayer {
                     return Err(format!("§cError: unknown item id: {id_raw}"));
                 }
 
-                let mut stack = ItemStack::new_single(id, 0);
+                let mut stack = ItemStack::new_sized(id, 0, item.max_stack_size);
 
                 if !metadata_raw.is_empty() {
                     stack.damage = metadata_raw.parse::<u16>()

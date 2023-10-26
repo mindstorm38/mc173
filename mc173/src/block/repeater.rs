@@ -40,3 +40,9 @@ pub fn set_delay(metadata: &mut u8, delay: u8) {
     *metadata &= !0b1100;
     *metadata |= (delay & 0b11) << 2;
 }
+
+/// Get the delay of the repeater in ticks.
+#[inline]
+pub fn get_delay_ticks(metadata: u8) -> u64 {
+    (get_delay(metadata) as u64 + 1) * 2
+}

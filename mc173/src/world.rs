@@ -471,8 +471,6 @@ impl World {
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {
 
-        self.time += 1;
-
         // Schedule ticks...
         while let Some(tick) = self.scheduled_ticks.first() {
             if self.time >= tick.time {
@@ -489,6 +487,8 @@ impl World {
                 break;
             }
         }
+
+        self.time += 1;
 
         // Update every entity's bounding box prior to actually ticking.
         for world_entity in &mut self.entities {

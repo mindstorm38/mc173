@@ -46,10 +46,19 @@ fn use_button(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 }
 
 fn use_lever(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
+    
     let active = block::lever::is_active(metadata);
     block::lever::set_active(&mut metadata, !active);
     world.set_block_and_metadata(pos, block::LEVER, metadata);
+
+    block::notifying::notify_around(world, pos);
+
+    if let Some((face, _)) = block::lever::get_face(metadata) {
+        block::notifying::notify_around(world, pos + face.delta());
+    }
+
     true
+
 }
 
 fn use_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {

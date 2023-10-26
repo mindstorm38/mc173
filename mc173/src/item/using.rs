@@ -23,6 +23,7 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, stack: Item
         item::SUGAR_CANES => place_block_at(world, pos, face, look, block::SUGAR_CANES, 0),
         item::CAKE => place_block_at(world, pos, face, look, block::CAKE, 0),
         item::REPEATER => place_block_at(world, pos, face, look, block::REPEATER, 0),
+        item::REDSTONE => place_block_at(world, pos, face, look, block::REDSTONE, 0),
         item::WOOD_DOOR => place_door_at(world, pos, face, look, block::WOOD_DOOR),
         item::IRON_DOOR => place_door_at(world, pos, face, look, block::IRON_DOOR),
         item::BED => place_bed_at(world, pos, face, look),

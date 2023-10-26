@@ -54,12 +54,12 @@ where
         let (
             commands_sender,
             commands_receiver
-        ) = bounded(100);
+        ) = bounded(1000);
 
         let (
             events_sender,
             events_receiver
-        ) = bounded(400);
+        ) = bounded(1000);
 
         // The poll thread.
         let poll_commands_sender = commands_sender.clone();

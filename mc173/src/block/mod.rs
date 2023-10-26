@@ -4,6 +4,8 @@ use crate::item::Item;
 
 // Block behaviors.
 pub mod colliding;
+pub mod notifying;
+pub mod powering;
 pub mod dropping;
 pub mod ticking;
 pub mod placing;
