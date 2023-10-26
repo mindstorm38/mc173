@@ -21,9 +21,11 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, stack: Item
         0 => false,
         1..=255 => place_block_at(world, pos, face, look, stack.id as u8, stack.damage as u8),
         item::SUGAR_CANES => place_block_at(world, pos, face, look, block::SUGAR_CANES, 0),
+        item::CAKE => place_block_at(world, pos, face, look, block::CAKE, 0),
         item::REPEATER => place_block_at(world, pos, face, look, block::REPEATER, 0),
         item::WOOD_DOOR => place_door_at(world, pos, face, look, block::WOOD_DOOR),
         item::IRON_DOOR => place_door_at(world, pos, face, look, block::IRON_DOOR),
+        item::BED => place_bed_at(world, pos, face, look),
         _ => false
     };
 
@@ -75,14 +77,13 @@ fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, look: Vec2,
 }
 
 /// Place a door item at given position.
-fn place_door_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, block_id: u8) -> bool {
+fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2, block_id: u8) -> bool {
 
     if face != Face::PosY {
         return false;
+    } else {
+        pos += IVec3::Y;
     }
-
-    // Only positive face is allowed.
-    let pos = pos + IVec3::Y;
 
     if pos.y >= 127 {
         return false;
@@ -133,7 +134,6 @@ fn place_door_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, block_id
         door_face = door_face.rotate_left();
     }
 
-    block::door::set_upper(&mut metadata, false);
     block::door::set_face(&mut metadata, door_face);
     world.set_block_and_metadata(pos, block_id, metadata);
 
@@ -141,5 +141,35 @@ fn place_door_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, block_id
     world.set_block_and_metadata(pos + IVec3::Y, block_id, metadata);
 
     true
+
+}
+
+fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2) -> bool {
+
+    if face != Face::PosY {
+        return false;
+    } else {
+        pos += IVec3::Y;
+    }
+
+    let bed_face = Face::from_yaw(look.x);
+    let head_pos = pos + bed_face.delta();
+
+    let mut metadata = 0;
+    block::bed::set_face(&mut metadata, bed_face);
+
+    if block::placing::is_block_at(world, pos, &[block::AIR]) && 
+        block::placing::is_block_at(world, head_pos, &[block::AIR]) &&
+        block::placing::is_block_opaque_at(world, pos - IVec3::Y) &&
+        block::placing::is_block_opaque_at(world, head_pos - IVec3::Y) {
+        
+        world.set_block_and_metadata(pos, block::BED, metadata);
+
+        block::bed::set_head(&mut metadata, true);
+        world.set_block_and_metadata(head_pos, block::BED, metadata);
+
+    }
+
+    true 
 
 }

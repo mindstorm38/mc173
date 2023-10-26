@@ -542,7 +542,7 @@ impl World {
             }
 
             // After tick, we re-add the entity.
-            let world_entity = &mut self.entities[i];
+            let world_entity = &mut self.entities[entity_index];
             debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
             world_entity.inner = Some(entity);
 
