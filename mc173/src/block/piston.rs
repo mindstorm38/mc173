@@ -4,6 +4,7 @@ use crate::util::Face;
 
 
 /// Get the facing of the piston base or extension.
+#[inline]
 pub fn get_face(metadata: u8) -> Option<Face> {
     Some(match metadata & 7 {
         0 => Face::NegY,
@@ -14,4 +15,11 @@ pub fn get_face(metadata: u8) -> Option<Face> {
         5 => Face::PosX,
         _ => return None
     })
+}
+
+/// Set the facing of the piston base or extension.
+#[inline]
+pub fn set_face(metadata: &mut u8, face: Face) {
+    *metadata &= !7;
+    *metadata |= face as u8;
 }

@@ -5,6 +5,7 @@ use super::BoundingBox;
 
 /// Represent a cube facing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Face {
     NegY = 0,
     PosY = 1,
@@ -25,6 +26,18 @@ impl Face {
             2 => Self::NegZ,
             3 => Self::PosX,
             _ => unreachable!()
+        }
+    }
+
+    /// Get a face from the yaw and pitch components of a look.
+    #[inline]
+    pub fn from_look(yaw: f32, pitch: f32) -> Self {
+        if pitch < -std::f32::consts::FRAC_PI_4 {
+            Self::PosY
+        } else if pitch > std::f32::consts::FRAC_PI_4 {
+            Self::NegY
+        } else {
+            Self::from_yaw(yaw)
         }
     }
 

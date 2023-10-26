@@ -8,7 +8,7 @@ use crate::block;
 
 
 /// This function checks if the given block id can be placed at a particular position in
-/// the world, the given face indicates on which face this block should be oriented.
+/// the world, the given face indicates toward which face this block should be oriented.
 pub fn can_place_at(world: &mut World, pos: IVec3, face: Face, id: u8) -> bool {
     let base = match id {
         block::BUTTON if face.is_y() => false,
@@ -101,19 +101,30 @@ fn can_place_door_at(world: &mut World, pos: IVec3) -> bool {
 /// given metadata may be modified to account for the placement.
 pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8) {
     match id {
-        block::BUTTON => place_button_at(world, pos, face, metadata),
+        block::BUTTON => place_faced_at(world, pos, face, id, metadata, block::button::set_face),
+        block::TRAPDOOR => place_faced_at(world, pos, face, id, metadata, block::trapdoor::set_face),
+        block::PISTON => place_faced_at(world, pos, face, id, metadata, block::piston::set_face),
+        block::WOOD_STAIR | 
+        block::COBBLESTONE_STAIR => place_faced_at(world, pos, face, id, metadata, block::stair::set_face),
+        block::REPEATER | 
+        block::REPEATER_LIT => place_faced_at(world, pos, face, id, metadata, block::repeater::set_face),
+        block::PUMPKIN | 
+        block::PUMPKIN_LIT => place_faced_at(world, pos, face, id, metadata, block::pumpkin::set_face),
+        block::FURNACE | 
+        block::FURNACE_LIT |
+        block::DISPENSER => place_faced_at(world, pos, face, id, metadata, block::common::set_horizontal_face),
         block::LEVER => place_lever_at(world, pos, face, metadata),
         block::LADDER => place_ladder_at(world, pos, face, metadata),
-        block::TRAPDOOR => place_trapdoor(world, pos, face, metadata),
         _ => {
             world.set_block_and_metadata(pos, id, metadata);
         }
     }
 }
 
-fn place_button_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
-    block::button::set_face(&mut metadata, face);
-    world.set_block_and_metadata(pos, block::BUTTON, metadata);
+/// Generic function to place a block that has a basic facing function.
+fn place_faced_at(world: &mut World, pos: IVec3, face: Face, id: u8, mut metadata: u8, func: impl FnOnce(&mut u8, Face)) {
+    func(&mut metadata, face);
+    world.set_block_and_metadata(pos, id, metadata);
 }
 
 fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
@@ -138,11 +149,6 @@ fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: 
     }
     block::ladder::set_face(&mut metadata, face);
     world.set_block_and_metadata(pos, block::LADDER, metadata);
-}
-
-fn place_trapdoor(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
-    block::trapdoor::set_face(&mut metadata, face);
-    world.set_block_and_metadata(pos, block::TRAPDOOR, metadata);
 }
 
 

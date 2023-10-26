@@ -10,7 +10,10 @@ pub mod placing;
 pub mod using;
 
 // Block specific functions for their metadata.
+pub mod common;
 pub mod trapdoor;
+pub mod repeater;
+pub mod pumpkin;
 pub mod button;
 pub mod ladder;
 pub mod piston;

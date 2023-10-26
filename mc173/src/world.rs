@@ -430,15 +430,6 @@ impl World {
 
     }
 
-    // /// Iterate over all bounding box in the world that collides with the given one, this
-    // /// includes blocks and entities bounding boxes. *Note however that this will not 
-    // /// return the bounding box of the updating entity.*
-    // pub fn iter_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
-    //     let bb_for_entities = bb.inflate(DVec3::splat(0.25));
-    //     self.iter_blocks_boxes_colliding(bb)
-    //         .chain(self.iter_entities_colliding(bb_for_entities).map(|(_, bb)| bb))
-    // }
-
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.
     pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {

@@ -725,8 +725,8 @@ impl ServerPlayer {
 
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.
-            if let Some((id, metadata)) = world.block_and_metadata(pos) {
-                block::using::use_at(world, pos, id, metadata);
+            if let Some((id, _)) = world.block_and_metadata(pos) {
+                block::using::use_at(world, pos);
                 self.breaking_block = Some(BreakingBlock {
                     time: world.time(),
                     pos,
@@ -793,11 +793,16 @@ impl ServerPlayer {
 
         let mut new_hand_stack = None;
 
-        let block_dist = base.pos.distance_squared(pos.as_dvec3() + 0.5);
-        if block_dist < 64.0 {
+        // Check if the player is reasonably near the block.
+        if base.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
+            
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
             let look = base.look;
-            new_hand_stack = item::using::use_at(world, pos, face, hand_stack, look);
+
+            if !block::using::use_at(world, pos) {
+                new_hand_stack = item::using::use_at(world, pos, face, look, hand_stack);
+            }
+
         }
 
         if let Some(hand_stack) = new_hand_stack {

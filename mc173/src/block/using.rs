@@ -8,15 +8,22 @@ use crate::block;
 
 /// Interact with a block at given position. This function returns true if an interaction
 /// happened.
-pub fn use_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) -> bool {
+pub fn use_at(world: &mut World, pos: IVec3) -> bool {
+    
+    // Only continue if position is legal.
+    let Some((id, metadata)) = world.block_and_metadata(pos) else { return false };
+
     match id {
         block::BUTTON => use_button(world, pos, metadata),
         block::LEVER => use_lever(world, pos, metadata),
         block::TRAPDOOR => use_trapdoor(world, pos, metadata),
         block::IRON_DOOR => true,
         block::WOOD_DOOR => use_wood_door(world, pos, metadata),
+        block::REPEATER |
+        block::REPEATER_LIT => use_repeater(world, pos, id, metadata),
         _ => return false
     }
+
 }
 
 /// Interact with a button block.
@@ -74,4 +81,11 @@ fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
     true
 
+}
+
+fn use_repeater(world: &mut World, pos: IVec3, id: u8, mut metadata: u8) -> bool {
+    let delay = block::repeater::get_delay(metadata);
+    block::repeater::set_delay(&mut metadata, (delay + 1) % 4);
+    world.set_block_and_metadata(pos, id, metadata);
+    true
 }
