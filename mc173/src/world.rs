@@ -455,19 +455,7 @@ impl World {
         });
         Some((prev_block, prev_metadata))
     }
-
-    /// Break a block naturally and drop its items. This function will generate an event 
-    /// of the block break and the items spawn. This returns true if successful, false
-    /// if the chunk/pos was not valid.
-    pub fn break_block(&mut self, pos: IVec3) -> bool {
-        if let Some((prev_id, prev_metadata)) = self.set_block_and_metadata(pos, 0, 0) {
-            block::dropping::drop_at(self, pos, prev_id, prev_metadata, 1.0);
-            true
-        } else {
-            false
-        }
-    }
-
+    
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {
 

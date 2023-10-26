@@ -24,9 +24,9 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Item drop
     - [x] Tick scheduling
     - [x] Placing
+    - [x] Breaking
     - [ ] Redstone (partial)
     - [ ] Clicking (partial)
-    - [ ] Breaking
 - [ ] Items
     - [x] Definitions
     - [x] Inventory data structure
@@ -34,7 +34,7 @@ on them. The priority of each feature is defined by its order in the list.
         - [x] Definitions
         - [x] Tracker
     - [ ] Use/place behaviors
-    - [ ] Break behaviors
+    - [x] Break behaviors
 - [ ] Entities
     - [ ] Entity data structures (partial)
     - [ ] Entity behaviors (partial)

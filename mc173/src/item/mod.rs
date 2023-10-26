@@ -4,6 +4,7 @@ use crate::block;
 
 pub mod inventory;
 pub mod crafting;
+pub mod breaking;
 pub mod using;
 
 

@@ -565,9 +565,8 @@ struct ServerPlayer {
 
 /// State of a player breaking a block.
 struct BreakingBlock {
-    /// The world time when breaking started.
-    #[allow(unused)] // FIXME: Check breaking time in the future.
-    time: u64,
+    /// The minimum time this break can finish.
+    min_time: u64,
     /// The position of the block.
     pos: IVec3,
     /// The block id.
@@ -721,49 +720,60 @@ impl ServerPlayer {
     /// Handle a break block packet.
     fn handle_break_block(&mut self, world: &mut World, packet: proto::BreakBlockPacket) {
         
+        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
+
+        let in_water = base.in_water;
+        let on_ground = base.on_ground;
+        let main_inv = &mut base.kind.kind.main_inv;
+        let hand_slot = base.kind.kind.hand_slot as usize;
+        let mut stack = main_inv.stack(hand_slot);
 
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.
             if let Some((id, _)) = world.block_and_metadata(pos) {
+
                 block::using::use_at(world, pos);
-                self.breaking_block = Some(BreakingBlock {
-                    time: world.time(),
-                    pos,
-                    id,
-                });
+                
+                let break_duration = block::breaking::get_break_duration(id, stack.id, in_water, on_ground);
+                if break_duration == 0.0 {
+                    block::breaking::break_at(world, pos);
+                } else {
+                    self.breaking_block = Some(BreakingBlock {
+                        min_time: world.time() + (break_duration * 0.7) as u64,
+                        pos,
+                        id,
+                    });
+                }
+
             }
         } else if packet.status == 2 {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
-                if state.pos == pos && matches!(world.block_and_metadata(pos), Some((id, _)) if id == state.id) {
-                    world.break_block(pos);
+                if state.pos == pos && world.time() >= state.min_time {
+                    if matches!(world.block_and_metadata(pos), Some((id, _)) if id == state.id) {
+                        block::breaking::break_at(world, pos);
+                    }
                 }
             }
         } else if packet.status == 4 {
             // Drop the selected item.
-            if let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) {
 
-                let main_inv = &mut base.kind.kind.main_inv;
-                let index = base.kind.kind.hand_slot as usize;
-                let mut stack = main_inv.stack(index);
-
-                if !stack.is_empty() {
-                    
-                    stack.size -= 1;
-                    main_inv.set_stack(index, if stack.size == 0 { ItemStack::EMPTY } else { stack });
-                    
-                    self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-                        window_id: 0,
-                        slot: 36 + index as i16,
-                        stack: main_inv.stack(index).to_non_empty(),
-                    }));
-
-                    self.drop_item(world, stack.with_size(1), false);
-
-                }
+            if !stack.is_empty() {
                 
+                stack.size -= 1;
+                main_inv.set_stack(hand_slot, stack.to_non_empty().unwrap_or(ItemStack::EMPTY));
+                
+                self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                    window_id: 0,
+                    slot: 36 + hand_slot as i16,
+                    stack: main_inv.stack(hand_slot).to_non_empty(),
+                }));
+
+                self.drop_item(world, stack.with_size(1), false);
+
             }
+
         }
 
     }

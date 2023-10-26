@@ -100,6 +100,7 @@ fn can_place_door_at(world: &mut World, pos: IVec3) -> bool {
 /// that this function do not check if this is legal, it will do what's asked. Also, the
 /// given metadata may be modified to account for the placement.
 pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8) {
+
     match id {
         block::BUTTON => place_faced_at(world, pos, face, id, metadata, block::button::set_face),
         block::TRAPDOOR => place_faced_at(world, pos, face, id, metadata, block::trapdoor::set_face),
@@ -119,6 +120,9 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
             world.set_block_and_metadata(pos, id, metadata);
         }
     }
+
+    block::notifying::notify_around(world, pos);
+    
 }
 
 /// Generic function to place a block that has a basic facing function.

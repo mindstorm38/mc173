@@ -7,6 +7,7 @@ pub mod colliding;
 pub mod notifying;
 pub mod powering;
 pub mod dropping;
+pub mod breaking;
 pub mod ticking;
 pub mod placing;
 pub mod using;
@@ -78,7 +79,7 @@ blocks! {
     POWERED_RAIL/27:    Block::new("powered_rail", Material::Circuit, 0.7, 0.0),
     DETECTOR_RAIL/28:   Block::new("detector_rail", Material::Circuit, 0.7, 0.0),
     STICKY_PISTON/29:   Block::new("sticky_piston", Material::Piston, 0.5, 0.0),
-    COBWEB/30:          Block::new("cobweb", Material::Web, 4.0, 0.0),
+    COBWEB/30:          Block::new("cobweb", Material::Cobweb, 4.0, 0.0),
     TALL_GRASS/31:      Block::new("tall_grass", Material::Plant, 0.0, 0.0),
     DEAD_BUSH/32:       Block::new("dead_bush", Material::Plant, 0.0, 0.0),
     PISTON/33:          Block::new("piston", Material::Piston, 0.5, 0.0),
@@ -249,7 +250,7 @@ pub enum Material {
     Pumpkin,
     Portal,
     Cake,
-    Web,
+    Cobweb,
     Piston,
 }
 
@@ -292,6 +293,16 @@ impl Material {
             Self::Lava |
             Self::Snow |
             Self::Fire)
+    }
+
+    pub fn is_breakable_by_default(self) -> bool {
+        !matches!(self,
+            Self::Rock |
+            Self::Iron |
+            Self::Snow |
+            Self::SnowBlock |
+            Self::Cobweb
+        )
     }
 
 }
