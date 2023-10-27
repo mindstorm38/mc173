@@ -1,10 +1,11 @@
 //! Handles block changes notifications.
 
-use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 use glam::IVec3;
 
-use crate::util::Face;
+use crate::util::{Face, FaceSet};
 use crate::world::World;
 use crate::block;
 
@@ -28,6 +29,8 @@ pub fn notify_at(world: &mut World, pos: IVec3) {
         block::REDSTONE => notify_redstone(world, pos),
         block::REPEATER |
         block::REPEATER_LIT => notify_repeater(world, pos, id, metadata),
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT => notify_redstone_torch(world, pos, id),
         _ => {}
     }
 
@@ -36,75 +39,203 @@ pub fn notify_at(world: &mut World, pos: IVec3) {
 /// Notification of a redstone wire block.
 fn notify_redstone(world: &mut World, pos: IVec3) {
 
-    // TODO: Drop if the block can no longer be placed at its position.
-
     const FACES: [Face; 4] = [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ];
 
-    let mut nodes = HashMap::new();
-    let mut pending = Vec::new();
-    let mut nodes_power = Vec::new();
-
-    nodes.insert(pos, 0);
-    pending.push((pos, Face::PosY));
-    
-    while let Some((pending_pos, parent_face)) = pending.pop() {
-        for face in FACES {
-            // NOTE: We know that parent face is also a redstone dust.
-            if face != parent_face {
-                let face_pos = pending_pos + face.delta();
-                if let Some((id, _)) = world.block_and_metadata(face_pos) {
-                    if id == block::REDSTONE {
-                        if nodes.insert(face_pos, 0u8).is_none() {
-                            pending.push((face_pos, face.opposite()));
-                        }
-                    } else {
-                        let face_power = block::powering::get_direct_power_from(world, face_pos, face.opposite());
-                        if face_power > 0 {
-                            nodes_power.push((pending_pos, face_power));
-                        }
-                    }
-                }
-            }
-        }
+    /// Internal structure to keep track of the power and links of a single redstone.
+    #[derive(Default)]
+    struct Node {
+        /// The current power of this node.
+        power: u8,
+        /// This bit fields contains, for each face of the redstone node, if it's linked
+        /// to another redstone, that may be on top or bottom or the faced block.
+        links: FaceSet,
+        opaque_above: bool,
+        opaque_below: bool,
     }
 
-    while !nodes_power.is_empty() {
+    // TODO: Use thread-local allocated maps and vectors...
 
-        for (node_pos, min_power) in nodes_power.drain(..) {
-            let power = nodes.get_mut(&node_pos).unwrap();
-            *power = min_power.max(*power);
-            pending.push((node_pos, Face::PosY));
-        }
+    // Nodes mapped to their position.
+    let mut nodes: HashMap<IVec3, Node> = HashMap::new();
+    // Queue of nodes pending to check their neighbor blocks, each pending node is 
+    // associated to a face leading to the node that added it to the list.
+    let mut pending: Vec<(IVec3, Face)> = vec![(pos, Face::NegY)];
+    // Queue of nodes that should propagate their power on the next propagation loop.
+    let mut sources: Vec<IVec3> = Vec::new();
 
-        for (node_pos, _) in pending.drain(..) {
-            if let Some(power) = nodes.remove(&node_pos) {
+    // This loop constructs the network on nodes and give the initial external power to
+    // nodes that are connected to a source.
+    while let Some((pending_pos, link_face)) = pending.pop() {
 
-                world.set_block_and_metadata(node_pos, block::REDSTONE, power);
+        let node = match nodes.entry(pending_pos) {
+            Entry::Occupied(o) => {
+                // If our pending node is already existing, just update the link to it.
+                o.into_mut().links.insert(link_face);
+                // Each node is checked for sources once, so we continue.
+                continue;
+            }
+            Entry::Vacant(v) => {
+                v.insert(Node::default())
+            }
+        };
 
-                // Only update neighbor nodes if power is greater than 1, because 1 would
-                // give a power of 0 when propagated, and this is handled by the end loop.
-                if power > 2 {
-                    for face in FACES {
-                        let face_pos = node_pos + face.delta();
-                        // Check if there is an existing node on that face.
-                        if let Some(face_power) = nodes.get(&face_pos).copied() {
-                            // This node has no power yet.
-                            if face_power == 0u8 {
-                                // Decrease power by one.
-                                nodes_power.push((face_pos, power - 1));
-                            }
+        // Linked to the block that discovered this pending node.
+        node.links.insert(link_face);
+
+        // Check if there is an opaque block above, used to prevent connecting top nodes.
+        node.opaque_above = world.block_and_metadata(pos + IVec3::Y)
+            .map(|(above_id, _)| block::from_id(above_id).material.is_opaque())
+            .unwrap_or(true);
+        node.opaque_below = world.block_and_metadata(pos - IVec3::Y)
+            .map(|(below_id, _)| block::from_id(below_id).material.is_opaque())
+            .unwrap_or(true);
+
+        for face in FACES {
+
+            // Do not process the face that discovered this node: this avoid too many
+            // recursion, and this is valid since 
+            if link_face == face {
+                continue;
+            }
+
+            let face_pos = pending_pos + face.delta();
+            if let Some((id, _)) = world.block_and_metadata(face_pos) {
+
+                if id == block::REDSTONE {
+                    node.links.insert(face);
+                    pending.push((face_pos, face.opposite()));
+                    continue;
+                }
+
+                // If the faced block is not a redstone, get the direct power from it and
+                // update our node initial power depending on it.
+                let face_power = block::powering::get_direct_power_from(world, face_pos, face.opposite());
+                node.power = node.power.max(face_power);
+
+                if block::from_id(id).material.is_opaque() {
+                    // If that faced block is opaque, we check if a redstone dust is 
+                    // present on top of it, we connect the network to it if not opaque 
+                    // above.
+                    if !node.opaque_above {
+                        let face_above_pos = face_pos + IVec3::Y;
+                        if let Some((block::REDSTONE, _)) = world.block_and_metadata(face_above_pos) {
+                            node.links.insert(face);
+                            pending.push((face_above_pos, face.opposite()));
                         }
+                    }
+                } else {
+                    // If the faced block is not opaque, the power can come from below
+                    // the faced block, so we connect if this is redstone.
+                    // NOTE: If the block below is not opaque, the signal cannot come to
+                    // the current node, but that will be resolved in the loop below.
+                    let face_below_pos = face_pos - IVec3::Y;
+                    if let Some((block::REDSTONE, _)) = world.block_and_metadata(face_below_pos) {
+                        node.links.insert(face);
+                        pending.push((face_below_pos, face.opposite()));
                     }
                 }
 
             }
+
         }
+
+        // Check above and below for pure power sources, do not check if this is redstone
+        // as it should not be possible to place, theoretically.
+        for face in [Face::NegY, Face::PosY] {
+            let face_pos = pending_pos + face.delta();
+            let face_power = block::powering::get_direct_power_from(world, face_pos, face.opposite());
+            node.power = node.power.max(face_power);
+        }
+
+        if node.power > 0 {
+            sources.push(pending_pos);
+        }
+
+    }
+
+    // No longer used, just as a note.
+    drop(pending);
+
+    // TODO: Notifying surrounding blocks.
+
+    let mut notifications = HashSet::new();
+
+    let mut next_sources = Vec::new();
+
+    // While sources are remaining to propagate.
+    while !sources.is_empty() {
+
+        for source_pos in sources.drain(..) {
+
+            // Pop the node and finally update its block power. Ignore if the node have
+            // already been processed.
+            let Some(node) = nodes.remove(&source_pos) else { continue };
+            world.set_block_and_metadata(source_pos, block::REDSTONE, node.power);
+
+            // Update blocks above and below.
+            notifications.insert(source_pos - IVec3::Y);
+            notifications.insert(source_pos + IVec3::Y);
+
+            // If the power is one or below (should not happen), do not process face 
+            // because the power will be out anyway.
+            if node.power <= 1 {
+                continue;
+            }
+
+            let propagated_power = node.power - 1;
+
+            // Process each face that should have at least one redstone, facing, below or
+            // on top of the faced block.
+            for face in FACES {
+                if node.links.contains(face) {
+
+                    let face_pos = source_pos + face.delta();
+                    if let Some(face_node) = nodes.get_mut(&face_pos) {
+                        face_node.power = face_node.power.max(propagated_power);
+                        next_sources.push(face_pos);
+                    }
+
+                    // Only propagate upward if the block above is not opaque.
+                    if !node.opaque_above {
+                        let face_above_pos = face_pos + IVec3::Y;
+                        if let Some(face_above_node) = nodes.get_mut(&face_above_pos) {
+                            face_above_node.power = face_above_node.power.max(propagated_power);
+                            next_sources.push(face_above_pos);
+                        }
+                    }
+
+                    // Only propagate below if the block below is opaque.
+                    if node.opaque_below {
+                        let face_below_pos = face_pos - IVec3::Y;
+                        if let Some(face_below_node) = nodes.get_mut(&face_below_pos) {
+                            face_below_node.power = face_below_node.power.max(propagated_power);
+                            next_sources.push(face_below_pos);
+                        }
+                    }
+
+                } else {
+                    // If the face has no link, update the face.
+                    notifications.insert(source_pos + face.delta());
+                }
+            }
+
+        }
+
+        // Finally swap the two vector, this avoid copying one into another. 
+        // - 'next_sources' will take the value of 'source', which is empty (drained).
+        // - 'sources' will take the value of 'next_sources', which is filled.
+        std::mem::swap(&mut next_sources, &mut sources);
 
     }
 
     // When there are no remaining power to apply, just set all remaining nodes to off.
     for node_pos in nodes.into_keys() {
         world.set_block_and_metadata(node_pos, block::REDSTONE, 0);
+    }
+
+    for pos in notifications {
+        // notify_at(world, pos);
+        // world.set_block_and_metadata(pos, block::GOLD_BLOCK, 0);
     }
 
 }
@@ -121,4 +252,9 @@ fn notify_repeater(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
         world.schedule_tick(pos, id, delay);
     }
 
+}
+
+/// Notification of a redstone repeater block.
+fn notify_redstone_torch(world: &mut World, pos: IVec3, id: u8) {
+    world.schedule_tick(pos, id, 2);
 }

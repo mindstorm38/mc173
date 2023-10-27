@@ -123,3 +123,40 @@ impl Face {
     }
 
 }
+
+
+/// A set of unique faces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FaceSet {
+    /// Presence of face are encoded bit by bit, the index of each face is the value of 
+    /// their enumeration discriminant.
+    inner: u8,
+}
+
+impl FaceSet {
+
+    /// Create a new empty set.
+    pub const fn new() -> Self {
+        Self { inner: 0 }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, face: Face) -> bool {
+        let prev = self.inner;
+        self.inner |= 1 << face as u8;
+        self.inner != prev
+    }
+
+    #[inline]
+    pub fn remove(&mut self, face: Face) -> bool {
+        let prev = self.inner;
+        self.inner &= !(1 << face as u8);
+        self.inner != prev
+    }
+
+    #[inline]
+    pub fn contains(&self, face: Face) -> bool {
+        self.inner & (1 << face as u8) != 0
+    }
+
+}

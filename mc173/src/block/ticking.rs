@@ -12,6 +12,8 @@ pub fn tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
         block::BUTTON => tick_button(world, pos, metadata),
         block::REPEATER => tick_repeater(world, pos, metadata, false),
         block::REPEATER_LIT => tick_repeater(world, pos, metadata, true),
+        block::REDSTONE_TORCH => tick_redstone_torch(world, pos, metadata, false),
+        block::REDSTONE_TORCH_LIT => tick_redstone_torch(world, pos, metadata, true),
         _ => {}
     }
 }
@@ -44,5 +46,26 @@ fn tick_repeater(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     block::notifying::notify_around(world, pos);
     // Also notify the powered block.
     block::notifying::notify_around(world, pos + face.delta());
+
+}
+
+fn tick_redstone_torch(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
+
+    // TODO: Check torch burnout...
+
+    let Some(torch_face) = block::torch::get_face(metadata) else { return };
+    let powered = block::powering::get_passive_power_from(world, pos + torch_face.delta(), torch_face.opposite()) != 0;
+
+    if lit {
+        if powered {
+            world.set_block_and_metadata(pos, block::REDSTONE_TORCH, metadata);
+            block::notifying::notify_around(world, pos);
+        }
+    } else {
+        if !powered {
+            world.set_block_and_metadata(pos, block::REDSTONE_TORCH_LIT, metadata);
+            block::notifying::notify_around(world, pos);
+        }
+    }
 
 }

@@ -114,11 +114,24 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
         block::FURNACE | 
         block::FURNACE_LIT |
         block::DISPENSER => place_faced_at(world, pos, face, id, metadata, block::common::set_horizontal_face),
+        block::TORCH |
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT => place_faced_at(world, pos, face, id, metadata, block::torch::set_face),
         block::LEVER => place_lever_at(world, pos, face, metadata),
         block::LADDER => place_ladder_at(world, pos, face, metadata),
         _ => {
             world.set_block_and_metadata(pos, id, metadata);
         }
+    }
+
+    // Self-notifying blocks.
+    match id {
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT |
+        block::REPEATER |
+        block::REPEATER_LIT |
+        block::REDSTONE => block::notifying::notify_at(world, pos),
+        _ => {}
     }
 
     block::notifying::notify_around(world, pos);

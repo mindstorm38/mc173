@@ -22,6 +22,7 @@ pub mod ladder;
 pub mod piston;
 pub mod lever;
 pub mod stair;
+pub mod torch;
 pub mod fluid;
 pub mod door;
 pub mod bed;

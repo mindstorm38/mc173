@@ -6,4 +6,5 @@ mod bb;
 
 pub use rand::JavaRandom;
 pub use bb::BoundingBox;
-pub use face::Face;
+
+pub use face::{Face, FaceSet};

@@ -432,6 +432,8 @@ impl World {
 
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.
+    /// 
+    /// TODO: Work on a world's block cache to speed up access.
     pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.chunk(cx, cz)?;
@@ -445,6 +447,7 @@ impl World {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.chunk_mut(cx, cz)?;
         let (prev_block, prev_metadata) = chunk.block_and_metadata(pos);
+        // FIXME: Don't set and push event if prev id/metadata are the same.
         chunk.set_block_and_metadata(pos, block, metadata);
         self.push_event(Event::BlockChange { 
             pos,

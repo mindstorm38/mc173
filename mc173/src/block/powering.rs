@@ -38,10 +38,10 @@ pub fn get_direct_power_from(world: &mut World, pos: IVec3, face: Face) -> u8 {
     }
 }
 
+/// Get the passive power of a block's face.
 pub fn get_passive_power_from(world: &mut World, pos: IVec3, face: Face) -> u8 {
     get_power_from(world, pos, face, true).level
 }
-
 
 /// Get the power produced by a block on a given face.
 fn get_power_from(world: &mut World, pos: IVec3, face: Face, test_block: bool) -> Power {
@@ -52,6 +52,8 @@ fn get_power_from(world: &mut World, pos: IVec3, face: Face, test_block: bool) -
         block::LEVER => get_lever_power_from(face, metadata),
         block::BUTTON => get_button_power_from(face, metadata),
         block::REPEATER_LIT => get_repeater_power_from(face, metadata),
+        block::REDSTONE_TORCH_LIT => get_redstone_torch_power_from(face, metadata),
+        block::REDSTONE => get_redstone_power_from(face, metadata),
         // Opaque block transmitting power 
         // FIXME: the game also checks that block is full
         _ if test_block && block::from_id(id).material.is_opaque() => 
@@ -130,6 +132,26 @@ fn get_repeater_power_from(face: Face, metadata: u8) -> Power {
         Power::ON_INDIRECT
     } else {
         Power::OFF
+    }
+}
+
+fn get_redstone_torch_power_from(face: Face, metadata: u8) -> Power {
+    if block::torch::get_face(metadata) == Some(face) {
+        Power::OFF
+    } else if face == Face::PosY {
+        Power::ON_INDIRECT
+    } else {
+        Power::ON_DIRECT
+    }
+}
+
+fn get_redstone_power_from(face: Face, metadata: u8) -> Power {
+    if face == Face::PosY {
+        Power::OFF
+    } else if face == Face::NegY {
+        Power { level: metadata, indirect: true, passive: true }
+    } else {
+        Power::OFF  // TODO: 
     }
 }
 

@@ -157,3 +157,40 @@ pub fn get_break_speed(item_id: u16, block_id: u8) -> f32 {
     }
 
 }
+
+
+/// Get the minimum ticks duration required to break the block given its id.
+pub fn get_break_duration(item_id: u16, block_id: u8, in_water: bool, on_ground: bool) -> f32 {
+
+    // TODO: Maybe remove hardness from the block definition, because it's only used in
+    // the game for break duration.
+
+    let block = block::from_id(block_id);
+    if block.hardness < 0.0 {
+        f32::INFINITY
+    } else {
+
+        // The hardness value in the game is registered as ticks, with a multiplier
+        // depending on the player's conditions and tools.
+
+        if item::breaking::can_break(item_id, block_id) {
+
+            let mut env_modifier = get_break_speed(item_id, block_id);
+
+            if in_water {
+                env_modifier /= 5.0;
+            }
+
+            if !on_ground {
+                env_modifier /= 0.5;
+            }
+            
+            block.hardness * 30.0 / env_modifier
+
+        } else {
+            block.hardness * 100.0
+        }
+
+    }
+
+}
