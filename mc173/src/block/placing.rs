@@ -120,7 +120,7 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
         block::LEVER => place_lever_at(world, pos, face, metadata),
         block::LADDER => place_ladder_at(world, pos, face, metadata),
         _ => {
-            world.set_block_and_metadata(pos, id, metadata);
+            world.set_block(pos, id, metadata);
         }
     }
 
@@ -141,7 +141,7 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
 /// Generic function to place a block that has a basic facing function.
 fn place_faced_at(world: &mut World, pos: IVec3, face: Face, id: u8, mut metadata: u8, func: impl FnOnce(&mut u8, Face)) {
     func(&mut metadata, face);
-    world.set_block_and_metadata(pos, id, metadata);
+    world.set_block(pos, id, metadata);
 }
 
 fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
@@ -150,7 +150,7 @@ fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
         Face::NegY => world.rand_mut().next_choice(&[Face::PosZ, Face::PosX]),
         _ => Face::PosY,
     });
-    world.set_block_and_metadata(pos, block::LEVER, metadata);
+    world.set_block(pos, block::LEVER, metadata);
 }
 
 fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: u8) {
@@ -165,7 +165,7 @@ fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: 
         }
     }
     block::ladder::set_face(&mut metadata, face);
-    world.set_block_and_metadata(pos, block::LADDER, metadata);
+    world.set_block(pos, block::LADDER, metadata);
 }
 
 
@@ -181,7 +181,7 @@ pub fn is_block_opaque_around(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at given position can be replaced.
 pub fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
-    if let Some((id, _)) = world.block_and_metadata(pos) {
+    if let Some((id, _)) = world.block(pos) {
         block::from_id(id).material.is_replaceable()
     } else {
         false
@@ -190,17 +190,18 @@ pub fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at position is opaque.
 pub fn is_block_opaque_at(world: &mut World, pos: IVec3) -> bool {
-    if let Some((id, _)) = world.block_and_metadata(pos) {
-        // FIXME: The notchian server checks for a seconq property "isACube" on the block.
+    if let Some((id, _)) = world.block(pos) {
+        // FIXME: The notchian server checks for a second property "isACube" on the block.
         // For example slabs have "Rock" material but are not a cube: ANNOYING!!
         block::from_id(id).material.is_opaque()
     } else {
         false
     }
 }
+
 /// Return true if the block at position is material solid.
 pub fn is_block_solid_at(world: &mut World, pos: IVec3) -> bool {
-    if let Some((id, _)) = world.block_and_metadata(pos) {
+    if let Some((id, _)) = world.block(pos) {
         block::from_id(id).material.is_solid()
     } else {
         false
@@ -209,7 +210,7 @@ pub fn is_block_solid_at(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at given position is in the valid slice.
 pub fn is_block_at(world: &mut World, pos: IVec3, valid: &[u8]) -> bool {
-    if let Some((id, _)) = world.block_and_metadata(pos) {
+    if let Some((id, _)) = world.block(pos) {
         valid.iter().any(|&valid_id| valid_id == id)
     } else {
         false

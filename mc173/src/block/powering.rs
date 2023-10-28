@@ -46,7 +46,7 @@ pub fn get_passive_power_from(world: &mut World, pos: IVec3, face: Face) -> u8 {
 /// Get the power produced by a block on a given face.
 fn get_power_from(world: &mut World, pos: IVec3, face: Face, test_block: bool) -> Power {
 
-    let Some((id, metadata)) = world.block_and_metadata(pos) else { return Power::OFF };
+    let Some((id, metadata)) = world.block(pos) else { return Power::OFF };
 
     match id {
         block::LEVER => get_lever_power_from(face, metadata),

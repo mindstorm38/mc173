@@ -39,7 +39,7 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, stack: Item
 /// are handled apart by other functions that do not rely on the block placing logic.
 fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, look: Vec2, id: u8, metadata: u8) -> bool {
 
-    if let Some((block::SNOW, _)) = world.block_and_metadata(pos) {
+    if let Some((block::SNOW, _)) = world.block(pos) {
         // If a block is placed by clicking on a snow block, replace that snow block.
         face = Face::NegY;
     } else {
@@ -136,10 +136,10 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2, bloc
     }
 
     block::door::set_face(&mut metadata, door_face);
-    world.set_block_and_metadata(pos, block_id, metadata);
+    world.set_block(pos, block_id, metadata);
 
     block::door::set_upper(&mut metadata, true);
-    world.set_block_and_metadata(pos + IVec3::Y, block_id, metadata);
+    world.set_block(pos + IVec3::Y, block_id, metadata);
 
     true
 
@@ -164,10 +164,10 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2) -> bo
         block::placing::is_block_opaque_at(world, pos - IVec3::Y) &&
         block::placing::is_block_opaque_at(world, head_pos - IVec3::Y) {
         
-        world.set_block_and_metadata(pos, block::BED, metadata);
+        world.set_block(pos, block::BED, metadata);
 
         block::bed::set_head(&mut metadata, true);
-        world.set_block_and_metadata(head_pos, block::BED, metadata);
+        world.set_block(head_pos, block::BED, metadata);
 
     }
 

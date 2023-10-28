@@ -11,7 +11,7 @@ use crate::block;
 pub fn use_at(world: &mut World, pos: IVec3) -> bool {
     
     // Only continue if position is legal.
-    let Some((id, metadata)) = world.block_and_metadata(pos) else { return false };
+    let Some((id, metadata)) = world.block(pos) else { return false };
 
     match id {
         block::BUTTON => use_button(world, pos, metadata),
@@ -35,7 +35,7 @@ fn use_button(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
     block::button::set_active(&mut metadata, true);
 
-    world.set_block_and_metadata(pos, block::BUTTON, metadata);
+    world.set_block(pos, block::BUTTON, metadata);
     // TODO: Notify neighbor changes.
     // TODO: Notify neighbor change for face block (block::button::get_face(metadata)).
 
@@ -49,7 +49,7 @@ fn use_lever(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     
     let active = block::lever::is_active(metadata);
     block::lever::set_active(&mut metadata, !active);
-    world.set_block_and_metadata(pos, block::LEVER, metadata);
+    world.set_block(pos, block::LEVER, metadata);
 
     block::notifying::notify_around(world, pos);
 
@@ -64,14 +64,14 @@ fn use_lever(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 fn use_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     let active = block::trapdoor::is_open(metadata);
     block::trapdoor::set_open(&mut metadata, !active);
-    world.set_block_and_metadata(pos, block::TRAPDOOR, metadata);
+    world.set_block(pos, block::TRAPDOOR, metadata);
     true
 }
 
 fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
     if block::door::is_upper(metadata) {
-        if let Some((block::WOOD_DOOR, metadata)) = world.block_and_metadata(pos - IVec3::Y) {
+        if let Some((block::WOOD_DOOR, metadata)) = world.block(pos - IVec3::Y) {
             use_wood_door(world, pos - IVec3::Y, metadata);
         }
     } else {
@@ -79,11 +79,11 @@ fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
         let open = block::door::is_open(metadata);
         block::door::set_open(&mut metadata, !open);
 
-        world.set_block_and_metadata(pos, block::WOOD_DOOR, metadata);
+        world.set_block(pos, block::WOOD_DOOR, metadata);
 
-        if let Some((block::WOOD_DOOR, _)) = world.block_and_metadata(pos + IVec3::Y) {
+        if let Some((block::WOOD_DOOR, _)) = world.block(pos + IVec3::Y) {
             block::door::set_upper(&mut metadata, true);
-            world.set_block_and_metadata(pos + IVec3::Y, block::WOOD_DOOR, metadata);
+            world.set_block(pos + IVec3::Y, block::WOOD_DOOR, metadata);
         }
 
     }
@@ -95,6 +95,6 @@ fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 fn use_repeater(world: &mut World, pos: IVec3, id: u8, mut metadata: u8) -> bool {
     let delay = block::repeater::get_delay(metadata);
     block::repeater::set_delay(&mut metadata, (delay + 1) % 4);
-    world.set_block_and_metadata(pos, id, metadata);
+    world.set_block(pos, id, metadata);
     true
 }

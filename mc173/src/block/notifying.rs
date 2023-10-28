@@ -23,7 +23,7 @@ pub fn notify_around(world: &mut World, pos: IVec3) {
 /// Notify a block at some position that a neighbor block has changed.
 pub fn notify_at(world: &mut World, pos: IVec3) {
 
-    let Some((id, metadata)) = world.block_and_metadata(pos) else { return };
+    let Some((id, metadata)) = world.block(pos) else { return };
 
     match id {
         block::REDSTONE => notify_redstone(world, pos),
@@ -95,10 +95,10 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
         node.links.insert(link_face);
 
         // Check if there is an opaque block above, used to prevent connecting top nodes.
-        node.opaque_above = world.block_and_metadata(pos + IVec3::Y)
+        node.opaque_above = world.block(pos + IVec3::Y)
             .map(|(above_id, _)| block::from_id(above_id).material.is_opaque())
             .unwrap_or(true);
-        node.opaque_below = world.block_and_metadata(pos - IVec3::Y)
+        node.opaque_below = world.block(pos - IVec3::Y)
             .map(|(below_id, _)| block::from_id(below_id).material.is_opaque())
             .unwrap_or(true);
 
@@ -111,7 +111,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
             }
 
             let face_pos = pending_pos + face.delta();
-            if let Some((id, _)) = world.block_and_metadata(face_pos) {
+            if let Some((id, _)) = world.block(face_pos) {
 
                 if id == block::REDSTONE {
                     node.links.insert(face);
@@ -134,7 +134,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                     // above.
                     if !node.opaque_above {
                         let face_above_pos = face_pos + IVec3::Y;
-                        if let Some((block::REDSTONE, _)) = world.block_and_metadata(face_above_pos) {
+                        if let Some((block::REDSTONE, _)) = world.block(face_above_pos) {
                             node.links.insert(face);
                             pending.push((face_above_pos, face.opposite()));
                         }
@@ -145,7 +145,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                     // NOTE: If the block below is not opaque, the signal cannot come to
                     // the current node, but that will be resolved in the loop below.
                     let face_below_pos = face_pos - IVec3::Y;
-                    if let Some((block::REDSTONE, _)) = world.block_and_metadata(face_below_pos) {
+                    if let Some((block::REDSTONE, _)) = world.block(face_below_pos) {
                         node.links.insert(face);
                         pending.push((face_below_pos, face.opposite()));
                     }
@@ -190,7 +190,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
             // Pop the node and finally update its block power. Ignore if the node have
             // already been processed.
             let Some(node) = nodes.remove(&source_pos) else { continue };
-            world.set_block_and_metadata(source_pos, block::REDSTONE, node.power);
+            world.set_block(source_pos, block::REDSTONE, node.power);
 
             // If the power is one or below (should not happen), do not process face 
             // because the power will be out anyway.
@@ -243,7 +243,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
 
     // When there are no remaining power to apply, just set all remaining nodes to off.
     for node_pos in nodes.into_keys() {
-        world.set_block_and_metadata(node_pos, block::REDSTONE, 0);
+        world.set_block(node_pos, block::REDSTONE, 0);
     }
 
     for pos in notifications {

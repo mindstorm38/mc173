@@ -19,7 +19,7 @@ pub fn break_at(world: &mut World, pos: IVec3) -> Option<(u8, u8)> {
 /// blocks and also handles particular blocks destroy actions.
 pub fn remove_at(world: &mut World, pos: IVec3) -> Option<(u8, u8)> {
 
-    let (id, metadata) = world.set_block_and_metadata(pos, 0, 0)?;
+    let (id, metadata) = world.set_block(pos, 0, 0)?;
     block::notifying::notify_around(world, pos);
 
     match id {

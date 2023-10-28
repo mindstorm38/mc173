@@ -435,29 +435,30 @@ impl World {
     /// loaded, none is returned.
     /// 
     /// TODO: Work on a world's block cache to speed up access.
-    pub fn block_and_metadata(&self, pos: IVec3) -> Option<(u8, u8)> {
+    pub fn block(&self, pos: IVec3) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.chunk(cx, cz)?;
-        Some(chunk.block_and_metadata(pos))
+        Some(chunk.block(pos))
     }
 
     /// Set block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned, but if it is existing the previous block and metadata
     /// is returned. This function also push a block change event.
-    pub fn set_block_and_metadata(&mut self, pos: IVec3, block: u8, metadata: u8) -> Option<(u8, u8)> {
+    pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.chunk_mut(cx, cz)?;
-        let (prev_block, prev_metadata) = chunk.block_and_metadata(pos);
-        // FIXME: Don't set and push event if prev id/metadata are the same.
-        chunk.set_block_and_metadata(pos, block, metadata);
-        self.push_event(Event::BlockChange { 
-            pos,
-            prev_block, 
-            prev_metadata, 
-            new_block: block, // TODO: Change 'block' into 'id' EVERYWHERE!!
-            new_metadata: metadata,
-        });
-        Some((prev_block, prev_metadata))
+        let (prev_id, prev_metadata) = chunk.block(pos);
+        if prev_id != id || prev_metadata != metadata {
+            chunk.set_block(pos, id, metadata);
+            self.push_event(Event::BlockChange {
+                pos,
+                prev_id, 
+                prev_metadata, 
+                new_id: id, // TODO: Change 'block' into 'id' EVERYWHERE!!
+                new_metadata: metadata,
+            });
+        }
+        Some((prev_id, prev_metadata))
     }
     
     /// Tick the world, this ticks all entities.
@@ -469,7 +470,7 @@ impl World {
                 // This tick should be activated.
                 let tick = self.scheduled_ticks.pop_first().unwrap();
                 // Check coherency of the scheduled tick and current block.
-                if let Some((id, metadata)) = self.block_and_metadata(tick.pos) {
+                if let Some((id, metadata)) = self.block(tick.pos) {
                     if id == tick.id {
                         block::ticking::tick_at(self, tick.pos, id, metadata);
                     }
@@ -651,11 +652,11 @@ pub enum Event {
         /// The block position.
         pos: IVec3,
         /// Previous block id.
-        prev_block: u8,
+        prev_id: u8,
         /// Previous block metadata.
         prev_metadata: u8,
         /// The new block id.
-        new_block: u8,
+        new_id: u8,
         /// The new block metadata.
         new_metadata: u8,
     },
@@ -796,7 +797,7 @@ impl<'a> Iterator for WorldBlocksIn<'a> {
 
         // If a chunk exists for the current column.
         if let Some((_, _, Some(chunk))) = self.chunk {
-            let (block, metadata) = chunk.block_and_metadata(self.cursor);
+            let (block, metadata) = chunk.block(self.cursor);
             ret.1 = block;
             ret.2 = metadata;
         }

@@ -48,7 +48,7 @@ impl ItemEntity {
                 z: self.pos.z.floor() as i32,
             };
     
-            if let Some((block, _)) = world.block_and_metadata(ground_pos) {
+            if let Some((block, _)) = world.block(ground_pos) {
                 if block != block::AIR {
                     slipperiness = block::from_id(block).slipperiness * 0.98;
                 }

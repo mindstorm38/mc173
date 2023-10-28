@@ -22,7 +22,7 @@ pub fn tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
 fn tick_button(world: &mut World, pos: IVec3, mut metadata: u8) {
     if block::button::is_active(metadata) {
         block::button::set_active(&mut metadata, false);
-        world.set_block_and_metadata(pos, block::BUTTON, metadata);
+        world.set_block(pos, block::BUTTON, metadata);
         // TODO: Notify neighbor change for the pos and its faced block.
     }
 }
@@ -34,9 +34,9 @@ fn tick_repeater(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     let back_powered = block::powering::get_passive_power_from(world, pos - face.delta(), face) != 0;
 
     if lit && !back_powered {
-        world.set_block_and_metadata(pos, block::REPEATER, metadata);
+        world.set_block(pos, block::REPEATER, metadata);
     } else if !lit {
-        world.set_block_and_metadata(pos, block::REPEATER_LIT, metadata);
+        world.set_block(pos, block::REPEATER_LIT, metadata);
         if !back_powered {
             world.schedule_tick(pos, block::REPEATER_LIT, delay);
         }
@@ -60,12 +60,12 @@ fn tick_redstone_torch(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
 
     if lit {
         if powered {
-            world.set_block_and_metadata(pos, block::REDSTONE_TORCH, metadata);
+            world.set_block(pos, block::REDSTONE_TORCH, metadata);
             notify = true;
         }
     } else {
         if !powered {
-            world.set_block_and_metadata(pos, block::REDSTONE_TORCH_LIT, metadata);
+            world.set_block(pos, block::REDSTONE_TORCH_LIT, metadata);
             notify = true;
         }
     }

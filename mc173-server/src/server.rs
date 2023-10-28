@@ -348,7 +348,7 @@ impl ServerWorld {
                     self.handle_entity_pickup(id, target_id),
                 Event::EntityInventoryItem { id, index, item } =>
                     self.handle_entity_inventory_item(id, index, item),
-                Event::BlockChange { pos, new_block, new_metadata, .. } => 
+                Event::BlockChange { pos, new_id: new_block, new_metadata, .. } => 
                     self.handle_block_change(pos, new_block, new_metadata),
                 Event::SpawnPosition { pos } =>
                     self.handle_spawn_position(pos),
@@ -731,7 +731,7 @@ impl ServerPlayer {
 
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.
-            if let Some((id, _)) = world.block_and_metadata(pos) {
+            if let Some((id, _)) = world.block(pos) {
 
                 block::using::use_at(world, pos);
                 
@@ -751,7 +751,7 @@ impl ServerPlayer {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
                 if state.pos == pos && world.time() >= state.min_time {
-                    if matches!(world.block_and_metadata(pos), Some((id, _)) if id == state.id) {
+                    if matches!(world.block(pos), Some((id, _)) if id == state.id) {
                         block::breaking::break_at(world, pos);
                     }
                 }
