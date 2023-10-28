@@ -62,6 +62,8 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
     let mut pending: Vec<(IVec3, Face)> = vec![(pos, Face::NegY)];
     // Queue of nodes that should propagate their power on the next propagation loop.
     let mut sources: Vec<IVec3> = Vec::new();
+    // Block notifications to send after all network has been updated.
+    let mut notifications = HashSet::new();
 
     // This loop constructs the network on nodes and give the initial external power to
     // nodes that are connected to a source.
@@ -78,6 +80,16 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                 v.insert(Node::default())
             }
         };
+
+        // Add every notification above and below.
+        notifications.insert(pending_pos + IVec3::Y);
+        notifications.insert(pending_pos - IVec3::Y);
+        for face in FACES {
+            notifications.insert(pending_pos + IVec3::Y + face.delta());
+            notifications.insert(pending_pos - IVec3::Y + face.delta());
+            notifications.insert(pending_pos + IVec3::Y * 2);
+            notifications.insert(pending_pos - IVec3::Y * 2);
+        }
 
         // Linked to the block that discovered this pending node.
         node.links.insert(link_face);
@@ -106,6 +118,10 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                     pending.push((face_pos, face.opposite()));
                     continue;
                 }
+                
+                // We notify that block because it is not a redstone and so not in our 
+                // network.
+                notifications.insert(face_pos);
 
                 // If the faced block is not a redstone, get the direct power from it and
                 // update our node initial power depending on it.
@@ -156,9 +172,13 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
     // No longer used, just as a note.
     drop(pending);
 
-    // TODO: Notifying surrounding blocks.
-
-    let mut notifications = HashSet::new();
+    // Just a debug to ensure that our algorithm above is correct and does not
+    // notify the redstone network itself (would be catastrophic).
+    if cfg!(debug_assertions) {
+        for node_pos in nodes.keys() {
+            debug_assert!(!notifications.contains(node_pos));
+        }
+    }
 
     let mut next_sources = Vec::new();
 
@@ -171,10 +191,6 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
             // already been processed.
             let Some(node) = nodes.remove(&source_pos) else { continue };
             world.set_block_and_metadata(source_pos, block::REDSTONE, node.power);
-
-            // Update blocks above and below.
-            notifications.insert(source_pos - IVec3::Y);
-            notifications.insert(source_pos + IVec3::Y);
 
             // If the power is one or below (should not happen), do not process face 
             // because the power will be out anyway.
@@ -213,9 +229,6 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                         }
                     }
 
-                } else {
-                    // If the face has no link, update the face.
-                    notifications.insert(source_pos + face.delta());
                 }
             }
 
@@ -234,8 +247,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
     }
 
     for pos in notifications {
-        // notify_at(world, pos);
-        // world.set_block_and_metadata(pos, block::GOLD_BLOCK, 0);
+        notify_at(world, pos);
     }
 
 }

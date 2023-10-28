@@ -332,6 +332,7 @@ impl World {
     /// Schedule a tick update to happen at the given position, for the given block id
     /// and in a given time.
     pub fn schedule_tick(&mut self, pos: IVec3, id: u8, time: u64) {
+        // FIXME: Do not add if a tick is already scheduled for that pos/block.
         self.scheduled_ticks.insert(ScheduledTick {
             time: self.time + time,
             pos,

@@ -56,16 +56,24 @@ fn tick_redstone_torch(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     let Some(torch_face) = block::torch::get_face(metadata) else { return };
     let powered = block::powering::get_passive_power_from(world, pos + torch_face.delta(), torch_face.opposite()) != 0;
 
+    let mut notify = false;
+
     if lit {
         if powered {
             world.set_block_and_metadata(pos, block::REDSTONE_TORCH, metadata);
-            block::notifying::notify_around(world, pos);
+            notify = true;
         }
     } else {
         if !powered {
             world.set_block_and_metadata(pos, block::REDSTONE_TORCH_LIT, metadata);
-            block::notifying::notify_around(world, pos);
+            notify = true;
         }
+    }
+
+    if notify {
+        block::notifying::notify_around(world, pos);
+        // FIXME: Not in the Notchian server, don't understand?
+        block::notifying::notify_around(world, pos + IVec3::Y);
     }
 
 }
