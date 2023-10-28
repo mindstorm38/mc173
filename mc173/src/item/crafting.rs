@@ -355,12 +355,12 @@ const RECIPES: &'static [Recipe] = &[
     armor!(boots item::DIAMOND_BOOTS, DIAMOND),
     // Ore blocks...
     ore_block!(construct block::IRON_BLOCK, IRON_INGOT),
-    ore_block!(construct block::GOLD_BLOCK, IRON_INGOT),
-    ore_block!(construct block::DIAMOND_BLOCK, IRON_INGOT),
+    ore_block!(construct block::GOLD_BLOCK, GOLD_INGOT),
+    ore_block!(construct block::DIAMOND_BLOCK, DIAMOND),
     ore_block!(construct block::LAPIS_BLOCK, LAPIS),
     ore_block!(destruct block::IRON_BLOCK, IRON_INGOT),
-    ore_block!(destruct block::GOLD_BLOCK, IRON_INGOT),
-    ore_block!(destruct block::DIAMOND_BLOCK, IRON_INGOT),
+    ore_block!(destruct block::GOLD_BLOCK, GOLD_INGOT),
+    ore_block!(destruct block::DIAMOND_BLOCK, DIAMOND),
     ore_block!(destruct block::LAPIS_BLOCK, LAPIS),
     // Dyes...
     Recipe::new_shapeless(YELLOW_DYE_2, &[DANDELION]),

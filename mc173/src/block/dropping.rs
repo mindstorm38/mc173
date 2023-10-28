@@ -70,7 +70,7 @@ pub fn drop_tries(rand: &mut JavaRandom, id: u8, _metadata: u8) -> u8 {
         block::PISTON_MOVING => 0,
         block::PORTAL => 0,
         block::REDSTONE_ORE |
-        block::REDSTONE_ORE_GLOWING => 4 + rand.next_int_bounded(2) as u8,
+        block::REDSTONE_ORE_LIT => 4 + rand.next_int_bounded(2) as u8,
         block::SNOW => 0,
         block::SNOW_BLOCK => 4,
         block::DOUBLE_SLAB => 2,
@@ -122,7 +122,7 @@ pub fn drop_stack(rand: &mut JavaRandom, id: u8, metadata: u8) -> ItemStack {
         block::COAL_ORE => ItemStack::new_single(item::COAL, 0),
         block::DIAMOND_ORE => ItemStack::new_single(item::DIAMOND, 0),
         block::REDSTONE_ORE |
-        block::REDSTONE_ORE_GLOWING => ItemStack::new_single(item::REDSTONE, 0),
+        block::REDSTONE_ORE_LIT => ItemStack::new_single(item::REDSTONE, 0),
         block::LAPIS_ORE => ItemStack::new_single(item::DYE, 4),
         // Piston.
         block::PISTON_EXT |

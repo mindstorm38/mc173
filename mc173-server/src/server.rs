@@ -685,23 +685,24 @@ impl ServerPlayer {
 
     /// Handle a position packet.
     fn handle_position(&mut self, world: &mut World, packet: proto::PositionPacket) {
-        self.handle_position_look_inner(world, Some(packet.pos), None);
+        self.handle_position_look_inner(world, Some(packet.pos), None, packet.on_ground);
     }
 
     /// Handle a look packet.
     fn handle_look(&mut self, world: &mut World, packet: proto::LookPacket) {
-        self.handle_position_look_inner(world, None, Some(packet.look));
+        self.handle_position_look_inner(world, None, Some(packet.look), packet.on_ground);
     }
 
     /// Handle a position and look packet.
     fn handle_position_look(&mut self, world: &mut World, packet: proto::PositionLookPacket) {
-        self.handle_position_look_inner(world, Some(packet.pos), Some(packet.look));
+        self.handle_position_look_inner(world, Some(packet.pos), Some(packet.look), packet.on_ground);
     }
 
-    fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>) {
+    fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>, on_ground: bool) {
 
         let entity = world.entity_mut(self.entity_id).expect("incoherent player entity");
         let entity_base = entity.base_mut();
+        entity_base.on_ground = on_ground;
 
         if let Some(pos) = pos {
             self.pos = pos;
@@ -754,6 +755,8 @@ impl ServerPlayer {
                     if matches!(world.block(pos), Some((id, _)) if id == state.id) {
                         block::breaking::break_at(world, pos);
                     }
+                } else {
+                    println!("[WARNING] Incoherent break: {pos} @ {}, got {} @ {}", world.time(), state.pos, state.min_time);
                 }
             }
         } else if packet.status == 4 {

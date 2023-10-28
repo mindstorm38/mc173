@@ -17,7 +17,7 @@ pub fn can_break(item_id: u16, block_id: u8) -> bool {
         block::GOLD_ORE |
         block::GOLD_BLOCK |
         block::REDSTONE_ORE |
-        block::REDSTONE_ORE_GLOWING => matches!(item_id, 
+        block::REDSTONE_ORE_LIT => matches!(item_id, 
             item::DIAMOND_PICKAXE | 
             item::IRON_PICKAXE),
         block::IRON_ORE |
@@ -94,6 +94,8 @@ pub fn get_break_speed(item_id: u16, block_id: u8) -> f32 {
         block::MOSSY_COBBLESTONE |
         block::IRON_ORE |
         block::IRON_BLOCK |
+        block::GOLD_ORE |
+        block::GOLD_BLOCK |
         block::COAL_ORE |
         block::DIAMOND_ORE |
         block::DIAMOND_BLOCK |
@@ -165,8 +167,8 @@ pub fn get_break_duration(item_id: u16, block_id: u8, in_water: bool, on_ground:
     // TODO: Maybe remove hardness from the block definition, because it's only used in
     // the game for break duration.
 
-    let block = block::from_id(block_id);
-    if block.hardness < 0.0 {
+    let hardness = block::breaking::get_hardness(block_id);
+    if hardness.is_infinite() {
         f32::INFINITY
     } else {
 
@@ -182,13 +184,13 @@ pub fn get_break_duration(item_id: u16, block_id: u8, in_water: bool, on_ground:
             }
 
             if !on_ground {
-                env_modifier /= 0.5;
+                env_modifier /= 5.0;
             }
             
-            block.hardness * 30.0 / env_modifier
+            hardness * 30.0 / env_modifier
 
         } else {
-            block.hardness * 100.0
+            hardness * 100.0
         }
 
     }
