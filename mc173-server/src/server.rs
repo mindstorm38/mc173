@@ -737,7 +737,9 @@ impl ServerPlayer {
                 block::using::use_at(world, pos);
                 
                 let break_duration = item::breaking::get_break_duration(stack.id, id, in_water, on_ground);
-                if break_duration == 0.0 {
+                if break_duration.is_infinite() {
+                    // Do nothing, the block is unbreakable.
+                } else if break_duration == 0.0 {
                     block::breaking::break_at(world, pos);
                 } else {
                     self.breaking_block = Some(BreakingBlock {
