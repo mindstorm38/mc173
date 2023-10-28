@@ -191,9 +191,7 @@ pub fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
 /// Return true if the block at position is opaque.
 pub fn is_block_opaque_at(world: &mut World, pos: IVec3) -> bool {
     if let Some((id, _)) = world.block(pos) {
-        // FIXME: The notchian server checks for a second property "isACube" on the block.
-        // For example slabs have "Rock" material but are not a cube: ANNOYING!!
-        block::from_id(id).material.is_opaque()
+        block::material::is_opaque_cube(id)
     } else {
         false
     }

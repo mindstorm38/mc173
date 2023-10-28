@@ -136,8 +136,14 @@ pub struct FaceSet {
 impl FaceSet {
 
     /// Create a new empty set.
+    #[inline]
     pub const fn new() -> Self {
         Self { inner: 0 }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner == 0
     }
 
     #[inline]
@@ -157,6 +163,24 @@ impl FaceSet {
     #[inline]
     pub fn contains(&self, face: Face) -> bool {
         self.inner & (1 << face as u8) != 0
+    }
+
+    #[inline]
+    pub fn contains_x(&self) -> bool {
+        const MASK: u8 = (1 << Face::NegX as u8) | (1 << Face::PosX as u8);
+        self.inner & MASK != 0
+    }
+
+    #[inline]
+    pub fn contains_y(&self) -> bool {
+        const MASK: u8 = (1 << Face::NegY as u8) | (1 << Face::PosY as u8);
+        self.inner & MASK != 0
+    }
+
+    #[inline]
+    pub fn contains_z(&self) -> bool {
+        const MASK: u8 = (1 << Face::NegZ as u8) | (1 << Face::PosZ as u8);
+        self.inner & MASK != 0
     }
 
 }

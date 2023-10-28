@@ -21,9 +21,15 @@ pub fn tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
 /// Tick a button block, this is used to deactivate the button after 20 ticks.
 fn tick_button(world: &mut World, pos: IVec3, mut metadata: u8) {
     if block::button::is_active(metadata) {
+
         block::button::set_active(&mut metadata, false);
         world.set_block(pos, block::BUTTON, metadata);
-        // TODO: Notify neighbor change for the pos and its faced block.
+
+        block::notifying::notify_around(world, pos);
+        if let Some(face) = block::button::get_face(metadata) {
+            block::notifying::notify_around(world, pos + face.delta());
+        }
+
     }
 }
 

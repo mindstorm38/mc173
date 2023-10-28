@@ -96,10 +96,10 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
 
         // Check if there is an opaque block above, used to prevent connecting top nodes.
         node.opaque_above = world.block(pos + IVec3::Y)
-            .map(|(above_id, _)| block::from_id(above_id).material.is_opaque())
+            .map(|(above_id, _)| block::material::is_opaque_cube(above_id))
             .unwrap_or(true);
         node.opaque_below = world.block(pos - IVec3::Y)
-            .map(|(below_id, _)| block::from_id(below_id).material.is_opaque())
+            .map(|(below_id, _)| block::material::is_opaque_cube(below_id))
             .unwrap_or(true);
 
         for face in FACES {
@@ -125,7 +125,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
 
                 // If the faced block is not a redstone, get the direct power from it and
                 // update our node initial power depending on it.
-                let face_power = block::powering::get_direct_power_from(world, face_pos, face.opposite());
+                let face_power = block::powering::get_active_power_from(world, face_pos, face.opposite());
                 node.power = node.power.max(face_power);
 
                 if block::from_id(id).material.is_opaque() {
@@ -159,7 +159,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
         // as it should not be possible to place, theoretically.
         for face in [Face::NegY, Face::PosY] {
             let face_pos = pending_pos + face.delta();
-            let face_power = block::powering::get_direct_power_from(world, face_pos, face.opposite());
+            let face_power = block::powering::get_active_power_from(world, face_pos, face.opposite());
             node.power = node.power.max(face_power);
         }
 

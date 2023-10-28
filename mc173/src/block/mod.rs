@@ -3,6 +3,7 @@
 use crate::item::Item;
 
 // Block behaviors.
+pub mod material;
 pub mod colliding;
 pub mod notifying;
 pub mod powering;

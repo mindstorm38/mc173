@@ -36,8 +36,11 @@ fn use_button(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     block::button::set_active(&mut metadata, true);
 
     world.set_block(pos, block::BUTTON, metadata);
-    // TODO: Notify neighbor changes.
-    // TODO: Notify neighbor change for face block (block::button::get_face(metadata)).
+    
+    block::notifying::notify_around(world, pos);
+    if let Some(face) = block::button::get_face(metadata) {
+        block::notifying::notify_around(world, pos + face.delta());
+    }
 
     world.schedule_tick(pos, block::BUTTON, 20);
     
@@ -52,7 +55,6 @@ fn use_lever(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
     world.set_block(pos, block::LEVER, metadata);
 
     block::notifying::notify_around(world, pos);
-
     if let Some((face, _)) = block::lever::get_face(metadata) {
         block::notifying::notify_around(world, pos + face.delta());
     }
