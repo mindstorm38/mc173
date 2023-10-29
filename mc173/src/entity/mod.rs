@@ -128,7 +128,9 @@ pub struct BaseData {
     /// True if an entity velocity event should be sent after update.
     pub vel_dirty: bool,
     /// Yaw a pitch angles of this entity's look. These are in radians with no range 
-    /// guarantee, although this will often be normalized in 2pi range.
+    /// guarantee, although this will often be normalized in 2pi range. The yaw angle
+    /// in Minecraft is set to zero when pointing toward PosZ, and then rotate clockwise
+    /// to NegX, NegZ and then PosX.
     pub look: Vec2,
     /// True if an entity look event should be sent after update.
     pub look_dirty: bool,

@@ -5,6 +5,8 @@ use std::fmt;
 
 use glam::DVec3;
 
+use super::Face;
+
 
 /// An axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -84,6 +86,24 @@ impl BoundingBox {
         point.z > self.min.z && point.z < self.max.z
     }
 
+    /// Return true if the point is contained in this bounding box on Y/Z axis only.
+    pub fn contains_yz(self, point: DVec3) -> bool {
+        point.y >= self.min.y && point.y <= self.max.y && 
+        point.z >= self.min.z && point.z <= self.max.z
+    }
+
+    /// Return true if the point is contained in this bounding box on X/Z axis only.
+    pub fn contains_xz(self, point: DVec3) -> bool {
+        point.x >= self.min.x && point.x <= self.max.x && 
+        point.z >= self.min.z && point.z <= self.max.z
+    }
+
+    /// Return true if the point is contained in this bounding box on X/Y axis only.
+    pub fn contains_xy(self, point: DVec3) -> bool {
+        point.x >= self.min.x && point.x <= self.max.x && 
+        point.y >= self.min.y && point.y <= self.max.y
+    }
+
     /// Simulate an offset of the given bounding box by the given delta, but with this 
     /// bounding box potentially colliding with it in the way, this function will return 
     /// the new delta that avoid this collision.
@@ -132,10 +152,67 @@ impl BoundingBox {
         dz
     }
 
+    /// Compute an intersection of a ray into this bounding box. If this ray intersects
+    /// this box, the new vector that stops in the first face is returned.
+    pub fn calc_ray_trace(self, origin: DVec3, ray: DVec3) -> Option<(DVec3, Face)> {
+
+        if ray.x * ray.x >= 1e-7 {
+
+            let (factor, face) =
+            if ray.x > 0.0 { // We can collide only with NegX face.
+                ((self.min.x - origin.x) / ray.x, Face::NegX)
+            } else { // We can collide only with PosX face.
+                ((self.max.x - origin.x) / ray.x, Face::PosX)
+            };
+
+            let point = origin + ray * factor;
+            if self.contains_yz(point) {
+                return Some((origin - point, face))
+            }
+
+        }
+
+        if ray.y * ray.y >= 1e-7 {
+
+            let (factor, face) =
+            if ray.y > 0.0 { // We can collide only with NegY face.
+                ((self.min.y - origin.y) / ray.y, Face::NegY)
+            } else { // We can collide only with PosY face.
+                ((self.max.y - origin.y) / ray.y, Face::PosY)
+            };
+
+            let point = origin + ray * factor;
+            if self.contains_xz(point) {
+                return Some((origin - point, face))
+            }
+
+        }
+
+        if ray.z * ray.z >= 1e-7 {
+
+            let (factor, face) =
+            if ray.z > 0.0 { // We can collide only with NegZ face.
+                ((self.min.z - origin.z) / ray.z, Face::NegZ)
+            } else { // We can collide only with PosZ face.
+                ((self.max.z - origin.z) / ray.z, Face::PosZ)
+            };
+
+            let point = origin + ray * factor;
+            if self.contains_xy(point) {
+                return Some((origin - point, face))
+            }
+
+        }
+
+        None
+
+    }
+
 }
 
 impl Add<DVec3> for BoundingBox {
     type Output = BoundingBox;
+    #[inline]
     fn add(self, rhs: DVec3) -> Self::Output {
         self.offset(rhs)
     }
@@ -150,12 +227,14 @@ impl AddAssign<DVec3> for BoundingBox {
 
 impl Sub<DVec3> for BoundingBox {
     type Output = BoundingBox;
+    #[inline]
     fn sub(self, rhs: DVec3) -> Self::Output {
         self.offset(-rhs)
     }
 }
 
 impl SubAssign<DVec3> for BoundingBox {
+    #[inline]
     fn sub_assign(&mut self, rhs: DVec3) {
         *self = self.offset(-rhs);
     }

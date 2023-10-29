@@ -788,15 +788,15 @@ impl ServerPlayer {
         
         // This packet only works if the player's entity is a player.
         let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
-
+        println!("packet: {packet:?}");
         let face = match packet.direction {
-            0 => Face::NegY,
-            1 => Face::PosY,
-            2 => Face::NegZ,
-            3 => Face::PosZ,
-            4 => Face::NegX,
-            5 => Face::PosX,
-            0xFF => return, // TODO: special case with direction
+            0 => Some(Face::NegY),
+            1 => Some(Face::PosY),
+            2 => Some(Face::NegZ),
+            3 => Some(Face::PosZ),
+            4 => Some(Face::NegX),
+            5 => Some(Face::PosX),
+            0xFF => None,
             _ => return,
         };
 
@@ -809,30 +809,22 @@ impl ServerPlayer {
         let mut new_hand_stack = None;
 
         // Check if the player is reasonably near the block.
-        if base.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
-            
+        if face.is_none() || base.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
-            let look = base.look;
-
-            if !block::using::use_at(world, pos) {
-                new_hand_stack = item::using::use_at(world, pos, face, look, hand_stack);
+            // The real action depends on 
+            if let Some(face) = face {
+                if !block::using::use_at(world, pos) {
+                    new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
+                }
+            } else {
+                new_hand_stack = item::using::use_raw(world, self.entity_id, hand_stack);
             }
-
         }
 
         if let Some(hand_stack) = new_hand_stack {
             let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
             base.kind.kind.main_inv.set_stack(base.kind.kind.hand_slot as usize, hand_stack);
         }
-
-        // world.block_and_metadata(pos);
-        // self.send(OutPacket::BlockChange(proto::BlockChangePacket {
-        //     x: pos.x,
-        //     y: pos.y as i8,
-        //     z: pos.z,
-        //     block: todo!(),
-        //     metadata: todo!(),
-        // }))
 
     }
 

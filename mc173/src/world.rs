@@ -10,7 +10,7 @@ use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT};
-use crate::util::{JavaRandom, BoundingBox};
+use crate::util::{JavaRandom, BoundingBox, Face};
 use crate::item::ItemStack;
 
 use crate::entity::Entity;
@@ -359,8 +359,7 @@ impl World {
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
         self.iter_blocks_in(min, max).flat_map(|(pos, id, metadata)| {
-            let pos = pos.as_dvec3();
-            block::colliding::iter_bounding_box(self, id, metadata).map(move |bb| bb.offset(pos))
+            block::colliding::iter_colliding_box(self, pos, id, metadata)
         })
     }
 
@@ -431,6 +430,85 @@ impl World {
 
     }
 
+    /// Ray trace from an origin point and return the first colliding blocks, either 
+    /// entity or block. Caller can choose to hit fluid blocks or not.
+    pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, fluid: bool) -> Option<(IVec3, Face)> {
+        
+        let ray_norm = ray.normalize();
+
+        let mut pos = origin;
+        let mut block_pos = pos.floor().as_ivec3();
+        let stop_pos = origin.add(ray).floor().as_ivec3();
+
+        // Break when an invalid chunk is encountered.
+        while let Some((id, metadata)) = self.block(block_pos) {
+
+            // println!("== ray trace block {id}:{metadata} @ {block_pos} ({pos})");
+
+            if fluid || !matches!(id, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
+                if let Some(bb) = block::colliding::get_overlay_box(self, block_pos, id, metadata) {
+                    if let Some((_, face)) = bb.calc_ray_trace(origin, ray) {
+                        return Some((block_pos, face));
+                    }
+                }
+            }
+
+            // Reached the last block position, just break!
+            if block_pos == stop_pos {
+                // println!(" = reached stop pos");
+                break;
+            }
+
+            // Binary search algorithm of the next adjacent block to check.
+            let mut tmp_norm = ray_norm;
+            let mut next_block_pos;
+
+            'a: loop {
+
+                pos += tmp_norm;
+                next_block_pos = pos.floor().as_ivec3();
+
+                // println!(" = next pos: {next_block_pos} ({pos})");
+
+                // If we reached another block, tmp norm is divided by two in order to
+                // converge toward the nearest block.
+                // FIXME: Maybe put a limit in the norm value, to avoid searching 
+                // for infinitesimal collisions.
+                if next_block_pos != block_pos {
+                    tmp_norm /= 2.0;
+                }
+
+                // The next pos is different, check if it is on a face, or 
+                while next_block_pos != block_pos {
+
+                    // We check the delta between current block pos and the next one, we 
+                    // check if this new pos is on a face of the current pos.
+                    let pos_delta = (next_block_pos - block_pos).abs();
+
+                    // println!(" = pos delta: {pos_delta}");
+
+                    // TODO: Type of distance == 1 means we are on a face, use this pos
+                    // for the next ray trace test.
+                    if pos_delta.x + pos_delta.y + pos_delta.z == 1 {
+                        break 'a;
+                    }
+
+                    // Go backward and try finding a block nearer our current pos.
+                    pos -= tmp_norm;
+                    next_block_pos = pos.floor().as_ivec3();
+
+                }
+
+            }
+
+            block_pos = next_block_pos;
+
+        }
+
+        None
+
+    }
+
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.
     /// 
@@ -454,7 +532,7 @@ impl World {
                 pos,
                 prev_id, 
                 prev_metadata, 
-                new_id: id, // TODO: Change 'block' into 'id' EVERYWHERE!!
+                new_id: id,
                 new_metadata: metadata,
             });
         }

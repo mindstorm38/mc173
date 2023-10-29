@@ -23,3 +23,16 @@ pub fn set_face(metadata: &mut u8, face: Face) {
     *metadata &= !7;
     *metadata |= face as u8;
 }
+
+/// Get if a piston base has extended or not.
+#[inline]
+pub fn is_extended(metadata: u8) -> bool {
+    metadata & 8 != 0
+}
+
+/// Set if a piston base has extended or not.
+#[inline]
+pub fn set_extended(metadata: &mut u8, extended: bool) {
+    *metadata &= !8;
+    *metadata |= (extended as u8) << 3;
+}

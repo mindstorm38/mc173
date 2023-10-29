@@ -36,7 +36,7 @@ pub fn can_place_at(world: &mut World, pos: IVec3, face: Face, id: u8) -> bool {
         block::FIRE => true, // TODO:
         block::TORCH |
         block::REDSTONE_TORCH |
-        block::REDSTONE_TORCH_LIT => true, // TODO:
+        block::REDSTONE_TORCH_LIT => is_block_opaque_at(world, pos + face.delta()),
         // Common blocks that needs opaque block below.
         block::RED_MUSHROOM |
         block::BROWN_MUSHROOM |

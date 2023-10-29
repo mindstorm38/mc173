@@ -1,6 +1,6 @@
 //! Item interaction behaviors.
 
-use glam::{IVec3, Vec2};
+use glam::{IVec3, DVec3, Vec3};
 
 use crate::item::{self, ItemStack};
 use crate::world::World;
@@ -11,7 +11,7 @@ use crate::block;
 /// Use an item stack on a given block with a left click. This function returns the item 
 /// stack after, if used, this may return an item stack with size of 0. The face is where
 /// the click has hit on the target block.
-pub fn use_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, stack: ItemStack) -> Option<ItemStack> {
+pub fn use_at(world: &mut World, pos: IVec3, face: Face, entity_id: u32, stack: ItemStack) -> Option<ItemStack> {
 
     if stack.is_empty() {
         return None;
@@ -19,14 +19,14 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, stack: Item
     
     let success = match stack.id {
         0 => false,
-        1..=255 => place_block_at(world, pos, face, look, stack.id as u8, stack.damage as u8),
-        item::SUGAR_CANES => place_block_at(world, pos, face, look, block::SUGAR_CANES, 0),
-        item::CAKE => place_block_at(world, pos, face, look, block::CAKE, 0),
-        item::REPEATER => place_block_at(world, pos, face, look, block::REPEATER, 0),
-        item::REDSTONE => place_block_at(world, pos, face, look, block::REDSTONE, 0),
-        item::WOOD_DOOR => place_door_at(world, pos, face, look, block::WOOD_DOOR),
-        item::IRON_DOOR => place_door_at(world, pos, face, look, block::IRON_DOOR),
-        item::BED => place_bed_at(world, pos, face, look),
+        1..=255 => place_block_at(world, pos, face, entity_id, stack.id as u8, stack.damage as u8),
+        item::SUGAR_CANES => place_block_at(world, pos, face, entity_id, block::SUGAR_CANES, 0),
+        item::CAKE => place_block_at(world, pos, face, entity_id, block::CAKE, 0),
+        item::REPEATER => place_block_at(world, pos, face, entity_id, block::REPEATER, 0),
+        item::REDSTONE => place_block_at(world, pos, face, entity_id, block::REDSTONE, 0),
+        item::WOOD_DOOR => place_door_at(world, pos, face, entity_id, block::WOOD_DOOR),
+        item::IRON_DOOR => place_door_at(world, pos, face, entity_id, block::IRON_DOOR),
+        item::BED => place_bed_at(world, pos, face, entity_id),
         _ => false
     };
 
@@ -34,10 +34,26 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, look: Vec2, stack: Item
 
 }
 
+/// Use an item that is not meant to be used on blocks. Such as buckets, boats, bows or
+/// food items...
+pub fn use_raw(world: &mut World, entity_id: u32, stack: ItemStack) -> Option<ItemStack> {
+
+    println!("use raw {stack:?}...");
+
+    match stack.id {
+        item::BUCKET => use_bucket(world, entity_id, block::AIR),
+        item::WATER_BUCKET => use_bucket(world, entity_id, block::WATER_MOVING),
+        item::LAVA_BUCKET => use_bucket(world, entity_id, block::LAVA_MOVING),
+        _ => None
+    }
+
+}
 
 /// Place a block toward the given face. This is used for single blocks, multi blocks
 /// are handled apart by other functions that do not rely on the block placing logic.
-fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, look: Vec2, id: u8, metadata: u8) -> bool {
+fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, entity_id: u32, id: u8, metadata: u8) -> bool {
+
+    let look = world.entity(entity_id).unwrap().base().look;
 
     if let Some((block::SNOW, _)) = world.block(pos) {
         // If a block is placed by clicking on a snow block, replace that snow block.
@@ -78,7 +94,7 @@ fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, look: Vec2,
 }
 
 /// Place a door item at given position.
-fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2, block_id: u8) -> bool {
+fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32, block_id: u8) -> bool {
 
     if face != Face::PosY {
         return false;
@@ -93,6 +109,7 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2, bloc
     }
 
     // The door face the opposite of the placer's look.
+    let look = world.entity(entity_id).unwrap().base().look;
     let mut door_face = Face::from_yaw(look.x).opposite();
     let mut flip = false;
     
@@ -145,7 +162,7 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2, bloc
 
 }
 
-fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2) -> bool {
+fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -> bool {
 
     if face != Face::PosY {
         return false;
@@ -153,6 +170,7 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2) -> bo
         pos += IVec3::Y;
     }
 
+    let look = world.entity(entity_id).unwrap().base().look;
     let bed_face = Face::from_yaw(look.x);
     let head_pos = pos + bed_face.delta();
 
@@ -172,5 +190,55 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, look: Vec2) -> bo
     }
 
     true 
+
+}
+
+fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemStack> {
+
+    let entity_base = world.entity(entity_id).unwrap().base();
+    
+    let origin = entity_base.pos + DVec3::new(0.0, 1.62, 0.0);
+    
+    let yaw_dx = -entity_base.look.x.sin();
+    let yaw_dz = entity_base.look.x.cos();
+    let pitch_dy = -entity_base.look.y.sin();
+    let pitch_h = entity_base.look.y.cos();
+    let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
+
+    let (pos, face) = world.ray_trace_blocks(origin, ray * 5.0, true)?;
+    let (id, metadata) = world.block(pos)?;
+
+    // The bucket is empty.
+    if fluid_id == block::AIR {
+
+        // Fluid must be a source.
+        if metadata != 0 {
+            return None;
+        }
+
+        let item = match id {
+            block::WATER_MOVING | block::WATER_STILL => item::WATER_BUCKET,
+            block::LAVA_MOVING | block::LAVA_STILL => item::LAVA_BUCKET,
+            _ => return None
+        };
+
+        world.set_block(pos, block::AIR, 0);
+        block::notifying::notify_around(world, pos);
+
+        Some(ItemStack::new_single(item, 0))
+
+    } else {
+
+        let pos = pos + face.delta();
+        let (id, _) = world.block(pos)?;
+
+        if id == block::AIR || !block::from_id(id).material.is_solid() {
+            world.set_block(pos, fluid_id, 0);
+            block::notifying::notify_around(world, pos);
+        }
+
+        Some(ItemStack::new_single(item::BUCKET, 0))
+
+    }
 
 }
