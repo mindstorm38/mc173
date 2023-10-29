@@ -172,12 +172,15 @@ pub struct Block {
     /// The block material defining its common properties.
     pub material: Material,
     /// Block resistance to explosions.
+    /// TODO: Move to specific module.
     pub resistance: f32,
     /// The block slipperiness for entities.
     pub slipperiness: f32,
     /// Opacity to light.
+    /// TODO: Move to specific module.
     pub light_opacity: u8,
     /// Light emission.
+    /// TODO: Move to specific module.
     pub light_emission: u8,
     /// The item corresponding to this block.
     pub item: Item,

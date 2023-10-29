@@ -31,6 +31,8 @@ pub fn notify_at(world: &mut World, pos: IVec3) {
         block::REPEATER_LIT => notify_repeater(world, pos, id, metadata),
         block::REDSTONE_TORCH |
         block::REDSTONE_TORCH_LIT => notify_redstone_torch(world, pos, id),
+        // block::WATER_STILL |
+        // block::LAVA_STILL => notify_fluid_still(world, pos, id),
         _ => {}
     }
 

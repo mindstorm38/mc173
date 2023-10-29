@@ -212,7 +212,7 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
     if fluid_id == block::AIR {
 
         // Fluid must be a source.
-        if metadata != 0 {
+        if !block::fluid::is_source(metadata) {
             return None;
         }
 
@@ -234,6 +234,7 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
 
         if id == block::AIR || !block::from_id(id).material.is_solid() {
             world.set_block(pos, fluid_id, 0);
+            world.schedule_tick(pos, fluid_id, 5); // TODO: 30 for lava.
             block::notifying::notify_around(world, pos);
         }
 

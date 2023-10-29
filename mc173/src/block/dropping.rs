@@ -51,6 +51,7 @@ pub fn drop_stack_at(world: &mut World, pos: IVec3, stack: ItemStack, spread: f3
 /// Get the tries count from a block and metadata.
 pub fn drop_tries(rand: &mut JavaRandom, id: u8, _metadata: u8) -> u8 {
     match id {
+        block::AIR => 0,
         block::BOOKSHELF => 0,
         block::CAKE => 0,
         block::CLAY => 4,
