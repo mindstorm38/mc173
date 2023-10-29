@@ -443,8 +443,6 @@ impl World {
         // Break when an invalid chunk is encountered.
         while let Some((id, metadata)) = self.block(block_pos) {
 
-            // println!("== ray trace block {id}:{metadata} @ {block_pos} ({pos})");
-
             if fluid || !matches!(id, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
                 if let Some(bb) = block::colliding::get_overlay_box(self, block_pos, id, metadata) {
                     if let Some((_, face)) = bb.calc_ray_trace(origin, ray) {
@@ -455,7 +453,6 @@ impl World {
 
             // Reached the last block position, just break!
             if block_pos == stop_pos {
-                // println!(" = reached stop pos");
                 break;
             }
 
@@ -467,8 +464,6 @@ impl World {
 
                 pos += tmp_norm;
                 next_block_pos = pos.floor().as_ivec3();
-
-                // println!(" = next pos: {next_block_pos} ({pos})");
 
                 // If we reached another block, tmp norm is divided by two in order to
                 // converge toward the nearest block.
@@ -485,10 +480,8 @@ impl World {
                     // check if this new pos is on a face of the current pos.
                     let pos_delta = (next_block_pos - block_pos).abs();
 
-                    // println!(" = pos delta: {pos_delta}");
-
-                    // TODO: Type of distance == 1 means we are on a face, use this pos
-                    // for the next ray trace test.
+                    // Manhattan distance == 1 means we are on a face, use this pos for 
+                    // the next ray trace test.
                     if pos_delta.x + pos_delta.y + pos_delta.z == 1 {
                         break 'a;
                     }
