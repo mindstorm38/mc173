@@ -2,8 +2,8 @@
 
 use glam::IVec3;
 
-use crate::util::{Face, FaceSet};
 use crate::world::{World, Dimension};
+use crate::util::Face;
 use crate::block;
 
 
@@ -16,6 +16,44 @@ pub fn tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
         block::REDSTONE_TORCH => tick_redstone_torch(world, pos, metadata, false),
         block::REDSTONE_TORCH_LIT => tick_redstone_torch(world, pos, metadata, true),
         block::WATER_MOVING => tick_fluid_moving(world, pos, metadata, block::WATER_MOVING, block::WATER_STILL),
+        _ => {}
+    }
+}
+
+/// Random tick a block at the given position.
+pub fn random_tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
+    match id {
+        block::BUTTON => {}, // Weird, why random tick for redstone?
+        block::CACTUS => {},
+        block::CAKE => {}, // Seems unused in MC
+        block::WHEAT => {},
+        block::DETECTOR_RAIL => {},
+        block::FARMLAND => {},
+        block::FIRE => {},
+        block::DANDELION |
+        block::POPPY |
+        block::DEAD_BUSH |
+        block::TALL_GRASS => {}, // Check if it can stay
+        block::RED_MUSHROOM |
+        block::BROWN_MUSHROOM => {}, // Spread
+        block::SAPLING => {}, // Grow tree
+        block::GRASS => {}, // Spread
+        block::ICE => {}, // Melt
+        block::LEAVES => {}, // Decay
+        block::WOOD_PRESSURE_PLATE |
+        block::STONE_PRESSURE_PLATE => {}, // Weird, why random tick for redstone?
+        block::PUMPKIN |
+        block::PUMPKIN_LIT => {}, // Seems unused
+        block::REDSTONE_ORE_LIT => {}, // Unlit
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT => {}, // Weird, why random tick for redstone?
+        block::SUGAR_CANES => {}, // Grow
+        block::SNOW => {}, // Melt
+        block::SNOW_BLOCK => {}, // Melt (didn't know wtf?)
+        block::WATER_MOVING => tick_fluid_moving(world, pos, metadata, block::WATER_MOVING, block::WATER_STILL),
+        block::LAVA_MOVING => {}, // TODO:
+        block::LAVA_STILL => {}, // Specific to lava still
+        block::TORCH => {}, // Seems not relevant..
         _ => {}
     }
 }
@@ -101,7 +139,8 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
     };
 
     // The id below is used many time after, so we query it here.
-    let (below_id, below_metadata) = world.block(pos - IVec3::Y).unwrap_or((block::AIR, 0));
+    let below_pos = pos - IVec3::Y;
+    let (below_id, below_metadata) = world.block(below_pos).unwrap_or((block::AIR, 0));
 
     // Update this fluid state.
     if !block::fluid::is_source(metadata) {
@@ -180,9 +219,10 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
         // The block below is not a fluid block and do not block fluids, the fluid below
         // is set to a falling version of the current block.
         block::fluid::set_falling(&mut metadata, true);
-        world.set_block(pos - IVec3::Y, moving_id, metadata);
-        block::notifying::notify_around(world, pos - IVec3::Y);
-        block::notifying::notify_at(world, pos - IVec3::Y);
+        world.set_block(below_pos, moving_id, metadata);
+        world.schedule_tick(below_pos, moving_id, tick_interval);
+        block::notifying::notify_around(world, below_pos);
+        block::notifying::notify_at(world, below_pos);
     } else if block::fluid::is_source(metadata) || blocked_below {
 
         // The block is a source or is blocked below, we spread it horizontally.

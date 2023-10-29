@@ -31,8 +31,10 @@ pub fn notify_at(world: &mut World, pos: IVec3) {
         block::REPEATER_LIT => notify_repeater(world, pos, id, metadata),
         block::REDSTONE_TORCH |
         block::REDSTONE_TORCH_LIT => notify_redstone_torch(world, pos, id),
-        // block::WATER_STILL |
-        // block::LAVA_STILL => notify_fluid_still(world, pos, id),
+        block::WATER_MOVING |
+        block::LAVA_MOVING => notify_fluid_moving(world, pos, id),
+        block::WATER_STILL |
+        block::LAVA_STILL => notify_fluid_still(world, pos, id, metadata),
         _ => {}
     }
 
@@ -271,4 +273,25 @@ fn notify_repeater(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
 /// Notification of a redstone repeater block.
 fn notify_redstone_torch(world: &mut World, pos: IVec3, id: u8) {
     world.schedule_tick(pos, id, 2);
+}
+
+/// Notification of a moving fluid block.
+fn notify_fluid_moving(world: &mut World, pos: IVec3, id: u8) {
+    // TOOD: Make obsidian or cobblestone.
+}
+
+/// Notification of a still fluid block.
+fn notify_fluid_still(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
+
+    notify_fluid_moving(world, pos, id);
+
+    let tick_interval = match id {
+        block::LAVA_STILL => 30,
+        _ => 5,
+    };
+
+    // Subtract 1 from id to go from still to moving.
+    world.set_block(pos, id - 1, metadata);
+    world.schedule_tick(pos, id - 1, tick_interval);
+
 }

@@ -38,8 +38,6 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, entity_id: u32, stack: 
 /// food items...
 pub fn use_raw(world: &mut World, entity_id: u32, stack: ItemStack) -> Option<ItemStack> {
 
-    println!("use raw {stack:?}...");
-
     match stack.id {
         item::BUCKET => use_bucket(world, entity_id, block::AIR),
         item::WATER_BUCKET => use_bucket(world, entity_id, block::WATER_MOVING),

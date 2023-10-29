@@ -9,7 +9,7 @@ use std::ops::Add;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
-use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT};
+use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
 use crate::util::{JavaRandom, BoundingBox, Face};
 use crate::item::ItemStack;
 
@@ -54,6 +54,12 @@ pub struct World {
     next_entity_id: u32,
     /// Mapping of scheduled ticks in the future.
     scheduled_ticks: BTreeSet<ScheduledTick>,
+    /// This is the wrapping seed used by random ticks to compute random block positions.
+    random_ticks_seed: i32,
+    /// Internal cached queue of random ticks that should be computed, this queue is only
+    /// used in the random ticking engine. It is put in an option in order to be owned
+    /// while random ticking and therefore avoiding borrowing issue with the world.
+    pending_random_ticks: Option<Vec<(IVec3, u8, u8)>>,
 }
 
 impl World {
@@ -74,6 +80,8 @@ impl World {
             updating_entity_index: None,
             next_entity_id: 0,
             scheduled_ticks: BTreeSet::new(),
+            random_ticks_seed: JavaRandom::new_seeded().next_int(),
+            pending_random_ticks: Some(Vec::new()),
         }
     }
 
@@ -534,6 +542,15 @@ impl World {
     
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {
+        self.time += 1;
+        self.tick_scheduler();
+        self.tick_randomly();
+        self.tick_entities();
+        // TODO: tick block entities.
+    }
+
+    /// Internal function to tick the internal scheduler.
+    fn tick_scheduler(&mut self) {
 
         // Schedule ticks...
         while let Some(tick) = self.scheduled_ticks.first() {
@@ -552,7 +569,48 @@ impl World {
             }
         }
 
-        self.time += 1;
+    }
+
+    /// Internal function to randomly tick loaded chunks. This also include random weather
+    /// events such as snow block being placed and lightning strikes.
+    fn tick_randomly(&mut self) {
+
+        let mut pending_random_ticks = self.pending_random_ticks.take().unwrap();
+
+        for (&(cx, cz), chunk) in &mut self.chunks {
+
+            // TODO: Lightning strikes.
+            // TODO: Random snowing.
+
+            let chunk_pos = IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32);
+            
+            // Minecraft run 80 random ticks per tick per chunk.
+            for _ in 0..80 {
+
+                self.random_ticks_seed = self.random_ticks_seed
+                    .wrapping_mul(3)
+                    .wrapping_add(1013904223);
+
+                let rand = self.random_ticks_seed >> 2;
+                let pos = IVec3::new((rand >> 0) & 15, (rand >> 16) & 127, (rand >> 8) & 15);
+
+                let (id, metadata) = chunk.inner.block(pos);
+                pending_random_ticks.push((chunk_pos + pos, id, metadata));
+
+            }
+
+        }
+
+        for (pos, id, metadata) in pending_random_ticks.drain(..) {
+            block::ticking::random_tick_at(self, pos, id, metadata)
+        }
+
+        self.pending_random_ticks = Some(pending_random_ticks);
+
+    }
+
+    /// Internal function to tick all entities.
+    fn tick_entities(&mut self) {
 
         // Update every entity's bounding box prior to actually ticking.
         for world_entity in &mut self.entities {

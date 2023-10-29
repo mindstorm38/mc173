@@ -78,34 +78,6 @@ impl Chunk {
         })
     }
 
-    // /// Get block id at the given global position (rebased to chunk-local).
-    // /// Panics if Y component of the position is not between 0 and 128 (excluded).
-    // #[inline]
-    // pub fn block(&self, pos: IVec3) -> u8 {
-    //     self.block[calc_index(pos)]
-    // }
-
-    // /// Set block id at the given global position (rebased to chunk-local).
-    // /// Panics if Y component of the position is not between 0 and 128 (excluded).
-    // #[inline]
-    // pub fn set_block(&mut self, pos: IVec3, block: u8) {
-    //     self.block[calc_index(pos)] = block;
-    // }
-
-    // /// Get block metadata at the given global position (rebased to chunk-local).
-    // /// Panics if Y component of the position is not between 0 and 128 (excluded).
-    // #[inline]
-    // pub fn metadata(&self, pos: IVec3) -> u8 {
-    //     self.metadata.get(calc_index(pos))
-    // }
-
-    // /// Set block metadata at the given global position (rebased to chunk-local).
-    // /// Panics if Y component of the position is not between 0 and 128 (excluded).
-    // #[inline]
-    // pub fn set_metadata(&mut self, pos: IVec3, metadata: u8) {
-    //     self.metadata.set(calc_index(pos), metadata);
-    // }
-
     /// Get block id and metadata at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
