@@ -28,18 +28,27 @@ use crate::block;
 /// 
 /// TODO: Make a diagram to better explain the world structure with entity caching.
 pub struct World {
-    /// Some events queue if enabled.
+    /// When enabled, this contains the list of events that happened in the world since
+    /// it was last swapped. This swap behavior is really useful in order to avoid 
+    /// borrowing issues, by temporarily taking ownership of events, the caller can get
+    /// a mutable reference to that world at the same time.
     events: Option<Vec<Event>>,
     /// The dimension
     dimension: Dimension,
     /// The spawn position.
     spawn_pos: DVec3,
-    /// The world time, increasing at each tick.
+    /// The world time, increasing on each tick. This is used for day/night cycle but 
+    /// also for registering scheduled ticks.
     time: u64,
-    /// The world's global random number generator.
+    /// The world's global random number generator, it is used everywhere to randomize
+    /// events in the world, such as plant grow.
     rand: JavaRandom,
-    /// Mapping of chunks to their coordinates.
+    /// Mapping of chunks to their coordinates. Each chunk is a wrapper type because the
+    /// raw chunk structure do not care of entities, this wrapper however keep track for
+    /// each chunk of the entities in it.
     chunks: HashMap<(i32, i32), WorldChunk>,
+    /// Next entity id apply to a newly spawned entity.
+    next_entity_id: u32,
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
     /// therefore avoiding borrowing issues.
@@ -50,8 +59,6 @@ pub struct World {
     orphan_entities: IndexSet<usize>,
     /// Index of the currently updated entity.
     updating_entity_index: Option<usize>,
-    /// Next entity id apply to a newly spawned entity.
-    next_entity_id: u32,
     /// Mapping of scheduled ticks in the future.
     scheduled_ticks: BTreeSet<ScheduledTick>,
     /// This is the wrapping seed used by random ticks to compute random block positions.
@@ -74,11 +81,11 @@ impl World {
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
+            next_entity_id: 0,
             entities: Vec::new(),
             entities_map: HashMap::new(),
             orphan_entities: IndexSet::new(),
             updating_entity_index: None,
-            next_entity_id: 0,
             scheduled_ticks: BTreeSet::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
             pending_random_ticks: Some(Vec::new()),
