@@ -181,7 +181,10 @@ fn get_redstone_power_from(world: &mut World, pos: IVec3, face: Face, metadata: 
             }
         }
 
-        let powered = if links.is_empty() {
+        // Check if the redstone wire is directly pointing to its horizontal faces,
+        // if so the current is indirect and can be transmitted through the face block,
+        // if not it is just a passive signal that can be detected by repeaters.
+        let indirect = if links.is_empty() {
             // The redstone wire has no links, so it has a cross shape and provide power
             // to all sides.
             true
@@ -195,11 +198,7 @@ fn get_redstone_power_from(world: &mut World, pos: IVec3, face: Face, metadata: 
             }
         };
 
-        if powered {
-            Power { level: metadata, indirect: true, passive: true }
-        } else {
-            Power::OFF
-        }
+        Power { level: metadata, indirect, passive: true }
 
     }
 }

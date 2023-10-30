@@ -47,8 +47,8 @@ pub struct World {
     /// raw chunk structure do not care of entities, this wrapper however keep track for
     /// each chunk of the entities in it.
     chunks: HashMap<(i32, i32), WorldChunk>,
-    /// Next entity id apply to a newly spawned entity.
-    entities_next_id: u32,
+    /// Total entities count spawned since the world is running.
+    entities_count: u32,
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
     /// therefore avoiding borrowing issues.
@@ -61,6 +61,8 @@ pub struct World {
     entities_dead: Vec<usize>,
     /// Set of entities that are not belonging to any chunk at the moment.
     entities_orphan: IndexSet<usize>,
+    /// Total scheduled ticks count since the world is running.
+    scheduled_ticks_count: u64,
     /// Mapping of scheduled ticks in the future.
     scheduled_ticks: BTreeSet<ScheduledTick>,
     /// A set of all scheduled tick states, used to avoid ticking twice the same position
@@ -86,11 +88,12 @@ impl World {
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
-            entities_next_id: 0,
+            entities_count: 0,
             entities: Vec::new(),
             entities_map: HashMap::new(),
             entities_dead: Vec::new(),
             entities_orphan: IndexSet::new(),
+            scheduled_ticks_count: 0,
             scheduled_ticks: BTreeSet::new(),
             scheduled_ticks_states: HashSet::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
@@ -121,29 +124,28 @@ impl World {
         }
     }
 
+    /// Get the dimension of this world.
     pub fn dimension(&self) -> Dimension {
         self.dimension
     }
 
     /// Get the world's spawn position.
-    pub fn spawn_position(&self) -> DVec3 {
+    pub fn spawn_pos(&self) -> DVec3 {
         self.spawn_pos
     }
 
     /// Set the world's spawn position, this triggers `SpawnPosition` event.
-    pub fn set_spawn_position(&mut self, pos: DVec3) {
+    pub fn set_spawn_pos(&mut self, pos: DVec3) {
         self.spawn_pos = pos;
         self.push_event(Event::SpawnPosition { pos });
     }
 
+    /// Get the world time, in ticks.
     pub fn time(&self) -> u64 {
         self.time
     }
 
-    pub fn set_time(&mut self, time: u64) {
-        self.time = time;
-    }
-
+    /// Get a mutable access to this world's random number generator.
     pub fn rand_mut(&mut self) -> &mut JavaRandom {
         &mut self.rand
     }
@@ -225,9 +227,9 @@ impl World {
         let entity_index = self.entities.len();
 
         // Get the next unique entity id.
-        let id = self.entities_next_id;
-        self.entities_next_id = self.entities_next_id.checked_add(1)
-            .expect("entity id overflow");
+        let id = self.entities_count;
+        self.entities_count = self.entities_count.checked_add(1)
+            .expect("entity count overflow");
 
         entity_base.id = id;
 
@@ -290,11 +292,17 @@ impl World {
 
     /// Schedule a tick update to happen at the given position, for the given block id
     /// and in a given time.
-    pub fn schedule_tick(&mut self, pos: IVec3, id: u8, time: u64) {
+    pub fn schedule_tick(&mut self, pos: IVec3, id: u8, delay: u64) {
+
+        let uid = self.scheduled_ticks_count;
+        self.scheduled_ticks_count = self.scheduled_ticks_count.checked_add(1)
+            .expect("scheduled ticks count overflow");
+
         let state = ScheduledTickState { pos, id };
         if self.scheduled_ticks_states.insert(state) {
-            self.scheduled_ticks.insert(ScheduledTick { time: self.time + time, state });
+            self.scheduled_ticks.insert(ScheduledTick { time: self.time + delay, state, uid });
         }
+
     }
 
     /// Iterate over all blocks in the given area.
@@ -498,7 +506,7 @@ impl World {
     /// of that removal and addition.
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
-        block::notifying::self_notify_at(self, pos, prev_id, prev_metadata, id, metadata);
+        block::notifying::changed_at(self, pos, prev_id, prev_metadata, id, metadata);
         Some((prev_id, prev_metadata))
     }
 
@@ -512,11 +520,17 @@ impl World {
     
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {
+
+        if self.time % 20 == 0 {
+            // println!("scheduled_ticks_count: {}", self.scheduled_ticks_count);
+        }
+
         self.time += 1;
         self.tick_scheduler();
         self.tick_randomly();
         self.tick_entities();
         // TODO: tick block entities.
+        
     }
 
     /// Internal function to tick the internal scheduler.
@@ -526,7 +540,7 @@ impl World {
 
         // Schedule ticks...
         while let Some(tick) = self.scheduled_ticks.first() {
-            if self.time >= tick.time {
+            if self.time > tick.time {
                 // This tick should be activated.
                 let tick = self.scheduled_ticks.pop_first().unwrap();
                 assert!(self.scheduled_ticks_states.remove(&tick.state));
@@ -853,6 +867,8 @@ struct ScheduledTickState {
 /// block update at the same time but for different positions.
 #[derive(PartialEq, Eq)]
 struct ScheduledTick {
+    /// This tick unique id within the world.
+    uid: u64,
     /// The time to tick the block.
     time: u64,
     /// State of that scheduled tick.
@@ -868,9 +884,7 @@ impl PartialOrd for ScheduledTick {
 impl Ord for ScheduledTick {
     fn cmp(&self, other: &Self) -> Ordering {
         self.time.cmp(&other.time)
-            .then(self.state.pos.x.cmp(&other.state.pos.x))
-            .then(self.state.pos.z.cmp(&other.state.pos.z))
-            .then(self.state.pos.y.cmp(&other.state.pos.y))
+            .then(self.uid.cmp(&other.uid))
     }
 }
 

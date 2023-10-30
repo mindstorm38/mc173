@@ -169,7 +169,7 @@ impl Server {
                 let spawn_world = &self.worlds[0];
                 OfflinePlayer {
                     world: spawn_world.name.clone(),
-                    pos: spawn_world.world.spawn_position(),
+                    pos: spawn_world.world.spawn_pos(),
                     look: Vec2::ZERO,
                 }
             });
@@ -198,7 +198,7 @@ impl Server {
 
         // The standard server sends the spawn position just after login response.
         self.net.send(client, OutPacket::SpawnPosition(proto::SpawnPositionPacket {
-            pos: world.world.spawn_position().as_ivec3(),
+            pos: world.world.spawn_pos().as_ivec3(),
         }));
 
         // Send the initial position for the client.

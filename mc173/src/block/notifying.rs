@@ -12,36 +12,17 @@ use crate::block;
 
 /// Notify all blocks around the given block of a block change.
 pub fn notify_around(world: &mut World, pos: IVec3) {
-    notify_at(world, pos - IVec3::X);
-    notify_at(world, pos + IVec3::X);
-    notify_at(world, pos - IVec3::Y);
-    notify_at(world, pos + IVec3::Y);
-    notify_at(world, pos - IVec3::Z);
-    notify_at(world, pos + IVec3::Z);
+    notify_at(world, pos - IVec3::X, true);
+    notify_at(world, pos + IVec3::X, true);
+    notify_at(world, pos - IVec3::Y, true);
+    notify_at(world, pos + IVec3::Y, true);
+    notify_at(world, pos - IVec3::Z, true);
+    notify_at(world, pos + IVec3::Z, true);
 }
 
-/// Notify a block at some position that a neighbor block has changed.
-pub fn notify_at(world: &mut World, pos: IVec3) {
-
-    let Some((id, metadata)) = world.block(pos) else { return };
-
-    match id {
-        block::REDSTONE => notify_redstone(world, pos),
-        block::REPEATER |
-        block::REPEATER_LIT => notify_repeater(world, pos, id, metadata),
-        block::REDSTONE_TORCH |
-        block::REDSTONE_TORCH_LIT => notify_redstone_torch(world, pos, id),
-        block::WATER_MOVING |
-        block::LAVA_MOVING => notify_fluid_moving(world, pos, id),
-        block::WATER_STILL |
-        block::LAVA_STILL => notify_fluid_still(world, pos, id, metadata),
-        _ => {}
-    }
-
-}
-
-/// Notify of some block modification at some position.
-pub fn self_notify_at(world: &mut World, pos: IVec3, prev_id: u8, prev_metadata: u8, id: u8, metadata: u8) {
+/// Notify of some block change in the world, this is typically called from the world's
+/// `set_block_self_notify` method when block is changed.
+pub fn changed_at(world: &mut World, pos: IVec3, prev_id: u8, prev_metadata: u8, id: u8, metadata: u8) {
 
     match prev_id {
         block::BUTTON => {
@@ -57,21 +38,44 @@ pub fn self_notify_at(world: &mut World, pos: IVec3, prev_id: u8, prev_metadata:
         _ => {}
     }
 
-    match id {
-        block::WATER_MOVING => world.schedule_tick(pos, id, 5),
-        block::LAVA_MOVING => world.schedule_tick(pos, id, 30),
-        _ => {}
+    if prev_id != id {
+        match (prev_id, id) {
+            (block::REDSTONE_TORCH, block::REDSTONE_TORCH_LIT) |
+            (block::REDSTONE_TORCH_LIT, block::REDSTONE_TORCH) => {
+                notify_around(world, pos + IVec3::Y);
+            }
+            (block::REPEATER, block::REPEATER_LIT) |
+            (block::REPEATER_LIT, block::REPEATER) => {
+                notify_around(world, pos + block::repeater::get_face(metadata).delta());
+            }
+            (_, block::REDSTONE) => notify_redstone(world, pos),
+            (_, block::REDSTONE_TORCH | 
+                block::REDSTONE_TORCH_LIT) => notify_redstone_torch(world, pos, id),
+            (_, block::REPEATER |
+                block::REPEATER_LIT) => notify_repeater(world, pos, id, metadata),
+            _ => {}
+        }
     }
 
-    match (prev_id, id) {
-        (block::REDSTONE_TORCH, block::REDSTONE_TORCH_LIT) |
-        (block::REDSTONE_TORCH_LIT, block::REDSTONE_TORCH) => {
-            notify_around(world, pos + IVec3::Y);
-        }
-        (block::REPEATER, block::REPEATER_LIT) |
-        (block::REPEATER_LIT, block::REPEATER) => {
-            notify_around(world, pos + block::repeater::get_face(metadata).delta());
-        }
+}
+
+/// Internal function to notify a block at the given position, this also provides control
+/// over redstone notification in order to avoid infinite recursion in the redstone 
+/// update logic.
+fn notify_at(world: &mut World, pos: IVec3, redstone: bool) {
+
+    let Some((id, metadata)) = world.block(pos) else { return };
+    
+    match id {
+        block::REDSTONE if redstone => notify_redstone(world, pos),
+        block::REPEATER |
+        block::REPEATER_LIT => notify_repeater(world, pos, id, metadata),
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT => notify_redstone_torch(world, pos, id),
+        block::WATER_MOVING |
+        block::LAVA_MOVING => notify_fluid_moving(world, pos, id),
+        block::WATER_STILL |
+        block::LAVA_STILL => notify_fluid_still(world, pos, id, metadata),
         _ => {}
     }
 
@@ -88,9 +92,12 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
         /// The current power of this node.
         power: u8,
         /// This bit fields contains, for each face of the redstone node, if it's linked
-        /// to another redstone, that may be on top or bottom or the faced block.
+        /// to another redstone, that may be on top or bottom or the faced block. So this
+        /// is not an exact indication but rather a hint.
         links: FaceSet,
+        /// True when there is an opaque block above the node, so it could spread above.
         opaque_above: bool,
+        /// True when there is an opaque block below the node, so it could spread below.
         opaque_below: bool,
     }
 
@@ -102,9 +109,9 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
     // associated to a face leading to the node that added it to the list.
     let mut pending: Vec<(IVec3, Face)> = vec![(pos, Face::NegY)];
     // Queue of nodes that should propagate their power on the next propagation loop.
+    // The associated boolean is used when propagating sources to indicate if the power
+    // has changed from its previous value.
     let mut sources: Vec<IVec3> = Vec::new();
-    // Block notifications to send after all network has been updated.
-    let mut notifications = HashSet::new();
 
     // This loop constructs the network on nodes and give the initial external power to
     // nodes that are connected to a source.
@@ -121,16 +128,6 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                 v.insert(Node::default())
             }
         };
-
-        // Add every notification above and below.
-        notifications.insert(pending_pos + IVec3::Y);
-        notifications.insert(pending_pos - IVec3::Y);
-        for face in FACES {
-            notifications.insert(pending_pos + IVec3::Y + face.delta());
-            notifications.insert(pending_pos - IVec3::Y + face.delta());
-            notifications.insert(pending_pos + IVec3::Y * 2);
-            notifications.insert(pending_pos - IVec3::Y * 2);
-        }
 
         // Linked to the block that discovered this pending node.
         node.links.insert(link_face);
@@ -159,10 +156,6 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                     pending.push((face_pos, face.opposite()));
                     continue;
                 }
-                
-                // We notify that block because it is not a redstone and so not in our 
-                // network.
-                notifications.insert(face_pos);
 
                 // If the faced block is not a redstone, get the direct power from it and
                 // update our node initial power depending on it.
@@ -213,23 +206,37 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
     // No longer used, just as a note.
     drop(pending);
 
-    // We remove any notification to the network nodes, because this would create an
-    // infinite notification loop.
-    for node_pos in nodes.keys() {
-        notifications.remove(node_pos);
-    }
+    // The index of the first next source to propagate. At the end of the algorithm, the
+    // whole sources vector will be filled will all nodes in descending order by distance
+    // to nearest source.
+    let mut next_sources_index = 0;
 
-    let mut next_sources = Vec::new();
+    // A list of nodes that changes their power value after update. They are naturally
+    // ordered from closest to source to farthest. Every node should be present once.
+    let mut changed_nodes = Vec::new();
 
     // While sources are remaining to propagate.
-    while !sources.is_empty() {
+    while next_sources_index < sources.len() {
 
-        for source_pos in sources.drain(..) {
+        // Iterate from next sources index to the current length of the vector (excluded)
+        // while updating the next sources index to point to that end. So all added 
+        // sources will be placed after that index and processed on next loop.
+        let start_index = next_sources_index;
+        let end_index = sources.len();
+        next_sources_index = end_index;
+
+        for source_index in start_index..end_index {
+
+            let node_pos = sources[source_index];
 
             // Pop the node and finally update its block power. Ignore if the node have
             // already been processed.
-            let Some(node) = nodes.remove(&source_pos) else { continue };
-            world.set_block(source_pos, block::REDSTONE, node.power);
+            let Some(node) = nodes.remove(&node_pos) else { continue };
+
+            // Set block and update the changed boolean of that source.
+            if world.set_block(node_pos, block::REDSTONE, node.power) != Some((block::REDSTONE, node.power)) {
+                changed_nodes.push(node_pos);
+            }
 
             // If the power is one or below (should not happen), do not process face 
             // because the power will be out anyway.
@@ -244,10 +251,10 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
             for face in FACES {
                 if node.links.contains(face) {
 
-                    let face_pos = source_pos + face.delta();
+                    let face_pos = node_pos + face.delta();
                     if let Some(face_node) = nodes.get_mut(&face_pos) {
                         face_node.power = face_node.power.max(propagated_power);
-                        next_sources.push(face_pos);
+                        sources.push(face_pos);
                     }
 
                     // Only propagate upward if the block above is not opaque.
@@ -255,7 +262,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                         let face_above_pos = face_pos + IVec3::Y;
                         if let Some(face_above_node) = nodes.get_mut(&face_above_pos) {
                             face_above_node.power = face_above_node.power.max(propagated_power);
-                            next_sources.push(face_above_pos);
+                            sources.push(face_above_pos);
                         }
                     }
 
@@ -264,7 +271,7 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
                         let face_below_pos = face_pos - IVec3::Y;
                         if let Some(face_below_node) = nodes.get_mut(&face_below_pos) {
                             face_below_node.power = face_below_node.power.max(propagated_power);
-                            next_sources.push(face_below_pos);
+                            sources.push(face_below_pos);
                         }
                     }
 
@@ -273,20 +280,40 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
 
         }
 
-        // Finally swap the two vector, this avoid copying one into another. 
-        // - 'next_sources' will take the value of 'source', which is empty (drained).
-        // - 'sources' will take the value of 'next_sources', which is filled.
-        std::mem::swap(&mut next_sources, &mut sources);
-
     }
 
     // When there are no remaining power to apply, just set all remaining nodes to off.
     for node_pos in nodes.into_keys() {
-        world.set_block(node_pos, block::REDSTONE, 0);
+        // Only notify if block has changed.
+        if world.set_block(node_pos, block::REDSTONE, 0) != Some((block::REDSTONE, 0)) {
+            changed_nodes.push(node_pos);
+        }
     }
+    
+    // The following closure allows notifying a block only once, when first needed. This
+    // allows us to just notify blocks around an updated redstone. The closer to a source
+    // a redstone is, the earlier blocks around are notified.
+    let mut notified = HashSet::new();
+    let mut inner_notify_at = move |world: &mut World, pos: IVec3| {
+        if notified.insert(pos) {
+            notify_at(world, pos, false);
+        }
+    };
 
-    for pos in notifications {
-        notify_at(world, pos);
+    // Once all blocks have been updated, notify everything.
+    for node_pos in changed_nodes {
+        inner_notify_at(world, node_pos + IVec3::Y);
+        inner_notify_at(world, node_pos - IVec3::Y);
+        inner_notify_at(world, node_pos + IVec3::Y * 2);
+        inner_notify_at(world, node_pos - IVec3::Y * 2);
+        for face in FACES {
+            let face_pos = node_pos + face.delta();
+            inner_notify_at(world, face_pos);
+            inner_notify_at(world, face_pos + face.delta());
+            inner_notify_at(world, face_pos + IVec3::Y);
+            inner_notify_at(world, face_pos - IVec3::Y);
+            inner_notify_at(world, face_pos + face.rotate_right().delta());
+        }
     }
 
 }
@@ -320,13 +347,7 @@ fn notify_fluid_still(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
 
     notify_fluid_moving(world, pos, id);
 
-    let tick_interval = match id {
-        block::LAVA_STILL => 30,
-        _ => 5,
-    };
-
     // Subtract 1 from id to go from still to moving.
-    world.set_block_self_notify(pos, id - 1, metadata);
-    world.schedule_tick(pos, id - 1, tick_interval);
+    world.set_block_notify(pos, id - 1, metadata);
 
 }

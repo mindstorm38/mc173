@@ -73,12 +73,12 @@ fn tick_repeater(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     let back_powered = block::powering::get_passive_power_from(world, pos - face.delta(), face) != 0;
 
     if lit && !back_powered {
-        world.set_block_self_notify(pos, block::REPEATER, metadata);
+        world.set_block_notify(pos, block::REPEATER, metadata);
     } else if !lit {
-        world.set_block_self_notify(pos, block::REPEATER_LIT, metadata);
         if !back_powered {
             world.schedule_tick(pos, block::REPEATER_LIT, delay);
         }
+        world.set_block_notify(pos, block::REPEATER_LIT, metadata);
     }
 
 }
@@ -177,9 +177,6 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
     } else {
         world.set_block_notify(pos, still_id, metadata);
     }
-
-    // In each case we modified the block, so we notify blocks around.
-    block::notifying::notify_around(world, pos);
 
     // The block has been removed, don't propagate it.
     if metadata == 0xFF {
