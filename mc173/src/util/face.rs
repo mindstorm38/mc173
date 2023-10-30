@@ -17,6 +17,11 @@ pub enum Face {
 
 impl Face {
 
+    /// Array containing all 6 faces.
+    pub const ALL: [Self; 6] = [Self::NegY, Self::PosY, Self::NegZ, Self::PosZ, Self::NegX, Self::PosX];
+    /// Array containing all 4 horizontal faces.
+    pub const HORIZONTAL: [Self; 4] = [Self::NegZ, Self::PosZ, Self::NegX, Self::PosX];
+
     /// Get a face from the yaw component of a look only.
     #[inline]
     pub fn from_yaw(yaw: f32) -> Self {

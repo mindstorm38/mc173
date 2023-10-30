@@ -100,7 +100,6 @@ fn can_place_door_at(world: &mut World, pos: IVec3) -> bool {
 /// that this function do not check if this is legal, it will do what's asked. Also, the
 /// given metadata may be modified to account for the placement.
 pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8) {
-
     match id {
         block::BUTTON => place_faced_at(world, pos, face, id, metadata, block::button::set_face),
         block::TRAPDOOR => place_faced_at(world, pos, face, id, metadata, block::trapdoor::set_face),
@@ -120,28 +119,15 @@ pub fn place_at(world: &mut World, pos: IVec3, face: Face, id: u8, metadata: u8)
         block::LEVER => place_lever_at(world, pos, face, metadata),
         block::LADDER => place_ladder_at(world, pos, face, metadata),
         _ => {
-            world.set_block(pos, id, metadata);
+            world.set_block_notify(pos, id, metadata);
         }
     }
-
-    // Self-notifying blocks.
-    match id {
-        block::REDSTONE_TORCH |
-        block::REDSTONE_TORCH_LIT |
-        block::REPEATER |
-        block::REPEATER_LIT |
-        block::REDSTONE => block::notifying::notify_at(world, pos),
-        _ => {}
-    }
-
-    block::notifying::notify_around(world, pos);
-    
 }
 
 /// Generic function to place a block that has a basic facing function.
 fn place_faced_at(world: &mut World, pos: IVec3, face: Face, id: u8, mut metadata: u8, func: impl FnOnce(&mut u8, Face)) {
     func(&mut metadata, face);
-    world.set_block(pos, id, metadata);
+    world.set_block_notify(pos, id, metadata);
 }
 
 fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
@@ -150,7 +136,7 @@ fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
         Face::NegY => world.rand_mut().next_choice(&[Face::PosZ, Face::PosX]),
         _ => Face::PosY,
     });
-    world.set_block(pos, block::LEVER, metadata);
+    world.set_block_notify(pos, block::LEVER, metadata);
 }
 
 fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: u8) {
@@ -165,7 +151,7 @@ fn place_ladder_at(world: &mut World, pos: IVec3, mut face: Face, mut metadata: 
         }
     }
     block::ladder::set_face(&mut metadata, face);
-    world.set_block(pos, block::LADDER, metadata);
+    world.set_block_notify(pos, block::LADDER, metadata);
 }
 
 

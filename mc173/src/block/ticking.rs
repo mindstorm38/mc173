@@ -61,15 +61,8 @@ pub fn random_tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
 /// Tick a button block, this is used to deactivate the button after 20 ticks.
 fn tick_button(world: &mut World, pos: IVec3, mut metadata: u8) {
     if block::button::is_active(metadata) {
-
         block::button::set_active(&mut metadata, false);
-        world.set_block(pos, block::BUTTON, metadata);
-
-        block::notifying::notify_around(world, pos);
-        if let Some(face) = block::button::get_face(metadata) {
-            block::notifying::notify_around(world, pos + face.delta());
-        }
-
+        world.set_block_notify(pos, block::BUTTON, metadata);
     }
 }
 
@@ -80,18 +73,13 @@ fn tick_repeater(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     let back_powered = block::powering::get_passive_power_from(world, pos - face.delta(), face) != 0;
 
     if lit && !back_powered {
-        world.set_block(pos, block::REPEATER, metadata);
+        world.set_block_self_notify(pos, block::REPEATER, metadata);
     } else if !lit {
-        world.set_block(pos, block::REPEATER_LIT, metadata);
+        world.set_block_self_notify(pos, block::REPEATER_LIT, metadata);
         if !back_powered {
             world.schedule_tick(pos, block::REPEATER_LIT, delay);
         }
     }
-
-    // Notify the powered block in front of.
-    block::notifying::notify_around(world, pos);
-    // Also notify the powered block.
-    block::notifying::notify_around(world, pos + face.delta());
 
 }
 
@@ -102,24 +90,14 @@ fn tick_redstone_torch(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     let Some(torch_face) = block::torch::get_face(metadata) else { return };
     let powered = block::powering::get_passive_power_from(world, pos + torch_face.delta(), torch_face.opposite()) != 0;
 
-    let mut notify = false;
-
     if lit {
         if powered {
-            world.set_block(pos, block::REDSTONE_TORCH, metadata);
-            notify = true;
+            world.set_block_notify(pos, block::REDSTONE_TORCH, metadata);
         }
     } else {
         if !powered {
-            world.set_block(pos, block::REDSTONE_TORCH_LIT, metadata);
-            notify = true;
+            world.set_block_notify(pos, block::REDSTONE_TORCH_LIT, metadata);
         }
-    }
-
-    if notify {
-        block::notifying::notify_around(world, pos);
-        // FIXME: Not in the Notchian server, don't understand?
-        block::notifying::notify_around(world, pos + IVec3::Y);
     }
 
 }
@@ -131,11 +109,6 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
     let dist_drop = match moving_id {
         block::LAVA_MOVING if world.dimension() != Dimension::Nether => 2,
         _ => 1,
-    };
-
-    let tick_interval = match moving_id {
-        block::LAVA_MOVING => 30,
-        _ => 5,
     };
 
     // The id below is used many time after, so we query it here.
@@ -193,17 +166,16 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
         if new_metadata != metadata {
             metadata = new_metadata;
             if new_metadata == 0xFF {
-                world.set_block(pos, block::AIR, 0);
+                world.set_block_notify(pos, block::AIR, 0);
             } else {
-                world.set_block(pos, moving_id, new_metadata);
-                world.schedule_tick(pos, moving_id, tick_interval);
+                world.set_block_notify(pos, moving_id, new_metadata);
             }
         } else {
-            world.set_block(pos, still_id, metadata);
+            world.set_block_notify(pos, still_id, metadata);
         }
 
     } else {
-        world.set_block(pos, still_id, metadata);
+        world.set_block_notify(pos, still_id, metadata);
     }
 
     // In each case we modified the block, so we notify blocks around.
@@ -219,10 +191,7 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
         // The block below is not a fluid block and do not block fluids, the fluid below
         // is set to a falling version of the current block.
         block::fluid::set_falling(&mut metadata, true);
-        world.set_block(below_pos, moving_id, metadata);
-        world.schedule_tick(below_pos, moving_id, tick_interval);
-        block::notifying::notify_around(world, below_pos);
-        block::notifying::notify_at(world, below_pos);
+        world.set_block_notify(below_pos, moving_id, metadata);
     } else if block::fluid::is_source(metadata) || blocked_below {
 
         // The block is a source or is blocked below, we spread it horizontally.
@@ -237,6 +206,8 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
         //     }
         // }
 
+        // TODO: Algorithm to determine the flow direction.
+
         let new_dist = block::fluid::get_actual_distance(metadata) + dist_drop;
         if new_dist > 7 {
             return;
@@ -248,10 +219,7 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
                 if !block::fluid::is_fluid_block(face_id) && !block::fluid::is_fluid_blocked(face_id) {
                     // TODO: Break only for water.
                     block::breaking::break_at(world, face_pos);
-                    world.set_block(face_pos, moving_id, new_dist);
-                    world.schedule_tick(face_pos, moving_id, tick_interval);
-                    block::notifying::notify_around(world, face_pos);
-                    block::notifying::notify_at(world, face_pos);
+                    world.set_block_notify(face_pos, moving_id, new_dist);
                 }
             }
         }

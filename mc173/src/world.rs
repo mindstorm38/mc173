@@ -493,6 +493,22 @@ impl World {
         }
         Some((prev_id, prev_metadata))
     }
+
+    /// Same as the `set_block` method, but the previous block and new block are notified
+    /// of that removal and addition.
+    pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
+        block::notifying::self_notify_at(self, pos, prev_id, prev_metadata, id, metadata);
+        Some((prev_id, prev_metadata))
+    }
+
+    /// Same as the `set_block_self_notify` method, but additionally the blocks around 
+    /// are notified of that neighbor change. 
+    pub fn set_block_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        let (prev_id, prev_metadata) = self.set_block_self_notify(pos, id, metadata)?;
+        block::notifying::notify_around(self, pos);
+        Some((prev_id, prev_metadata))
+    }
     
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {

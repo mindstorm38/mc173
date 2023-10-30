@@ -151,10 +151,10 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32, 
     }
 
     block::door::set_face(&mut metadata, door_face);
-    world.set_block(pos, block_id, metadata);
+    world.set_block_notify(pos, block_id, metadata);
 
     block::door::set_upper(&mut metadata, true);
-    world.set_block(pos + IVec3::Y, block_id, metadata);
+    world.set_block_notify(pos + IVec3::Y, block_id, metadata);
 
     true
 
@@ -180,10 +180,10 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -
         block::placing::is_block_opaque_at(world, pos - IVec3::Y) &&
         block::placing::is_block_opaque_at(world, head_pos - IVec3::Y) {
         
-        world.set_block(pos, block::BED, metadata);
+        world.set_block_notify(pos, block::BED, metadata);
 
         block::bed::set_head(&mut metadata, true);
-        world.set_block(head_pos, block::BED, metadata);
+        world.set_block_notify(head_pos, block::BED, metadata);
 
     }
 
@@ -220,8 +220,7 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
             _ => return None
         };
 
-        world.set_block(pos, block::AIR, 0);
-        block::notifying::notify_around(world, pos);
+        world.set_block_notify(pos, block::AIR, 0);
 
         Some(ItemStack::new_single(item, 0))
 
@@ -231,9 +230,8 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
         let (id, _) = world.block(pos)?;
 
         if id == block::AIR || !block::from_id(id).material.is_solid() {
-            world.set_block(pos, fluid_id, 0);
-            world.schedule_tick(pos, fluid_id, 5); // TODO: 30 for lava.
-            block::notifying::notify_around(world, pos);
+            world.set_block_notify(pos, fluid_id, 0);
+            // world.schedule_tick(pos, fluid_id, 5); // TODO: 30 for lava.
         }
 
         Some(ItemStack::new_single(item::BUCKET, 0))

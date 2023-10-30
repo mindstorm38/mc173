@@ -40,6 +40,43 @@ pub fn notify_at(world: &mut World, pos: IVec3) {
 
 }
 
+/// Notify of some block modification at some position.
+pub fn self_notify_at(world: &mut World, pos: IVec3, prev_id: u8, prev_metadata: u8, id: u8, metadata: u8) {
+
+    match prev_id {
+        block::BUTTON => {
+            if let Some(face) = block::button::get_face(prev_metadata) {
+                notify_around(world, pos + face.delta());
+            }
+        }
+        block::LEVER => {
+            if let Some((face, _)) = block::lever::get_face(prev_metadata) {
+                notify_around(world, pos + face.delta());
+            }
+        }
+        _ => {}
+    }
+
+    match id {
+        block::WATER_MOVING => world.schedule_tick(pos, id, 5),
+        block::LAVA_MOVING => world.schedule_tick(pos, id, 30),
+        _ => {}
+    }
+
+    match (prev_id, id) {
+        (block::REDSTONE_TORCH, block::REDSTONE_TORCH_LIT) |
+        (block::REDSTONE_TORCH_LIT, block::REDSTONE_TORCH) => {
+            notify_around(world, pos + IVec3::Y);
+        }
+        (block::REPEATER, block::REPEATER_LIT) |
+        (block::REPEATER_LIT, block::REPEATER) => {
+            notify_around(world, pos + block::repeater::get_face(metadata).delta());
+        }
+        _ => {}
+    }
+
+}
+
 /// Notification of a redstone wire block.
 fn notify_redstone(world: &mut World, pos: IVec3) {
 
@@ -176,12 +213,10 @@ fn notify_redstone(world: &mut World, pos: IVec3) {
     // No longer used, just as a note.
     drop(pending);
 
-    // Just a debug to ensure that our algorithm above is correct and does not
-    // notify the redstone network itself (would be catastrophic).
-    if cfg!(debug_assertions) {
-        for node_pos in nodes.keys() {
-            debug_assert!(!notifications.contains(node_pos));
-        }
+    // We remove any notification to the network nodes, because this would create an
+    // infinite notification loop.
+    for node_pos in nodes.keys() {
+        notifications.remove(node_pos);
     }
 
     let mut next_sources = Vec::new();
@@ -291,7 +326,7 @@ fn notify_fluid_still(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
     };
 
     // Subtract 1 from id to go from still to moving.
-    world.set_block(pos, id - 1, metadata);
+    world.set_block_self_notify(pos, id - 1, metadata);
     world.schedule_tick(pos, id - 1, tick_interval);
 
 }
