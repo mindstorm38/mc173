@@ -1,6 +1,6 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
-use std::collections::{HashMap, BTreeSet};
+use std::collections::{HashMap, BTreeSet, HashSet};
 use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
@@ -61,6 +61,9 @@ pub struct World {
     updating_entity_index: Option<usize>,
     /// Mapping of scheduled ticks in the future.
     scheduled_ticks: BTreeSet<ScheduledTick>,
+    /// A set of all scheduled tick states, used to avoid ticking twice the same position
+    /// and block id. 
+    scheduled_ticks_states: HashSet<ScheduledTickState>,
     /// This is the wrapping seed used by random ticks to compute random block positions.
     random_ticks_seed: i32,
     /// Internal cached queue of random ticks that should be computed, this queue is only
@@ -87,6 +90,7 @@ impl World {
             orphan_entities: IndexSet::new(),
             updating_entity_index: None,
             scheduled_ticks: BTreeSet::new(),
+            scheduled_ticks_states: HashSet::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
             pending_random_ticks: Some(Vec::new()),
         }
@@ -347,12 +351,10 @@ impl World {
     /// Schedule a tick update to happen at the given position, for the given block id
     /// and in a given time.
     pub fn schedule_tick(&mut self, pos: IVec3, id: u8, time: u64) {
-        // FIXME: Do not add if a tick is already scheduled for that pos/block.
-        self.scheduled_ticks.insert(ScheduledTick {
-            time: self.time + time,
-            pos,
-            id,
-        });
+        let state = ScheduledTickState { pos, id };
+        if self.scheduled_ticks_states.insert(state) {
+            self.scheduled_ticks.insert(ScheduledTick { time: self.time + time, state });
+        }
     }
 
     /// Iterate over all blocks in the given area.
@@ -458,7 +460,12 @@ impl World {
         // Break when an invalid chunk is encountered.
         while let Some((id, metadata)) = self.block(block_pos) {
 
-            if fluid || !matches!(id, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
+            let mut should_check = true;
+            if fluid && matches!(id, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
+                should_check = block::fluid::is_source(metadata);
+            }
+
+            if should_check {
                 if let Some(bb) = block::colliding::get_overlay_box(self, block_pos, id, metadata) {
                     if let Some((_, face)) = bb.calc_ray_trace(origin, ray) {
                         return Some((block_pos, face));
@@ -559,15 +566,19 @@ impl World {
     /// Internal function to tick the internal scheduler.
     fn tick_scheduler(&mut self) {
 
+        // Sanity check...
+        debug_assert_eq!(self.scheduled_ticks.len(), self.scheduled_ticks_states.len());
+
         // Schedule ticks...
         while let Some(tick) = self.scheduled_ticks.first() {
             if self.time >= tick.time {
                 // This tick should be activated.
                 let tick = self.scheduled_ticks.pop_first().unwrap();
+                assert!(self.scheduled_ticks_states.remove(&tick.state));
                 // Check coherency of the scheduled tick and current block.
-                if let Some((id, metadata)) = self.block(tick.pos) {
-                    if id == tick.id {
-                        block::ticking::tick_at(self, tick.pos, id, metadata);
+                if let Some((id, metadata)) = self.block(tick.state.pos) {
+                    if id == tick.state.id {
+                        block::ticking::tick_at(self, tick.state.pos, id, metadata);
                     }
                 }
             } else {
@@ -832,6 +843,18 @@ struct WorldEntity {
     bb: Option<BoundingBox>,
 }
 
+/// A block tick position, this is always linked to a [`ScheduledTick`] being added to
+/// the tree map, this structure is also stored appart in order to check that two ticks
+/// are not scheduled for the same position and block id.
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct ScheduledTickState {
+    /// Position of the block to tick.
+    pos: IVec3,
+    /// The expected id of the block, if the block has no longer this id, this tick is
+    /// ignored.
+    id: u8,
+}
+
 /// A block tick scheduled in the future, it's associated to a world time in a tree map.
 /// This structure is ordered by time and then by position, this allows to have multiple
 /// block update at the same time but for different positions.
@@ -839,11 +862,8 @@ struct WorldEntity {
 struct ScheduledTick {
     /// The time to tick the block.
     time: u64,
-    /// Position of the block to tick.
-    pos: IVec3,
-    /// The expected id of the block, if the block has no longer this id, this tick is
-    /// ignored.
-    id: u8,
+    /// State of that scheduled tick.
+    state: ScheduledTickState,
 }
 
 impl PartialOrd for ScheduledTick {
@@ -855,9 +875,9 @@ impl PartialOrd for ScheduledTick {
 impl Ord for ScheduledTick {
     fn cmp(&self, other: &Self) -> Ordering {
         self.time.cmp(&other.time)
-            .then(self.pos.x.cmp(&other.pos.x))
-            .then(self.pos.z.cmp(&other.pos.z))
-            .then(self.pos.y.cmp(&other.pos.y))
+            .then(self.state.pos.x.cmp(&other.state.pos.x))
+            .then(self.state.pos.z.cmp(&other.state.pos.z))
+            .then(self.state.pos.y.cmp(&other.state.pos.y))
     }
 }
 

@@ -788,7 +788,7 @@ impl ServerPlayer {
         
         // This packet only works if the player's entity is a player.
         let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
-        println!("packet: {packet:?}");
+        
         let face = match packet.direction {
             0 => Some(Face::NegY),
             1 => Some(Face::PosY),
