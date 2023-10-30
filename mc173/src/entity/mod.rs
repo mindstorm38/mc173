@@ -99,6 +99,10 @@ pub struct BaseData {
     /// The internal entity id, it is unique to this entity within its world. It can be
     /// used to uniquely refer to this entity when and where needed.
     pub id: u32,
+    /// This property is set to true when the entity is dead and should be removed from
+    /// the world. This is the only property that controls despawning of entities. Note
+    /// that the dead entity will just disappear, without any drop.
+    pub dead: bool,
     /// Tell if the position of this entity and its bounding box are coherent, if false
     /// (the default value), this will recompute the bounding box from the center position
     /// and the size given to `tick_base` method.

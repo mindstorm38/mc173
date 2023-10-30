@@ -336,8 +336,8 @@ impl ServerWorld {
             match event {
                 Event::EntitySpawn { id } =>
                     self.handle_entity_spawn(id),
-                Event::EntityKill { id } => 
-                    self.handle_entity_kill(id),
+                Event::EntityDead { id } => 
+                    self.handle_entity_dead(id),
                 Event::EntityPosition { id, pos } => 
                     self.handle_entity_position(id, pos),
                 Event::EntityLook { id, look } =>
@@ -421,7 +421,7 @@ impl ServerWorld {
         let mut player = self.players.swap_remove(player_index);
         
         // Kill the entity associated to the player.
-        self.world.kill_entity(player.entity_id);
+        self.world.entity_mut(player.entity_id).unwrap().base_mut().dead = true;
 
         // If player has not lost connection but it's just leaving the world, we just
         // send it untrack packets.
@@ -453,7 +453,7 @@ impl ServerWorld {
     }
 
     /// Handle an entity kill world event.
-    fn handle_entity_kill(&mut self, id: u32) {
+    fn handle_entity_dead(&mut self, id: u32) {
         let tracker = self.trackers.remove(&id).expect("incoherent event entity");
         tracker.untrack_players(&mut self.players);
     }

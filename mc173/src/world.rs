@@ -48,17 +48,19 @@ pub struct World {
     /// each chunk of the entities in it.
     chunks: HashMap<(i32, i32), WorldChunk>,
     /// Next entity id apply to a newly spawned entity.
-    next_entity_id: u32,
+    entities_next_id: u32,
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
     /// therefore avoiding borrowing issues.
     entities: Vec<WorldEntity>,
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
-    /// List of entities that are not belonging to any chunk at the moment.
-    orphan_entities: IndexSet<usize>,
-    /// Index of the currently updated entity.
-    updating_entity_index: Option<usize>,
+    /// Queue of dead entities that should be removed after being updated. We keep this
+    /// queue in the world structure to avoid frequent allocation. This queue contains
+    /// entity indices and should be in ascending order.
+    entities_dead: Vec<usize>,
+    /// Set of entities that are not belonging to any chunk at the moment.
+    entities_orphan: IndexSet<usize>,
     /// Mapping of scheduled ticks in the future.
     scheduled_ticks: BTreeSet<ScheduledTick>,
     /// A set of all scheduled tick states, used to avoid ticking twice the same position
@@ -84,11 +86,11 @@ impl World {
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
-            next_entity_id: 0,
+            entities_next_id: 0,
             entities: Vec::new(),
             entities_map: HashMap::new(),
-            orphan_entities: IndexSet::new(),
-            updating_entity_index: None,
+            entities_dead: Vec::new(),
+            entities_orphan: IndexSet::new(),
             scheduled_ticks: BTreeSet::new(),
             scheduled_ticks_states: HashSet::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
@@ -170,7 +172,7 @@ impl World {
                     entities: IndexSet::new(),
                 };
 
-                self.orphan_entities.retain(|&entity_index| {
+                self.entities_orphan.retain(|&entity_index| {
                     let entity = &mut self.entities[entity_index];
                     // If the entity is in the newly added chunk.
                     if (entity.cx, entity.cz) == (cx, cz) {
@@ -208,7 +210,7 @@ impl World {
             self.entities[entity_index].orphan = true;
         }
 
-        self.orphan_entities.extend(chunk.entities.into_iter());
+        self.entities_orphan.extend(chunk.entities.into_iter());
         Some(chunk.inner)
 
     }
@@ -223,8 +225,8 @@ impl World {
         let entity_index = self.entities.len();
 
         // Get the next unique entity id.
-        let id = self.next_entity_id;
-        self.next_entity_id = self.next_entity_id.checked_add(1)
+        let id = self.entities_next_id;
+        self.entities_next_id = self.entities_next_id.checked_add(1)
             .expect("entity id overflow");
 
         entity_base.id = id;
@@ -243,7 +245,7 @@ impl World {
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
             chunk.entities.insert(entity_index);
         } else {
-            self.orphan_entities.insert(entity_index);
+            self.entities_orphan.insert(entity_index);
             world_entity.orphan = true;
         }
 
@@ -264,68 +266,6 @@ impl World {
     pub fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32 {
         // NOTE: This method is just a wrapper to ensure boxed entity.
         self.spawn_entity_inner(entity.into())
-    }
-
-    /// Kill an entity given its id, this function ensure coherency with chunks cache.
-    /// This returns false if the entity is not existing.
-    /// 
-    /// **This function is legal for entities to call on themselves when ticking.**
-    pub fn kill_entity(&mut self, id: u32) -> bool {
-
-        let Some(entity_index) = self.entities_map.remove(&id) else { return false };
-        let killed_entity = self.entities.swap_remove(entity_index);
-
-        // Remove the killed entity from the chunk it belongs to.
-        if killed_entity.orphan {
-            &mut self.orphan_entities
-        } else {
-            &mut self.chunks.get_mut(&(killed_entity.cx, killed_entity.cz))
-                .expect("non-orphan entity referencing a non-existing chunk")
-                .entities
-        }.remove(&entity_index);
-
-        // If we are removing the entity being updated, set its index to none so it will
-        // not placed back into its slot.
-        if self.updating_entity_index == Some(entity_index) {
-            self.updating_entity_index = None;
-        }
-
-        // Because we used swap remove, this may have moved the last entity (if
-        // existing) to the old entity index. We need to update its index in chunk
-        // or orphan entities.
-        if let Some(entity) = self.entities.get(entity_index) {
-
-            // Get the correct entities list depending on the entity being orphan or not.
-            let entities = if entity.orphan {
-                &mut self.orphan_entities
-            } else {
-                &mut self.chunks.get_mut(&(entity.cx, entity.cz))
-                    .expect("non-orphan entity referencing a non-existing chunk")
-                    .entities
-            };
-
-            // The swapped entity was at the end, so the new length.
-            let previous_index = self.entities.len();
-
-            // Update the mapping from entity unique id to the new index.
-            let previous_map_index = self.entities_map.insert(entity.id, entity_index);
-            debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
-
-            // The entity that was swapped is the entity being updated, we need to change
-            // its index so it will be placed back into the correct slot.
-            if self.updating_entity_index == Some(previous_index) {
-                self.updating_entity_index = Some(entity_index);
-            }
-
-            let remove_success = entities.remove(&previous_index);
-            debug_assert!(remove_success, "entity index not found where it belongs");
-            entities.insert(entity_index);
-
-        }
-
-        self.push_event(Event::EntityKill { id });
-        true
-
     }
 
     /// Get a generic entity from its unique id. This generic entity can later be checked
@@ -401,7 +341,7 @@ impl World {
 
         let (entities, orphan) = self.chunks.get(&(cx, cz))
             .map(|c| (&c.entities, false))
-            .unwrap_or((&self.orphan_entities, true));
+            .unwrap_or((&self.entities_orphan, true));
 
         entities.iter()
             .filter_map(move |&entity_index| {
@@ -566,7 +506,6 @@ impl World {
     /// Internal function to tick the internal scheduler.
     fn tick_scheduler(&mut self) {
 
-        // Sanity check...
         debug_assert_eq!(self.scheduled_ticks.len(), self.scheduled_ticks_states.len());
 
         // Schedule ticks...
@@ -594,6 +533,7 @@ impl World {
     fn tick_randomly(&mut self) {
 
         let mut pending_random_ticks = self.pending_random_ticks.take().unwrap();
+        debug_assert!(pending_random_ticks.is_empty());
 
         for (&(cx, cz), chunk) in &mut self.chunks {
 
@@ -630,6 +570,9 @@ impl World {
     /// Internal function to tick all entities.
     fn tick_entities(&mut self) {
 
+        debug_assert_eq!(self.entities.len(), self.entities_map.len());
+        debug_assert!(self.entities_dead.is_empty());
+
         // Update every entity's bounding box prior to actually ticking.
         for world_entity in &mut self.entities {
             // NOTE: Unwrapping because entities should not be updating here.
@@ -638,70 +581,62 @@ impl World {
             world_entity.bb = entity_base.coherent.then_some(entity_base.bb);
         }
 
-        // NOTE: We don't use a for loop because killed and spawned entities may change
-        // the length of the list.
-        let mut i = 0;
-        while i < self.entities.len() {
-
-            // We keep a reference to the currently updated entity, this allows us to 
-            // react to the following events:
-            // - The updating entity is killed, and another entity is swapped at its 
-            //   index: we don't want to increment the index to tick swapped entity,
-            //   we also don't want to reinsert the entity.
-            // - Another entity was killed, but the updating entity was the last one and
-            //   it swapped with the removed one, its index changed.
-            self.updating_entity_index = Some(i);
+        // NOTE: We don't tick entities added while iterating.
+        for i in 0..self.entities.len() {
 
             // We unwrap because all entities should be present except updated one.
             let mut entity = self.entities[i].inner.take().unwrap();
             entity.tick(&mut *self);
 
-            // Check if the entity is still alive, if not we just continue without
-            // incrementing 'i' to tick the entity that was moved in place.
-            let Some(entity_index) = self.updating_entity_index else { continue };
-
             // Before re-adding the entity, check dirty flags to send proper events.
             let entity_base = entity.base_mut();
             let mut new_chunk = None;
 
-            // If the position is dirty, compute the expected chunk position and trigger
-            // an entity position event.
-            if std::mem::take(&mut entity_base.pos_dirty) {
-                new_chunk = Some(calc_entity_chunk_pos(entity_base.pos));
-                self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
-            }
+            if entity_base.dead {
+                // Add the entity to the despawning queue.
+                self.entities_dead.push(i);
+                self.push_event(Event::EntityDead { id: entity_base.id });
+            } else {
 
-            // If the look is dirt, trigger an entity look event.
-            if std::mem::take(&mut entity_base.look_dirty) {
-                self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
-            }
+                // If the position is dirty, compute the expected chunk position and trigger
+                // an entity position event.
+                if std::mem::take(&mut entity_base.pos_dirty) {
+                    new_chunk = Some(calc_entity_chunk_pos(entity_base.pos));
+                    self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
+                }
 
-            // If the look is dirt, trigger an entity look event.
-            if std::mem::take(&mut entity_base.vel_dirty) {
-                self.push_event(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
+                // If the look is dirt, trigger an entity look event.
+                if std::mem::take(&mut entity_base.look_dirty) {
+                    self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
+                }
+
+                // If the look is dirt, trigger an entity look event.
+                if std::mem::take(&mut entity_base.vel_dirty) {
+                    self.push_event(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
+                }
+
             }
 
             // After tick, we re-add the entity.
-            let world_entity = &mut self.entities[entity_index];
+            let world_entity = &mut self.entities[i];
             debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
             world_entity.inner = Some(entity);
 
-            // Check the potential new chunk position.
+            // Check if the entity moved to another chunk...
             if let Some((new_cx, new_cz)) = new_chunk {
-                // Check if the entity chunk position has changed.
                 if (world_entity.cx, world_entity.cz) != (new_cx, new_cz) {
 
                     // Get the previous entities list, where the current entity should
                     // be cached in order to remove it.
                     let entities = if world_entity.orphan {
-                        &mut self.orphan_entities
+                        &mut self.entities_orphan
                     } else {
                         &mut self.chunks.get_mut(&(world_entity.cx, world_entity.cz))
                             .expect("non-orphan entity referencing a non-existing chunk")
                             .entities
                     };
 
-                    let remove_success = entities.remove(&entity_index);
+                    let remove_success = entities.remove(&i);
                     debug_assert!(remove_success, "entity index not found where it belongs");
 
                     // Update the world entity to its new chunk and orphan state.
@@ -709,21 +644,63 @@ impl World {
                     world_entity.cz = new_cz;
                     if let Some(chunk) = self.chunks.get_mut(&(new_cx, new_cz)) {
                         world_entity.orphan = false;
-                        chunk.entities.insert(entity_index);
+                        chunk.entities.insert(i);
                     } else {
                         world_entity.orphan = true;
-                        self.orphan_entities.insert(entity_index);
+                        self.entities_orphan.insert(i);
                     }
 
                 }
             }
 
-            // Only increment if the entity index has not changed, changed index means
-            // that our entity has been swapped to a previous index, because it was the
-            // last one. But new new entity may have been spawned, so a new entity may
-            // have replaced at 'i'.
-            if entity_index == i {
-                i += 1;
+        }
+
+        // We swap remove each dead entity. We know that this dead queue is sorted in
+        // ascending order because we updated index in order. By reversing the iterator
+        // we ensure that we'll not modify any dead entity's index, that would by 
+        // impossible to manage.
+        for entity_index in self.entities_dead.drain(..).rev() {
+
+            let removed_entity = self.entities.swap_remove(entity_index);
+            debug_assert!(removed_entity.inner.is_some(), "dead entity is updating");
+
+            let remove_success = self.entities_map.remove(&removed_entity.id).is_some();
+            debug_assert!(remove_success, "dead entity was not in entity map");
+
+            // Remove the entity from the chunk it belongs to.
+            if removed_entity.orphan {
+                &mut self.entities_orphan
+            } else {
+                &mut self.chunks.get_mut(&(removed_entity.cx, removed_entity.cz))
+                    .expect("non-orphan entity referencing a non-existing chunk")
+                    .entities
+            }.remove(&entity_index);
+
+            // Because we used swap remove, this may have moved the last entity (if
+            // existing) to the removed entity index. We need to update its index in 
+            // chunk or orphan entities.
+            if let Some(entity) = self.entities.get(entity_index) {
+
+                // Get the correct entities list depending on the entity being orphan or not.
+                let entities = if entity.orphan {
+                    &mut self.entities_orphan
+                } else {
+                    &mut self.chunks.get_mut(&(entity.cx, entity.cz))
+                        .expect("non-orphan entity referencing a non-existing chunk")
+                        .entities
+                };
+
+                // The swapped entity was at the end, so the new length.
+                let previous_index = self.entities.len();
+
+                // Update the mapping from entity unique id to the new index.
+                let previous_map_index = self.entities_map.insert(entity.id, entity_index);
+                debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
+
+                let remove_success = entities.remove(&previous_index);
+                debug_assert!(remove_success, "entity index not found where it belongs");
+                entities.insert(entity_index);
+                
             }
 
         }
@@ -751,7 +728,7 @@ pub enum Event {
         id: u32,
     },
     /// An entity has been killed from the world.
-    EntityKill {
+    EntityDead {
         /// The unique id of the killed entity.
         id: u32,
     },

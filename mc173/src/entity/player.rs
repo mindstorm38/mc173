@@ -48,7 +48,7 @@ impl PlayerEntity {
             let Some(Entity::Item(base)) = world.entity_mut(entity_id) else { panic!() };
             base.kind.stack.size -= consumed_size;
             if base.kind.stack.size == 0 {
-                world.kill_entity(entity_id);
+                base.dead = true;
             }
 
         }
