@@ -82,9 +82,9 @@ fn notify_at(world: &mut World, pos: IVec3, redstone: bool) {
         block::LAVA_MOVING => notify_fluid_moving(world, pos, id),
         block::WATER_STILL |
         block::LAVA_STILL => notify_fluid_still(world, pos, id, metadata),
-        block::TRAPDOOR => notify_trapdoor(world, pos, metadata),
-        block::WOOD_DOOR |
-        block::IRON_DOOR => notify_door(world, pos, id, metadata),
+        // block::TRAPDOOR => notify_trapdoor(world, pos, metadata),
+        // block::WOOD_DOOR |
+        // block::IRON_DOOR => notify_door(world, pos, id, metadata),
         _ => {}
     }
 
