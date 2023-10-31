@@ -1,4 +1,4 @@
-//! Block placing functions.
+//! Block placement and check functions.
 
 use glam::IVec3;
 

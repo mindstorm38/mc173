@@ -32,6 +32,7 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, entity_id: u32, stack: 
         item::STONE_HOE |
         item::GOLD_HOE |
         item::WOOD_HOE => return use_hoe_at(world, pos, face, stack),
+        item::WHEAT_SEEDS => use_wheat_seeds_at(world, pos, face),
         _ => false
     };
 
@@ -207,6 +208,21 @@ fn use_hoe_at(world: &mut World, pos: IVec3, face: Face, stack: ItemStack) -> Op
         world.set_block_notify(pos, block::FARMLAND, 0);
         Some(stack.inc_damage(1))
     }
+
+}
+
+fn use_wheat_seeds_at(world: &mut World, pos: IVec3, face: Face) -> bool {
+
+    if face == Face::PosY {
+        if let Some((block::FARMLAND, _)) = world.block(pos) {
+            if let Some((block::AIR, _)) = world.block(pos + IVec3::Y) {
+                world.set_block_notify(pos + IVec3::Y, block::WHEAT, 0);
+                return true;
+            }
+        }
+    }
+
+    false
 
 }
 
