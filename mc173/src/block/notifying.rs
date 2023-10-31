@@ -38,6 +38,12 @@ pub fn changed_at(world: &mut World, pos: IVec3, prev_id: u8, prev_metadata: u8,
         _ => {}
     }
 
+    match id {
+        block::WATER_MOVING => world.schedule_tick(pos, id, 5),
+        block::LAVA_MOVING => world.schedule_tick(pos, id, 30),
+        _ => {}
+    }
+
     if prev_id != id {
         match (prev_id, id) {
             (block::REDSTONE_TORCH, block::REDSTONE_TORCH_LIT) |
