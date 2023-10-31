@@ -16,6 +16,7 @@ pub fn tick_at(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
         block::REDSTONE_TORCH => tick_redstone_torch(world, pos, metadata, false),
         block::REDSTONE_TORCH_LIT => tick_redstone_torch(world, pos, metadata, true),
         block::WATER_MOVING => tick_fluid_moving(world, pos, metadata, block::WATER_MOVING, block::WATER_STILL),
+        block::LAVA_MOVING => tick_fluid_moving(world, pos, metadata, block::LAVA_MOVING, block::LAVA_STILL),
         _ => {}
     }
 }
