@@ -266,7 +266,7 @@ impl ItemStack {
     /// Increment damage to this item, if max damage is reached for that item, the stack
     /// size will be decremented (saturating at 0).
     pub fn inc_damage(mut self, amount: u16) -> ItemStack {
-        self.damage += 1;
+        self.damage = self.damage.saturating_add(amount);
         if self.damage > from_id(self.id).max_damage {
             self.size = self.size.saturating_sub(1);
             self.damage = 0;
