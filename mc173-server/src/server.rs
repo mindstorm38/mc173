@@ -527,7 +527,7 @@ impl ServerWorld {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
         for player in &self.players {
             if player.tracked_chunks.contains(&(cx, cz)) {
-                player.send(OutPacket::SoundPlay(proto::SoundPlayPacket {
+                player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
                     effect_id: 1003,
                     x: pos.x,
                     y: pos.y as i8,

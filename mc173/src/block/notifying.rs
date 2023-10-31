@@ -83,6 +83,8 @@ fn notify_at(world: &mut World, pos: IVec3, redstone: bool) {
         block::WATER_STILL |
         block::LAVA_STILL => notify_fluid_still(world, pos, id, metadata),
         block::TRAPDOOR => notify_trapdoor(world, pos, metadata),
+        block::WOOD_DOOR |
+        block::IRON_DOOR => notify_door(world, pos, id, metadata),
         _ => {}
     }
 
@@ -374,4 +376,75 @@ fn notify_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) {
             world.push_event(Event::BlockSound { pos, id: block::TRAPDOOR, metadata });
         }
     }
+}
+
+fn notify_door(world: &mut World, pos: IVec3, id: u8, mut metadata: u8) {
+
+    if block::door::is_upper(metadata) {
+        // If the block below is not another door,
+        if let Some((below_id, below_metadata)) = world.block(pos - IVec3::Y) {
+            if below_id == id {
+                notify_door(world, pos - IVec3::Y, below_id, below_metadata);
+                return;
+            }
+        }
+        // Do not naturally break, top door do not drop anyway.
+        world.set_block_notify(pos, block::AIR, 0);
+    } else {
+
+        // If the block above is not the same door block, naturally break itself.
+        if let Some((above_id, _)) = world.block(pos + IVec3::Y) {
+            if above_id != id {
+                block::breaking::break_at(world, pos);
+                return
+            }
+        }
+
+        // Also check that door can stay in place.
+        if let Some((below_id, _)) = world.block(pos - IVec3::Y) {
+            if !block::material::is_opaque_cube(below_id) {
+                // NOTE: This will notify the upper part and destroy it.
+                block::breaking::break_at(world, pos);
+                return
+            }
+        }
+
+        // Check if the door is powered in any way.
+        let mut powered = 
+            block::powering::get_passive_power_from(world, pos - IVec3::Y, Face::PosY) > 0 ||
+            block::powering::get_passive_power_from(world, pos + IVec3::Y * 2, Face::NegY) > 0;
+
+        if !powered {
+            for face in Face::ALL {
+                let face_pos = pos + face.delta();
+                powered = 
+                    block::powering::get_passive_power_from(world, face_pos, face.opposite()) > 0 || 
+                    block::powering::get_passive_power_from(world, face_pos + IVec3::Y, face.opposite()) > 0;
+                if powered {
+                    break;
+                }
+            }
+        }
+        
+        // Here we know that the current and above blocks are the same door type, we can
+        // simply set the metadata of the two. Only update if needed.
+        if block::door::is_open(metadata) != powered {
+
+            block::door::set_open(&mut metadata, powered);
+
+            // Do not use notify methods to avoid updating the upper half.
+            world.set_block_self_notify(pos, id, metadata);
+            block::door::set_upper(&mut metadata, true);
+            world.set_block_self_notify(pos + IVec3::Y, id, metadata);
+
+            notify_at(world, pos - IVec3::Y, false);
+            notify_at(world, pos + IVec3::Y * 2, false);
+            for face in Face::ALL {
+                notify_at(world, pos + face.delta(), false);
+                notify_at(world, pos + face.delta() + IVec3::Y, false);
+            }
+
+        }
+    }
+
 }

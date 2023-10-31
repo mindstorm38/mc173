@@ -142,8 +142,8 @@ pub enum OutPacket {
     BlockAction(BlockActionPacket),
     /// Sent when an explosion happen, from TNT or creeper.
     Explosion(ExplosionPacket),
-    /// Play sound on the client.
-    SoundPlay(SoundPlayPacket),
+    /// Play various effect on the client.
+    EffectPlay(EffectPlayPacket),
     /// Various state notification, such as raining begin/end and invalid bed to sleep.
     Notification(NotificationPacket),
     /// Spawn a lightning bold.
@@ -544,7 +544,19 @@ pub struct ExplosionPacket {
 
 /// Packet 61
 #[derive(Debug, Clone)]
-pub struct SoundPlayPacket {
+pub struct EffectPlayPacket {
+    /// The effect id, the Nothcian client support the following effects:
+    /// - 1000: Play sound 'random.click' with pitch 1.0
+    /// - 1001: Play sound 'random.click' with pitch 1.2
+    /// - 1002: Play sound 'random.bow' with pitch 1.2
+    /// - 1003: Play sound randomly between 'random.door_open' and 'random.door_close' 
+    ///         with random uniform pitch between 0.9 and 1.0
+    /// - 1004: Play sound 'random.fizz' with volume 0.5 and random pitch
+    /// - 1005: Play record sound, the record item id is given in effect data
+    /// - 2000: Spawn smoke particles, the radius is given in effect data with two bits 
+    ///         for X and Z axis, like this: `0bZZXX`
+    /// - 2001: Play and show block break sound and particles, the block id is given in
+    ///         effect data.
     pub effect_id: u32,
     pub x: i32,
     pub y: i8,
@@ -1081,7 +1093,7 @@ impl net::OutPacket for OutPacket {
                     write.write_java_byte(dz)?;
                 }
             }
-            OutPacket::SoundPlay(packet) => {
+            OutPacket::EffectPlay(packet) => {
                 write.write_u8(61)?;
                 write.write_java_int(packet.effect_id as i32)?;
                 write.write_java_int(packet.x)?;
