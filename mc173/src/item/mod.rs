@@ -39,7 +39,7 @@ items! {
     APPLE/4:                Item::new("apple"),
     BOW/5:                  Item::new("bow").set_max_stack_size(1),
     ARROW/6:                Item::new("arrow"),
-    COAL/7:                 Item::new("coal").set_max_damage(1),
+    COAL/7:                 Item::new("coal"), // .set_max_damage(1),
     DIAMOND/8:              Item::new("diamond"),
     IRON_INGOT/9:           Item::new("iron_ingot"),
     GOLD_INGOT/10:          Item::new("gold_ingot"),
@@ -127,7 +127,7 @@ items! {
     GLOWSTONE_DUST/92:      Item::new("glowstone_dust"),
     RAW_FISH/93:            Item::new("raw_fish").set_food(),
     COOKED_FISH/94:         Item::new("cooked_fish").set_food(),
-    DYE/95:                 Item::new("dye").set_max_damage(15),
+    DYE/95:                 Item::new("dye"), //.set_max_damage(15),
     BONE/96:                Item::new("bone"),
     SUGAR/97:               Item::new("sugar"),
     CAKE/98:                Item::new("cake").set_max_stack_size(1),
@@ -261,6 +261,17 @@ impl ItemStack {
         } else {
             Some(self)
         }
+    }
+
+    /// Increment damage to this item, if max damage is reached for that item, the stack
+    /// size will be decremented (saturating at 0).
+    pub fn inc_damage(mut self, amount: u16) -> ItemStack {
+        self.damage += 1;
+        if self.damage > from_id(self.id).max_damage {
+            self.size = self.size.saturating_sub(1);
+            self.damage = 0;
+        }
+        self
     }
 
 }

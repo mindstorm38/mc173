@@ -27,6 +27,11 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, entity_id: u32, stack: 
         item::WOOD_DOOR => place_door_at(world, pos, face, entity_id, block::WOOD_DOOR),
         item::IRON_DOOR => place_door_at(world, pos, face, entity_id, block::IRON_DOOR),
         item::BED => place_bed_at(world, pos, face, entity_id),
+        item::DIAMOND_HOE |
+        item::IRON_HOE |
+        item::STONE_HOE |
+        item::GOLD_HOE |
+        item::WOOD_HOE => return use_hoe_at(world, pos, face, stack),
         _ => false
     };
 
@@ -188,6 +193,20 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -
     }
 
     true 
+
+}
+
+fn use_hoe_at(world: &mut World, pos: IVec3, face: Face, stack: ItemStack) -> Option<ItemStack> {
+    
+    let (id, _) = world.block(pos)?;
+    let (above_id, _) = world.block(pos + IVec3::Y)?;
+
+    if (face == Face::NegY || above_id != block::AIR || id != block::GRASS) && id != block::DIRT {
+        None
+    } else {
+        world.set_block_notify(pos, block::FARMLAND, 0);
+        Some(stack.inc_damage(1))
+    }
 
 }
 
