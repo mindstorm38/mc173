@@ -814,6 +814,15 @@ pub enum Event {
         /// The new block metadata.
         new_metadata: u8,
     },
+    /// Play the block activation sound at given position and id/metadata.
+    BlockSound {
+        /// Position of the block to player sound.
+        pos: IVec3,
+        /// Current id of the block.
+        id: u8,
+        /// Current metadata of the block.
+        metadata: u8,
+    },
     /// The world's spawn point has been changed.
     SpawnPosition {
         /// The new spawn point position.

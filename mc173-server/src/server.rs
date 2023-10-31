@@ -350,6 +350,8 @@ impl ServerWorld {
                     self.handle_entity_inventory_item(id, index, item),
                 Event::BlockChange { pos, new_id: new_block, new_metadata, .. } => 
                     self.handle_block_change(pos, new_block, new_metadata),
+                Event::BlockSound { pos, id, metadata } =>
+                    self.handle_block_sound(pos, id, metadata),
                 Event::SpawnPosition { pos } =>
                     self.handle_spawn_position(pos),
             }
@@ -516,6 +518,21 @@ impl ServerWorld {
                     z: pos.z,
                     block,
                     metadata,
+                }));
+            }
+        }
+    }
+
+    fn handle_block_sound(&mut self, pos: IVec3, _block: u8, _metadata: u8) {
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::SoundPlay(proto::SoundPlayPacket {
+                    effect_id: 1003,
+                    x: pos.x,
+                    y: pos.y as i8,
+                    z: pos.z,
+                    effect_data: 0,
                 }));
             }
         }

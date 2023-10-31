@@ -48,6 +48,15 @@ pub fn get_passive_power_from(world: &mut World, pos: IVec3, face: Face) -> u8 {
     get_power_from(world, pos, face, true).level
 }
 
+pub fn has_passive_power_at(world: &mut World, pos: IVec3) -> bool {
+    for face in Face::ALL {
+        if get_passive_power_from(world, pos + face.delta(), face.opposite()) > 0 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Get the power produced by a block on a given face.
 fn get_power_from(world: &mut World, pos: IVec3, face: Face, test_block: bool) -> Power {
 

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use glam::IVec3;
 
 use crate::util::{Face, FaceSet};
-use crate::world::World;
+use crate::world::{World, Event};
 use crate::block;
 
 
@@ -82,6 +82,7 @@ fn notify_at(world: &mut World, pos: IVec3, redstone: bool) {
         block::LAVA_MOVING => notify_fluid_moving(world, pos, id),
         block::WATER_STILL |
         block::LAVA_STILL => notify_fluid_still(world, pos, id, metadata),
+        block::TRAPDOOR => notify_trapdoor(world, pos, metadata),
         _ => {}
     }
 
@@ -345,7 +346,7 @@ fn notify_redstone_torch(world: &mut World, pos: IVec3, id: u8) {
 
 /// Notification of a moving fluid block.
 fn notify_fluid_moving(world: &mut World, pos: IVec3, id: u8) {
-    // TOOD: Make obsidian or cobblestone.
+    // TODO: Make obsidian or cobblestone.
 }
 
 /// Notification of a still fluid block.
@@ -356,4 +357,21 @@ fn notify_fluid_still(world: &mut World, pos: IVec3, id: u8, metadata: u8) {
     // Subtract 1 from id to go from still to moving.
     world.set_block_notify(pos, id - 1, metadata);
 
+}
+
+/// Notification of a trapdoor, breaking it if no longer on its wall, or updating its 
+/// state depending on redstone signal.
+fn notify_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) {
+    let face = block::trapdoor::get_face(metadata);
+    if !matches!(world.block(pos + face.delta()), Some((id, _)) if block::material::is_opaque_cube(id)) {
+        block::breaking::break_at(world, pos);
+    } else {
+        let open = block::trapdoor::is_open(metadata);
+        let powered = block::powering::has_passive_power_at(world, pos);
+        if open != powered {
+            block::trapdoor::set_open(&mut metadata, powered);
+            world.set_block_notify(pos, block::TRAPDOOR, metadata);
+            world.push_event(Event::BlockSound { pos, id: block::TRAPDOOR, metadata });
+        }
+    }
 }
