@@ -57,9 +57,9 @@ pub fn use_raw(world: &mut World, entity_id: u32, stack: ItemStack) -> Option<It
 /// are handled apart by other functions that do not rely on the block placing logic.
 fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, entity_id: u32, id: u8, metadata: u8) -> bool {
 
-    let look = world.entity(entity_id).unwrap().base().look;
+    let look = world.get_entity(entity_id).unwrap().base().look;
 
-    if let Some((block::SNOW, _)) = world.block(pos) {
+    if let Some((block::SNOW, _)) = world.get_block(pos) {
         // If a block is placed by clicking on a snow block, replace that snow block.
         face = Face::NegY;
     } else {
@@ -113,7 +113,7 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32, 
     }
 
     // The door face the opposite of the placer's look.
-    let look = world.entity(entity_id).unwrap().base().look;
+    let look = world.get_entity(entity_id).unwrap().base().look;
     let mut door_face = Face::from_yaw(look.x).opposite();
     let mut flip = false;
     
@@ -174,7 +174,7 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -
         pos += IVec3::Y;
     }
 
-    let look = world.entity(entity_id).unwrap().base().look;
+    let look = world.get_entity(entity_id).unwrap().base().look;
     let bed_face = Face::from_yaw(look.x);
     let head_pos = pos + bed_face.delta();
 
@@ -199,8 +199,8 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -
 
 fn use_hoe_at(world: &mut World, pos: IVec3, face: Face, stack: ItemStack) -> Option<ItemStack> {
     
-    let (id, _) = world.block(pos)?;
-    let (above_id, _) = world.block(pos + IVec3::Y)?;
+    let (id, _) = world.get_block(pos)?;
+    let (above_id, _) = world.get_block(pos + IVec3::Y)?;
 
     if (face == Face::NegY || above_id != block::AIR || id != block::GRASS) && id != block::DIRT {
         None
@@ -214,8 +214,8 @@ fn use_hoe_at(world: &mut World, pos: IVec3, face: Face, stack: ItemStack) -> Op
 fn use_wheat_seeds_at(world: &mut World, pos: IVec3, face: Face) -> bool {
 
     if face == Face::PosY {
-        if let Some((block::FARMLAND, _)) = world.block(pos) {
-            if let Some((block::AIR, _)) = world.block(pos + IVec3::Y) {
+        if let Some((block::FARMLAND, _)) = world.get_block(pos) {
+            if let Some((block::AIR, _)) = world.get_block(pos + IVec3::Y) {
                 world.set_block_notify(pos + IVec3::Y, block::WHEAT, 0);
                 return true;
             }
@@ -228,7 +228,7 @@ fn use_wheat_seeds_at(world: &mut World, pos: IVec3, face: Face) -> bool {
 
 fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemStack> {
 
-    let entity_base = world.entity(entity_id).unwrap().base();
+    let entity_base = world.get_entity(entity_id).unwrap().base();
     
     let origin = entity_base.pos + DVec3::new(0.0, 1.62, 0.0);
     
@@ -239,7 +239,7 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
     let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
 
     let (pos, face) = world.ray_trace_blocks(origin, ray * 5.0, true)?;
-    let (id, metadata) = world.block(pos)?;
+    let (id, metadata) = world.get_block(pos)?;
 
     // The bucket is empty.
     if fluid_id == block::AIR {
@@ -262,7 +262,7 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
     } else {
 
         let pos = pos + face.delta();
-        let (id, _) = world.block(pos)?;
+        let (id, _) = world.get_block(pos)?;
 
         if id == block::AIR || !block::from_id(id).material.is_solid() {
             world.set_block_notify(pos, fluid_id, 0);

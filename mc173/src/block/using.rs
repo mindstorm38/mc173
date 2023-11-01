@@ -11,7 +11,7 @@ use crate::block;
 pub fn use_at(world: &mut World, pos: IVec3) -> bool {
     
     // Only continue if position is legal.
-    let Some((id, metadata)) = world.block(pos) else { return false };
+    let Some((id, metadata)) = world.get_block(pos) else { return false };
 
     match id {
         block::BUTTON => use_button(world, pos, metadata),
@@ -53,7 +53,7 @@ fn use_trapdoor(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
     if block::door::is_upper(metadata) {
-        if let Some((block::WOOD_DOOR, metadata)) = world.block(pos - IVec3::Y) {
+        if let Some((block::WOOD_DOOR, metadata)) = world.get_block(pos - IVec3::Y) {
             use_wood_door(world, pos - IVec3::Y, metadata);
         }
     } else {
@@ -63,7 +63,7 @@ fn use_wood_door(world: &mut World, pos: IVec3, mut metadata: u8) -> bool {
 
         world.set_block_notify(pos, block::WOOD_DOOR, metadata);
 
-        if let Some((block::WOOD_DOOR, _)) = world.block(pos + IVec3::Y) {
+        if let Some((block::WOOD_DOOR, _)) = world.get_block(pos + IVec3::Y) {
             block::door::set_upper(&mut metadata, true);
             world.set_block_notify(pos + IVec3::Y, block::WOOD_DOOR, metadata);
         }

@@ -4,17 +4,25 @@ use std::collections::{HashMap, BTreeSet, HashSet};
 use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
-use std::ops::Add;
 
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
-use crate::util::{JavaRandom, BoundingBox, Face};
+use crate::util::{JavaRandom, BoundingBox};
 use crate::item::ItemStack;
 
 use crate::entity::Entity;
-use crate::block;
+
+
+// Following modules are order by order of importance, last modules depends on first ones.
+pub mod bound;
+pub mod power;
+pub mod loot;
+pub mod interact;
+pub mod r#break;
+pub mod tick;
+pub mod notify;
 
 
 /// Data structure for a whole world.
@@ -25,6 +33,22 @@ use crate::block;
 /// world, events are produced *(of type [`Event`])* depending on what's modified. **By
 /// default**, events are not saved, but an events queue can be swapped in or out of the
 /// world to enable or disable events registration.
+/// 
+/// Methods provided on this structure should follow a naming convention depending on the
+/// action that will apply to the world:
+/// - Methods that don't alter the world and return values should be prefixed by `get_`, 
+///   these are getters and should not usually compute too much, getters that returns
+///   mutable reference should be suffixed with `_mut`;
+/// - Getter methods that return booleans should prefer `can_`, `has_` or `is_` prefixes;
+/// - Methods that alter the world by running a logic tick should start with `tick_`;
+/// - Methods that iterate over some world objects should start with `iter_`;
+/// - Methods that run on internal events can be prefixed by `handle_`;
+/// - All other methods should use a proper verb, preferably composed of one-word to
+///   reduce possible meanings (e.g. are `schedule_`, `break_`, `spawn_`, `insert_` or
+///   `remove_`).
+/// 
+/// Various suffixes can be added to methods, depending on the world area affected by the
+/// method, for example `_in`, `_in_box` or `_colliding`.
 /// 
 /// TODO: Make a diagram to better explain the world structure with entity caching.
 pub struct World {
@@ -125,12 +149,12 @@ impl World {
     }
 
     /// Get the dimension of this world.
-    pub fn dimension(&self) -> Dimension {
+    pub fn get_dimension(&self) -> Dimension {
         self.dimension
     }
 
     /// Get the world's spawn position.
-    pub fn spawn_pos(&self) -> DVec3 {
+    pub fn get_spawn_pos(&self) -> DVec3 {
         self.spawn_pos
     }
 
@@ -141,22 +165,22 @@ impl World {
     }
 
     /// Get the world time, in ticks.
-    pub fn time(&self) -> u64 {
+    pub fn get_time(&self) -> u64 {
         self.time
     }
 
     /// Get a mutable access to this world's random number generator.
-    pub fn rand_mut(&mut self) -> &mut JavaRandom {
+    pub fn get_rand_mut(&mut self) -> &mut JavaRandom {
         &mut self.rand
     }
 
     /// Get a reference to a chunk, if existing.
-    pub fn chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
+    pub fn get_chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
         self.chunks.get(&(cx, cz)).map(|c| &*c.inner)
     }
 
     /// Get a mutable reference to a chunk, if existing.
-    pub fn chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
+    pub fn get_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
         self.chunks.get_mut(&(cx, cz)).map(|c| &mut *c.inner)
     }
 
@@ -273,7 +297,7 @@ impl World {
     /// Get a generic entity from its unique id. This generic entity can later be checked
     /// for being of a particular type.
     #[track_caller]
-    pub fn entity(&self, id: u32) -> Option<&Entity> {
+    pub fn get_entity(&self, id: u32) -> Option<&Entity> {
         let index = *self.entities_map.get(&id)?;
         Some(self.entities[index].inner
             .as_deref()
@@ -283,15 +307,61 @@ impl World {
     /// Get a generic entity from its unique id. This generic entity can later be checked
     /// for being of a particular type.
     #[track_caller]
-    pub fn entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
+    pub fn get_entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
         let index = *self.entities_map.get(&id)?;
         Some(self.entities[index].inner
             .as_deref_mut()
             .expect("entity is being updated"))
     }
 
+    /// Get block and metadata at given position in the world, if the chunk is not
+    /// loaded, none is returned.
+    /// 
+    /// TODO: Work on a world's block cache to speed up access.
+    pub fn get_block(&self, pos: IVec3) -> Option<(u8, u8)> {
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.get_chunk(cx, cz)?;
+        Some(chunk.block(pos))
+    }
+
+    /// Set block and metadata at given position in the world, if the chunk is not
+    /// loaded, none is returned, but if it is existing the previous block and metadata
+    /// is returned. This function also push a block change event.
+    pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.get_chunk_mut(cx, cz)?;
+        let (prev_id, prev_metadata) = chunk.block(pos);
+        if prev_id != id || prev_metadata != metadata {
+            chunk.set_block(pos, id, metadata);
+            self.push_event(Event::BlockChange {
+                pos,
+                prev_id, 
+                prev_metadata, 
+                new_id: id,
+                new_metadata: metadata,
+            });
+        }
+        Some((prev_id, prev_metadata))
+    }
+
+    /// Same as the `set_block` method, but the previous block and new block are notified
+    /// of that removal and addition.
+    pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
+        // block::notifying::changed_at(self, pos, prev_id, prev_metadata, id, metadata);
+        Some((prev_id, prev_metadata))
+    }
+
+    /// Same as the `set_block_self_notify` method, but additionally the blocks around 
+    /// are notified of that neighbor change.
+    pub fn set_block_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        let (prev_id, prev_metadata) = self.set_block_self_notify(pos, id, metadata)?;
+        self.notify_blocks_around(pos, id);
+        Some((prev_id, prev_metadata))
+    }
+
     /// Schedule a tick update to happen at the given position, for the given block id
-    /// and in a given time.
+    /// and with a given delay in ticks.
     pub fn schedule_tick(&mut self, pos: IVec3, id: u8, delay: u64) {
 
         let uid = self.scheduled_ticks_count;
@@ -309,32 +379,6 @@ impl World {
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
         WorldBlocksIn::new(self, min, max)
-    }
-
-    /// Iterate over all blocks that are in the bounding box area, this doesn't check for
-    /// actual collision with the block's bounding box, it just return all potential 
-    /// blocks in the bounding box' area.
-    pub fn iter_blocks_in_box(&self, bb: BoundingBox) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
-        let min = bb.min.floor().as_ivec3();
-        let max = bb.max.add(1.0).floor().as_ivec3();
-        self.iter_blocks_in(min, max)
-    }
-
-    /// Iterate over all bounding boxes in the given area.
-    /// *Min is inclusive and max is exclusive.*
-    pub fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
-        self.iter_blocks_in(min, max).flat_map(|(pos, id, metadata)| {
-            block::colliding::iter_colliding_box(self, pos, id, metadata)
-        })
-    }
-
-    /// Iterate over all bounding boxes in the given area that are colliding with the 
-    /// given one.
-    pub fn iter_blocks_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ {
-        let min = bb.min.floor().as_ivec3();
-        let max = bb.max.add(1.0).floor().as_ivec3();
-        self.iter_blocks_boxes_in(min, max)
-            .filter(move |block_bb| block_bb.intersects(bb))
     }
 
     /// Iterate over all entities in the world.
@@ -394,129 +438,6 @@ impl World {
             })
 
     }
-
-    /// Ray trace from an origin point and return the first colliding blocks, either 
-    /// entity or block. Caller can choose to hit fluid blocks or not.
-    pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, fluid: bool) -> Option<(IVec3, Face)> {
-        
-        let ray_norm = ray.normalize();
-
-        let mut pos = origin;
-        let mut block_pos = pos.floor().as_ivec3();
-        let stop_pos = origin.add(ray).floor().as_ivec3();
-
-        // Break when an invalid chunk is encountered.
-        while let Some((id, metadata)) = self.block(block_pos) {
-
-            let mut should_check = true;
-            if fluid && matches!(id, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
-                should_check = block::fluid::is_source(metadata);
-            }
-
-            if should_check {
-                if let Some(bb) = block::colliding::get_overlay_box(self, block_pos, id, metadata) {
-                    if let Some((_, face)) = bb.calc_ray_trace(origin, ray) {
-                        return Some((block_pos, face));
-                    }
-                }
-            }
-
-            // Reached the last block position, just break!
-            if block_pos == stop_pos {
-                break;
-            }
-
-            // Binary search algorithm of the next adjacent block to check.
-            let mut tmp_norm = ray_norm;
-            let mut next_block_pos;
-
-            'a: loop {
-
-                pos += tmp_norm;
-                next_block_pos = pos.floor().as_ivec3();
-
-                // If we reached another block, tmp norm is divided by two in order to
-                // converge toward the nearest block.
-                // FIXME: Maybe put a limit in the norm value, to avoid searching 
-                // for infinitesimal collisions.
-                if next_block_pos != block_pos {
-                    tmp_norm /= 2.0;
-                }
-
-                // The next pos is different, check if it is on a face, or 
-                while next_block_pos != block_pos {
-
-                    // We check the delta between current block pos and the next one, we 
-                    // check if this new pos is on a face of the current pos.
-                    let pos_delta = (next_block_pos - block_pos).abs();
-
-                    // Manhattan distance == 1 means we are on a face, use this pos for 
-                    // the next ray trace test.
-                    if pos_delta.x + pos_delta.y + pos_delta.z == 1 {
-                        break 'a;
-                    }
-
-                    // Go backward and try finding a block nearer our current pos.
-                    pos -= tmp_norm;
-                    next_block_pos = pos.floor().as_ivec3();
-
-                }
-
-            }
-
-            block_pos = next_block_pos;
-
-        }
-
-        None
-
-    }
-
-    /// Get block and metadata at given position in the world, if the chunk is not
-    /// loaded, none is returned.
-    /// 
-    /// TODO: Work on a world's block cache to speed up access.
-    pub fn block(&self, pos: IVec3) -> Option<(u8, u8)> {
-        let (cx, cz) = calc_chunk_pos(pos)?;
-        let chunk = self.chunk(cx, cz)?;
-        Some(chunk.block(pos))
-    }
-
-    /// Set block and metadata at given position in the world, if the chunk is not
-    /// loaded, none is returned, but if it is existing the previous block and metadata
-    /// is returned. This function also push a block change event.
-    pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
-        let (cx, cz) = calc_chunk_pos(pos)?;
-        let chunk = self.chunk_mut(cx, cz)?;
-        let (prev_id, prev_metadata) = chunk.block(pos);
-        if prev_id != id || prev_metadata != metadata {
-            chunk.set_block(pos, id, metadata);
-            self.push_event(Event::BlockChange {
-                pos,
-                prev_id, 
-                prev_metadata, 
-                new_id: id,
-                new_metadata: metadata,
-            });
-        }
-        Some((prev_id, prev_metadata))
-    }
-
-    /// Same as the `set_block` method, but the previous block and new block are notified
-    /// of that removal and addition.
-    pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
-        let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
-        block::notifying::changed_at(self, pos, prev_id, prev_metadata, id, metadata);
-        Some((prev_id, prev_metadata))
-    }
-
-    /// Same as the `set_block_self_notify` method, but additionally the blocks around 
-    /// are notified of that neighbor change. 
-    pub fn set_block_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
-        let (prev_id, prev_metadata) = self.set_block_self_notify(pos, id, metadata)?;
-        block::notifying::notify_around(self, pos);
-        Some((prev_id, prev_metadata))
-    }
     
     /// Tick the world, this ticks all entities.
     pub fn tick(&mut self) {
@@ -526,15 +447,14 @@ impl World {
         }
 
         self.time += 1;
-        self.tick_scheduler();
-        self.tick_randomly();
+        self.tick_blocks();
         self.tick_entities();
         // TODO: tick block entities.
         
     }
 
     /// Internal function to tick the internal scheduler.
-    fn tick_scheduler(&mut self) {
+    fn tick_blocks(&mut self) {
 
         debug_assert_eq!(self.scheduled_ticks.len(), self.scheduled_ticks_states.len());
 
@@ -545,9 +465,9 @@ impl World {
                 let tick = self.scheduled_ticks.pop_first().unwrap();
                 assert!(self.scheduled_ticks_states.remove(&tick.state));
                 // Check coherency of the scheduled tick and current block.
-                if let Some((id, metadata)) = self.block(tick.state.pos) {
+                if let Some((id, metadata)) = self.get_block(tick.state.pos) {
                     if id == tick.state.id {
-                        block::ticking::tick_at(self, tick.state.pos, id, metadata);
+                        self.handle_tick_block(tick.state.pos, id, metadata, false);
                     }
                 }
             } else {
@@ -556,12 +476,7 @@ impl World {
             }
         }
 
-    }
-
-    /// Internal function to randomly tick loaded chunks. This also include random weather
-    /// events such as snow block being placed and lightning strikes.
-    fn tick_randomly(&mut self) {
-
+        // Random ticking...
         let mut pending_random_ticks = self.pending_random_ticks.take().unwrap();
         debug_assert!(pending_random_ticks.is_empty());
 
@@ -590,7 +505,7 @@ impl World {
         }
 
         for (pos, id, metadata) in pending_random_ticks.drain(..) {
-            block::ticking::random_tick_at(self, pos, id, metadata)
+            self.handle_tick_block(pos, id, metadata, true);
         }
 
         self.pending_random_ticks = Some(pending_random_ticks);
@@ -960,7 +875,7 @@ impl<'a> Iterator for WorldBlocksIn<'a> {
             // NOTE: Unchecked because the Y value is clamped in the constructor.
             let (cx, cz) = calc_chunk_pos_unchecked(cursor);
             if !matches!(self.chunk, Some((ccx, ccz, _)) if (ccx, ccz) == (cx, cz)) {
-                self.chunk = Some((cx, cz, self.world.chunk(cx, cz)));
+                self.chunk = Some((cx, cz, self.world.get_chunk(cx, cz)));
             }
         }
 

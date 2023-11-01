@@ -169,7 +169,7 @@ impl Server {
                 let spawn_world = &self.worlds[0];
                 OfflinePlayer {
                     world: spawn_world.name.clone(),
-                    pos: spawn_world.world.spawn_pos(),
+                    pos: spawn_world.world.get_spawn_pos(),
                     look: Vec2::ZERO,
                 }
             });
@@ -190,7 +190,7 @@ impl Server {
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {
             entity_id,
             random_seed: 0,
-            dimension: match world.world.dimension() {
+            dimension: match world.world.get_dimension() {
                 Dimension::Overworld => 0,
                 Dimension::Nether => -1,
             },
@@ -198,7 +198,7 @@ impl Server {
 
         // The standard server sends the spawn position just after login response.
         self.net.send(client, OutPacket::SpawnPosition(proto::SpawnPositionPacket {
-            pos: world.world.spawn_pos().as_ivec3(),
+            pos: world.world.get_spawn_pos().as_ivec3(),
         }));
 
         // Send the initial position for the client.
@@ -211,7 +211,7 @@ impl Server {
 
         // Time must be sent once at login to conclude the login phase.
         self.net.send(client, OutPacket::UpdateTime(proto::UpdateTimePacket {
-            time: world.world.time(),
+            time: world.world.get_time(),
         }));
 
         // Finally insert the player tracker.
@@ -321,7 +321,7 @@ impl ServerWorld {
         self.world.tick();
 
         // Send time to every playing clients every second.
-        let time = self.world.time();
+        let time = self.world.get_time();
         if time % 20 == 0 {
             for player in &self.players {
                 player.send(OutPacket::UpdateTime(proto::UpdateTimePacket {
@@ -423,7 +423,7 @@ impl ServerWorld {
         let mut player = self.players.swap_remove(player_index);
         
         // Kill the entity associated to the player.
-        self.world.entity_mut(player.entity_id).unwrap().base_mut().dead = true;
+        self.world.get_entity_mut(player.entity_id).unwrap().base_mut().dead = true;
 
         // If player has not lost connection but it's just leaving the world, we just
         // send it untrack packets.
@@ -446,7 +446,7 @@ impl ServerWorld {
 
     /// Handle an entity spawn world event.
     fn handle_entity_spawn(&mut self, id: u32) {
-        let entity = self.world.entity(id).expect("incoherent event entity");
+        let entity = self.world.get_entity(id).expect("incoherent event entity");
         self.trackers.entry(id).or_insert_with(|| {
             let tracker = EntityTracker::new(entity);
             tracker.update_tracking_players(&mut self.players, &self.world);
@@ -649,7 +649,7 @@ impl ServerPlayer {
     /// Handle a chat command, parsed from a chat message packet starting with '/'.
     fn handle_chat_command(&mut self, world: &mut World, parts: &[&str]) -> Result<(), String> {
 
-        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else {
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
             return Err(format!("§cCould not retrieve player entity!"));
         };
 
@@ -717,7 +717,7 @@ impl ServerPlayer {
 
     fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>, on_ground: bool) {
 
-        let entity = world.entity_mut(self.entity_id).expect("incoherent player entity");
+        let entity = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
         let entity_base = entity.base_mut();
         entity_base.on_ground = on_ground;
 
@@ -738,7 +738,7 @@ impl ServerPlayer {
     /// Handle a break block packet.
     fn handle_break_block(&mut self, world: &mut World, packet: proto::BreakBlockPacket) {
         
-        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
         let in_water = base.in_water;
@@ -749,18 +749,18 @@ impl ServerPlayer {
 
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.
-            if let Some((id, _)) = world.block(pos) {
+            if let Some((id, _)) = world.get_block(pos) {
 
-                block::using::use_at(world, pos);
+                world.interact_block(pos);
                 
-                let break_duration = item::breaking::get_break_duration(stack.id, id, in_water, on_ground);
+                let break_duration = world.get_break_duration(stack.id, id, in_water, on_ground);
                 if break_duration.is_infinite() {
                     // Do nothing, the block is unbreakable.
                 } else if break_duration == 0.0 {
-                    block::breaking::break_at(world, pos);
+                    world.break_block(pos);
                 } else {
                     self.breaking_block = Some(BreakingBlock {
-                        min_time: world.time() + (break_duration * 0.7) as u64,
+                        min_time: world.get_time() + (break_duration * 0.7) as u64,
                         pos,
                         id,
                     });
@@ -770,12 +770,12 @@ impl ServerPlayer {
         } else if packet.status == 2 {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
-                if state.pos == pos && world.time() >= state.min_time {
-                    if matches!(world.block(pos), Some((id, _)) if id == state.id) {
-                        block::breaking::break_at(world, pos);
+                if state.pos == pos && world.get_time() >= state.min_time {
+                    if matches!(world.get_block(pos), Some((id, _)) if id == state.id) {
+                        world.break_block(pos);
                     }
                 } else {
-                    println!("[WARNING] Incoherent break: {pos} @ {}, got {} @ {}", world.time(), state.pos, state.min_time);
+                    println!("[WARNING] Incoherent break: {pos} @ {}, got {} @ {}", world.get_time(), state.pos, state.min_time);
                 }
             }
         } else if packet.status == 4 {
@@ -804,7 +804,7 @@ impl ServerPlayer {
     fn handle_place_block(&mut self, world: &mut World, packet: proto::PlaceBlockPacket) {
         
         // This packet only works if the player's entity is a player.
-        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
         
         let face = match packet.direction {
             0 => Some(Face::NegY),
@@ -830,7 +830,7 @@ impl ServerPlayer {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
             // The real action depends on 
             if let Some(face) = face {
-                if !block::using::use_at(world, pos) {
+                if !world.interact_block(pos) {
                     new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
                 }
             } else {
@@ -839,7 +839,7 @@ impl ServerPlayer {
         }
 
         if let Some(hand_stack) = new_hand_stack {
-            let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
+            let Entity::Player(base) = world.get_entity_mut(self.entity_id).unwrap() else { panic!() };
             base.kind.kind.main_inv.set_stack(base.kind.kind.hand_slot as usize, hand_stack);
         }
 
@@ -849,7 +849,7 @@ impl ServerPlayer {
     fn handle_hand_slot(&mut self, world: &mut World, slot: i16) {
 
         // This packet only works if the player's entity is a player.
-        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
         base.kind.kind.hand_slot = slot as u8;
 
     }
@@ -858,7 +858,7 @@ impl ServerPlayer {
     fn handle_window_click(&mut self, world: &mut World, packet: proto::WindowClickPacket) {
 
         // This packet only works if the player's entity is a player.
-        let Some(Entity::Player(base)) = world.entity_mut(self.entity_id) else { return };
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
         
         // Holding the target slot's item stack.
         let mut cursor_stack = base.kind.kind.cursor_stack;
@@ -999,7 +999,7 @@ impl ServerPlayer {
 
         // At the end where the world is no longer borrowed, re-borrow our player entity
         // and set the new cursor stack.
-        let Entity::Player(base) = world.entity_mut(self.entity_id).unwrap() else { panic!() };
+        let Entity::Player(base) = world.get_entity_mut(self.entity_id).unwrap() else { panic!() };
         base.kind.kind.cursor_stack = cursor_stack;
 
     }
@@ -1008,7 +1008,7 @@ impl ServerPlayer {
     /// the `on_ground` argument can be set to true in order to drop item on the ground.
     fn drop_item(&mut self, world: &mut World, stack: ItemStack, on_ground: bool) {
 
-        let entity = world.entity_mut(self.entity_id).expect("incoherent player entity");
+        let entity = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
         let base = entity.base_mut();
 
         let mut item_entity = ItemEntity::default();
@@ -1056,7 +1056,7 @@ impl ServerPlayer {
         for cx in (ocx - view_range)..(ocx + view_range) {
             for cz in (ocz - view_range)..(ocz + view_range) {
 
-                if let Some(chunk) = world.chunk(cx, cz) {
+                if let Some(chunk) = world.get_chunk(cx, cz) {
                     if self.tracked_chunks.insert((cx, cz)) {
 
                         self.send(OutPacket::ChunkState(proto::ChunkStatePacket {
@@ -1336,7 +1336,7 @@ impl EntityTracker {
     fn spawn_player_entity(&self, player: &ServerPlayer, world: &World) {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
-        let Some(entity) = world.entity(self.entity_id) else { return };
+        let Some(entity) = world.get_entity(self.entity_id) else { return };
 
         let x = self.sent_pos.0;
         let y = self.sent_pos.1;

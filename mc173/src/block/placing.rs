@@ -133,7 +133,7 @@ fn place_faced_at(world: &mut World, pos: IVec3, face: Face, id: u8, mut metadat
 fn place_lever_at(world: &mut World, pos: IVec3, face: Face, mut metadata: u8) {
     // When facing down, randomly pick the orientation.
     block::lever::set_face(&mut metadata, face, match face {
-        Face::NegY => world.rand_mut().next_choice(&[Face::PosZ, Face::PosX]),
+        Face::NegY => world.get_rand_mut().next_choice(&[Face::PosZ, Face::PosX]),
         _ => Face::PosY,
     });
     world.set_block_notify(pos, block::LEVER, metadata);
@@ -167,7 +167,7 @@ pub fn is_block_opaque_around(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at given position can be replaced.
 pub fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
-    if let Some((id, _)) = world.block(pos) {
+    if let Some((id, _)) = world.get_block(pos) {
         block::from_id(id).material.is_replaceable()
     } else {
         false
@@ -176,7 +176,7 @@ pub fn is_block_replaceable_at(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at position is opaque.
 pub fn is_block_opaque_at(world: &mut World, pos: IVec3) -> bool {
-    if let Some((id, _)) = world.block(pos) {
+    if let Some((id, _)) = world.get_block(pos) {
         block::material::is_opaque_cube(id)
     } else {
         false
@@ -185,7 +185,7 @@ pub fn is_block_opaque_at(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at position is material solid.
 pub fn is_block_solid_at(world: &mut World, pos: IVec3) -> bool {
-    if let Some((id, _)) = world.block(pos) {
+    if let Some((id, _)) = world.get_block(pos) {
         block::from_id(id).material.is_solid()
     } else {
         false
@@ -194,7 +194,7 @@ pub fn is_block_solid_at(world: &mut World, pos: IVec3) -> bool {
 
 /// Return true if the block at given position is in the valid slice.
 pub fn is_block_at(world: &mut World, pos: IVec3, valid: &[u8]) -> bool {
-    if let Some((id, _)) = world.block(pos) {
+    if let Some((id, _)) = world.get_block(pos) {
         valid.iter().any(|&valid_id| valid_id == id)
     } else {
         false

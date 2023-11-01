@@ -10,7 +10,7 @@ use crate::block;
 /// if the chunk/pos was not valid. It also notifies blocks around.
 pub fn break_at(world: &mut World, pos: IVec3) -> Option<(u8, u8)> {
     let (prev_id, prev_metadata) = world.set_block_notify(pos, block::AIR, 0)?;
-    block::dropping::drop_at(world, pos, prev_id, prev_metadata, 1.0);
+    world.spawn_block_loot(pos, prev_id, prev_metadata, 1.0);
     Some((prev_id, prev_metadata))
 }
 

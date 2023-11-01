@@ -45,7 +45,7 @@ impl PlayerEntity {
             });
 
             // Consume the item entity.
-            let Some(Entity::Item(base)) = world.entity_mut(entity_id) else { panic!() };
+            let Some(Entity::Item(base)) = world.get_entity_mut(entity_id) else { panic!() };
             base.kind.stack.size -= consumed_size;
             if base.kind.stack.size == 0 {
                 base.dead = true;

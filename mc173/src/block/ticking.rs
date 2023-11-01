@@ -71,7 +71,7 @@ fn tick_repeater(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
 
     let face = block::repeater::get_face(metadata);
     let delay = block::repeater::get_delay_ticks(metadata);
-    let back_powered = block::powering::get_passive_power_from(world, pos - face.delta(), face) != 0;
+    let back_powered = world.has_passive_power_from(pos - face.delta(), face);
 
     if lit && !back_powered {
         world.set_block_notify(pos, block::REPEATER, metadata);
@@ -89,7 +89,7 @@ fn tick_redstone_torch(world: &mut World, pos: IVec3, metadata: u8, lit: bool) {
     // TODO: Check torch burnout...
 
     let Some(torch_face) = block::torch::get_face(metadata) else { return };
-    let powered = block::powering::get_passive_power_from(world, pos + torch_face.delta(), torch_face.opposite()) != 0;
+    let powered = world.has_passive_power_from(pos + torch_face.delta(), torch_face.opposite());
 
     if lit {
         if powered {
@@ -108,13 +108,13 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
 
     // Default distance to decrement on each block unit.
     let dist_drop = match moving_id {
-        block::LAVA_MOVING if world.dimension() != Dimension::Nether => 2,
+        block::LAVA_MOVING if world.get_dimension() != Dimension::Nether => 2,
         _ => 1,
     };
 
     // The id below is used many time after, so we query it here.
     let below_pos = pos - IVec3::Y;
-    let (below_id, below_metadata) = world.block(below_pos).unwrap_or((block::AIR, 0));
+    let (below_id, below_metadata) = world.get_block(below_pos).unwrap_or((block::AIR, 0));
 
     // Update this fluid state.
     if !block::fluid::is_source(metadata) {
@@ -124,7 +124,7 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
         let mut sources_around = 0u8;
 
         for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
-            if let Some((face_id, face_metadata)) = world.block(pos + face.delta()) {
+            if let Some((face_id, face_metadata)) = world.get_block(pos + face.delta()) {
                 // Only if this block is of the same type.
                 if face_id == moving_id || face_id == still_id {
                     let face_dist = block::fluid::get_actual_distance(face_metadata);
@@ -143,7 +143,7 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
         }
 
         // If the top block on top is the same fluid, this become a falling state fluid.
-        if let Some((above_id, above_metadata)) = world.block(pos + IVec3::Y) {
+        if let Some((above_id, above_metadata)) = world.get_block(pos + IVec3::Y) {
             if above_id == moving_id || above_id == still_id {
                 // Copy the above metadata but force falling state.
                 new_metadata = above_metadata;
@@ -213,10 +213,10 @@ fn tick_fluid_moving(world: &mut World, pos: IVec3, mut metadata: u8, moving_id:
 
         for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
             let face_pos = pos + face.delta();
-            if let Some((face_id, _)) = world.block(face_pos) {
+            if let Some((face_id, _)) = world.get_block(face_pos) {
                 if !block::fluid::is_fluid_block(face_id) && !block::fluid::is_fluid_blocked(face_id) {
                     // TODO: Break only for water.
-                    block::breaking::break_at(world, face_pos);
+                    world.break_block(face_pos);
                     world.set_block_notify(face_pos, moving_id, new_dist);
                 }
             }

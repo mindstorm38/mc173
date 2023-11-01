@@ -79,7 +79,7 @@ impl<I> Base<Living<I>> {
             if self.on_ground {
                 slipperiness = 546.0 * 0.1 * 0.1 * 0.1;
                 let ground_pos = self.pos.as_ivec3();
-                if let Some((block, _)) = world.block(ground_pos) {
+                if let Some((block, _)) = world.get_block(ground_pos) {
                     if block != 0 {
                         slipperiness = block::from_id(block).slipperiness * 0.91;
                     }
@@ -135,7 +135,7 @@ impl<I> Base<Living<I>> {
             target.ticks_remaining -= 1;
             let mut target_release = target.ticks_remaining == 0;
 
-            if let Some(target_entity) = world.entity(target.entity_id) {
+            if let Some(target_entity) = world.get_entity(target.entity_id) {
                 // TODO: Fix the Y value, in order to look at eye height.
                 let target_pos = target_entity.base().pos;
                 // TODO: Pitch step should be an argument, 40 by default, but 20 for 
@@ -267,7 +267,7 @@ impl<I> Base<Living<I>> {
     /// privileges grass, and then light level.
     pub fn update_animal_ai(&mut self, world: &mut World) {
         self.update_creature_ai(world, 0.7, |world, pos| {
-            if let Some((block::GRASS, _)) = world.block(pos - IVec3::Y) {
+            if let Some((block::GRASS, _)) = world.get_block(pos - IVec3::Y) {
                 10.0
             } else {
                 // TODO: Get light at position and subtract 0.5 to light level
