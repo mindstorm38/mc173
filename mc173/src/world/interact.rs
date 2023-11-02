@@ -14,7 +14,7 @@ impl World {
     /// typically prevent usage of the player's hand item.
     pub fn interact_block(&mut self, pos: IVec3) -> bool {
         if let Some((id, metadata)) = self.get_block(pos) {
-            self.handle_interact(pos, id, metadata)
+            self.handle_interact_block(pos, id, metadata)
         } else {
             false
         }
@@ -22,7 +22,7 @@ impl World {
 
     /// Internal function to handle block interaction at given position and with known
     /// block and metadata. The function returns true if an interaction has been handled.
-    pub(super) fn handle_interact(&mut self, pos: IVec3, id: u8, metadata: u8) -> bool {
+    pub(super) fn handle_interact_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> bool {
         match id {
             block::BUTTON => self.interact_button(pos, metadata),
             block::LEVER => self.interact_lever(pos, metadata),

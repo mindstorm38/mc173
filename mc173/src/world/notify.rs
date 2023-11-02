@@ -39,58 +39,41 @@ impl World {
             block::LAVA_MOVING => self.notify_fluid_moving(pos, id),
             block::WATER_STILL |
             block::LAVA_STILL => self.notify_fluid_still(pos, id, metadata),
-            // block::TRAPDOOR => self.notify_trapdoor(pos, metadata),
-            // block::WOOD_DOOR |
-            // block::IRON_DOOR => self.notify_door(pos, id, metadata),
+            block::TRAPDOOR => self.notify_trapdoor(pos, metadata, origin_id),
+            block::WOOD_DOOR |
+            block::IRON_DOOR => self.notify_door(pos, id, metadata, origin_id),
             _ => {}
         }
     }
 
     pub(super) fn handle_block_add(&mut self, pos: IVec3, id: u8, metadata: u8) {
-        // match id {
-        //     block::WATER_MOVING => world.schedule_tick(pos, id, 5),
-        //     block::LAVA_MOVING => world.schedule_tick(pos, id, 30),
-        //     _ => {}
-        // }
+        match id {
+            block::WATER_MOVING => self.schedule_tick(pos, id, 5),
+            block::LAVA_MOVING => self.schedule_tick(pos, id, 30),
+            block::REDSTONE => self.notify_redstone(pos),
+            block::REPEATER |
+            block::REPEATER_LIT => self.notify_repeater(pos, id, metadata),
+            block::REDSTONE_TORCH |
+            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, id),
+            _ => {}
+        }
     }
 
     pub(super) fn handle_block_remove(&mut self, pos: IVec3, id: u8, metadata: u8) {
-        // match prev_id {
-        //     block::BUTTON => {
-        //         if let Some(face) = block::button::get_face(prev_metadata) {
-        //             notify_around(world, pos + face.delta());
-        //         }
-        //     }
-        //     block::LEVER => {
-        //         if let Some((face, _)) = block::lever::get_face(prev_metadata) {
-        //             notify_around(world, pos + face.delta());
-        //         }
-        //     }
-        //     _ => {}
-        // }
+        match id {
+            block::BUTTON => {
+                if let Some(face) = block::button::get_face(metadata) {
+                    self.notify_blocks_around(pos + face.delta(), block::BUTTON);
+                }
+            }
+            block::LEVER => {
+                if let Some((face, _)) = block::lever::get_face(metadata) {
+                    self.notify_blocks_around(pos + face.delta(), block::LEVER);
+                }
+            }
+            _ => {}
+        }
     }
-
-    // /// Notify a block change at the given position.
-    // pub(super) fn notify_block_change(&mut self, pos: IVec3, prev_id: u8, prev_metadata: u8, id: u8, metadata: u8) {
-    //     if prev_id != id {
-    //         match (prev_id, id) {
-    //             (block::REDSTONE_TORCH, block::REDSTONE_TORCH_LIT) |
-    //             (block::REDSTONE_TORCH_LIT, block::REDSTONE_TORCH) => {
-    //                 notify_around(world, pos + IVec3::Y);
-    //             }
-    //             (block::REPEATER, block::REPEATER_LIT) |
-    //             (block::REPEATER_LIT, block::REPEATER) => {
-    //                 notify_around(world, pos + block::repeater::get_face(metadata).delta());
-    //             }
-    //             (_, block::REDSTONE) => notify_redstone(world, pos),
-    //             (_, block::REDSTONE_TORCH | 
-    //                 block::REDSTONE_TORCH_LIT) => notify_redstone_torch(world, pos, id),
-    //             (_, block::REPEATER |
-    //                 block::REPEATER_LIT) => notify_repeater(world, pos, id, metadata),
-    //             _ => {}
-    //         }
-    //     }
-    // }
 
     /// Notification of a redstone repeater block.
     fn notify_repeater(&mut self, pos: IVec3, id: u8, metadata: u8) {
@@ -128,33 +111,38 @@ impl World {
 
     /// Notification of a trapdoor, breaking it if no longer on its wall, or updating its 
     /// state depending on redstone signal.
-    fn notify_trapdoor(&mut self, pos: IVec3, mut metadata: u8) {
+    fn notify_trapdoor(&mut self, pos: IVec3, mut metadata: u8, origin_id: u8) {
         let face = block::trapdoor::get_face(metadata);
-        if !matches!(self.get_block(pos + face.delta()), Some((id, _)) if block::material::is_opaque_cube(id)) {
+        if !self.is_block_opaque(pos + face.delta()) {
             self.break_block(pos);
         } else {
             let open = block::trapdoor::is_open(metadata);
-            let powered = self.has_passive_power(pos);
-            if open != powered {
-                block::trapdoor::set_open(&mut metadata, powered);
-                self.set_block_notify(pos, block::TRAPDOOR, metadata);
-                self.push_event(Event::BlockSound { pos, id: block::TRAPDOOR, metadata });
+            if is_redstone_block(origin_id) {
+                let powered = self.has_passive_power(pos);
+                if open != powered {
+                    block::trapdoor::set_open(&mut metadata, powered);
+                    self.set_block_notify(pos, block::TRAPDOOR, metadata);
+                    self.push_event(Event::BlockSound { pos, id: block::TRAPDOOR, metadata });
+                }
             }
         }
     }
 
-    fn notify_door(&mut self, pos: IVec3, id: u8, mut metadata: u8) {
+    fn notify_door(&mut self, pos: IVec3, id: u8, mut metadata: u8, origin_id: u8) {
 
         if block::door::is_upper(metadata) {
+            
             // If the block below is not another door,
             if let Some((below_id, below_metadata)) = self.get_block(pos - IVec3::Y) {
                 if below_id == id {
-                    self.notify_door(pos - IVec3::Y, below_id, below_metadata);
+                    self.notify_door(pos - IVec3::Y, below_id, below_metadata, origin_id);
                     return;
                 }
             }
+
             // Do not naturally break, top door do not drop anyway.
             self.set_block_notify(pos, block::AIR, 0);
+
         } else {
 
             // If the block above is not the same door block, naturally break itself.
@@ -166,50 +154,55 @@ impl World {
             }
 
             // Also check that door can stay in place.
-            if let Some((below_id, _)) = self.get_block(pos - IVec3::Y) {
-                if !block::material::is_opaque_cube(below_id) {
-                    // NOTE: This will notify the upper part and destroy it.
-                    self.break_block(pos);
-                    return;
-                }
+            if !self.is_block_opaque(pos - IVec3::Y) {
+                // NOTE: This will notify the upper part and destroy it.
+                self.break_block(pos);
+                return;
             }
 
-            // Check if the door is powered in any way.
-            let mut powered = 
-                self.has_passive_power_from(pos - IVec3::Y, Face::PosY) ||
-                self.has_passive_power_from(pos + IVec3::Y * 2, Face::NegY);
+            if is_redstone_block(origin_id) {
 
-            if !powered {
-                for face in Face::ALL {
-                    let face_pos = pos + face.delta();
-                    powered = 
-                        self.has_passive_power_from(face_pos, face.opposite()) || 
-                        self.has_passive_power_from(face_pos + IVec3::Y, face.opposite());
-                    if powered {
-                        break;
+                // Check if the door is powered in any way.
+                let mut powered = 
+                    self.has_passive_power_from(pos - IVec3::Y, Face::PosY) ||
+                    self.has_passive_power_from(pos + IVec3::Y * 2, Face::NegY);
+
+                if !powered {
+                    for face in Face::ALL {
+                        let face_pos = pos + face.delta();
+                        powered = 
+                            self.has_passive_power_from(face_pos, face.opposite()) || 
+                            self.has_passive_power_from(face_pos + IVec3::Y, face.opposite());
+                        if powered {
+                            break;
+                        }
                     }
                 }
-            }
-            
-            // Here we know that the current and above blocks are the same door type, we can
-            // simply set the metadata of the two. Only update if needed.
-            if block::door::is_open(metadata) != powered {
+                
+                // Here we know that the current and above blocks are the same door type, we can
+                // simply set the metadata of the two. Only update if needed.
+                if block::door::is_open(metadata) != powered {
 
-                block::door::set_open(&mut metadata, powered);
+                    block::door::set_open(&mut metadata, powered);
 
-                // Do not use notify methods to avoid updating the upper half.
-                self.set_block_self_notify(pos, id, metadata);
-                block::door::set_upper(&mut metadata, true);
-                self.set_block_self_notify(pos + IVec3::Y, id, metadata);
+                    // Do not use notify methods to avoid updating the upper half.
+                    self.set_block_self_notify(pos, id, metadata);
+                    block::door::set_upper(&mut metadata, true);
+                    self.set_block_self_notify(pos + IVec3::Y, id, metadata);
 
-                self.notify_block(pos - IVec3::Y, id);
-                self.notify_block(pos + IVec3::Y * 2, id);
-                for face in Face::ALL {
-                    self.notify_block(pos + face.delta(), id);
-                    self.notify_block(pos + face.delta() + IVec3::Y, id);
+                    self.notify_block(pos - IVec3::Y, id);
+                    self.notify_block(pos + IVec3::Y * 2, id);
+                    for face in Face::ALL {
+                        self.notify_block(pos + face.delta(), id);
+                        self.notify_block(pos + face.delta() + IVec3::Y, id);
+                    }
+
+                    self.push_event(Event::BlockSound { pos, id, metadata });
+
                 }
-
+                
             }
+
         }
 
     }
@@ -453,4 +446,21 @@ impl World {
         
     }
 
+}
+
+
+fn is_redstone_block(id: u8) -> bool {
+    match id {
+        block::BUTTON |
+        block::DETECTOR_RAIL |
+        block::LEVER |
+        block::WOOD_PRESSURE_PLATE |
+        block::STONE_PRESSURE_PLATE |
+        block::REPEATER |
+        block::REPEATER_LIT |
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT |
+        block::REDSTONE => true,
+        _ => false,
+    }
 }

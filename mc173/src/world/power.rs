@@ -14,13 +14,13 @@ impl World {
     /// Check if the given block position get any active power from surrounding faces.
     #[inline]
     pub fn has_active_power(&mut self, pos: IVec3) -> bool {
-        Face::ALL.into_iter().any(|face| self.has_active_power_from(pos, face))
+        Face::ALL.into_iter().any(|face| self.has_active_power_from(pos + face.delta(), face.opposite()))
     }
 
     /// Check if the given block position get any passive power from surrounding faces.
     #[inline]
     pub fn has_passive_power(&mut self, pos: IVec3) -> bool {
-        Face::ALL.into_iter().any(|face| self.has_passive_power_from(pos, face))
+        Face::ALL.into_iter().any(|face| self.has_passive_power_from(pos + face.delta(), face.opposite()))
     }
 
     /// Return true if the given block's face produces any active power.

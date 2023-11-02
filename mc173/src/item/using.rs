@@ -88,11 +88,11 @@ fn place_block_at(world: &mut World, mut pos: IVec3, mut face: Face, entity_id: 
 
     if pos.y >= 127 && block::from_id(id).material.is_solid() {
         return false;
-    } if !block::placing::can_place_at(world, pos, face, id) {
+    } if !world.can_place_block(pos, face, id) {
         return false;
     }
 
-    block::placing::place_at(world, pos, face, id, metadata);
+    world.place_block(pos, face, id, metadata);
     true
 
 }
@@ -108,7 +108,7 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32, 
 
     if pos.y >= 127 {
         return false;
-    } else if !block::placing::can_place_at(world, pos, face.opposite(), block_id) {
+    } else if !world.can_place_block(pos, face.opposite(), block_id) {
         return false;
     }
 
@@ -122,25 +122,25 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32, 
     let left_pos = pos + door_face.rotate_left().delta();
     let right_pos = pos + door_face.rotate_right().delta();
 
-    let left_door = 
-        block::placing::is_block_at(world, left_pos, &[block_id]) || 
-        block::placing::is_block_at(world, left_pos + IVec3::Y, &[block_id]);
+    // Temporary closure to avoid boiler plate just after.
+    let is_door_block = |pos| {
+        world.get_block(pos).map(|(id, _)| id == block_id).unwrap_or(false)
+    };
 
-    let right_door = 
-        block::placing::is_block_at(world, right_pos, &[block_id]) || 
-        block::placing::is_block_at(world, right_pos + IVec3::Y, &[block_id]);
+    let left_door = is_door_block(left_pos) || is_door_block(left_pos + IVec3::Y);
+    let right_door = is_door_block(right_pos) || is_door_block(right_pos + IVec3::Y);
 
     if right_door && !left_door {
         flip = true;
     } else {
 
         let left_count = 
-            block::placing::is_block_opaque_at(world, left_pos) as u8 + 
-            block::placing::is_block_opaque_at(world, left_pos + IVec3::Y) as u8;
+            world.is_block_opaque(left_pos) as u8 + 
+            world.is_block_opaque(left_pos + IVec3::Y) as u8;
     
         let right_count = 
-            block::placing::is_block_opaque_at(world, right_pos) as u8 + 
-            block::placing::is_block_opaque_at(world, right_pos + IVec3::Y) as u8;
+            world.is_block_opaque(right_pos) as u8 + 
+            world.is_block_opaque(right_pos + IVec3::Y) as u8;
 
         if left_count > right_count {
             flip = true;
@@ -178,22 +178,21 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -
     let bed_face = Face::from_yaw(look.x);
     let head_pos = pos + bed_face.delta();
 
-    let mut metadata = 0;
-    block::bed::set_face(&mut metadata, bed_face);
-
-    if block::placing::is_block_at(world, pos, &[block::AIR]) && 
-        block::placing::is_block_at(world, head_pos, &[block::AIR]) &&
-        block::placing::is_block_opaque_at(world, pos - IVec3::Y) &&
-        block::placing::is_block_opaque_at(world, head_pos - IVec3::Y) {
-        
-        world.set_block_notify(pos, block::BED, metadata);
-
-        block::bed::set_head(&mut metadata, true);
-        world.set_block_notify(head_pos, block::BED, metadata);
-
+    if !matches!(world.get_block(pos), Some((block::AIR, _))) {
+        return false;
+    } else if !matches!(world.get_block(head_pos), Some((block::AIR, _))) {
+        return false;
+    } else if !world.is_block_opaque(pos - IVec3::Y) || !world.is_block_opaque(head_pos - IVec3::Y) {
+        return false;
     }
 
-    true 
+    let mut metadata = 0;
+    block::bed::set_face(&mut metadata, bed_face);
+    world.set_block_notify(pos, block::BED, metadata);
+    block::bed::set_head(&mut metadata, true);
+    world.set_block_notify(head_pos, block::BED, metadata);
+
+    true
 
 }
 
@@ -238,7 +237,7 @@ fn use_bucket(world: &mut World, entity_id: u32, fluid_id: u8) -> Option<ItemSta
     let pitch_h = entity_base.look.y.cos();
     let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
 
-    let (pos, face) = world.ray_trace_blocks(origin, ray * 5.0, true)?;
+    let (pos, face) = world.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR)?;
     let (id, metadata) = world.get_block(pos)?;
 
     // The bucket is empty.

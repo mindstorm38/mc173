@@ -4,14 +4,6 @@ use crate::item::Item;
 
 // Block behaviors.
 pub mod material;
-// pub mod colliding;
-// pub mod notifying;
-// pub mod powering;
-// pub mod dropping;
-// pub mod breaking;
-// pub mod ticking;
-pub mod placing;
-// pub mod using;
 
 // Block specific functions for their metadata.
 pub mod common;

@@ -16,10 +16,12 @@ use crate::entity::Entity;
 
 
 // Following modules are order by order of importance, last modules depends on first ones.
+pub mod material;
 pub mod bound;
 pub mod power;
 pub mod loot;
 pub mod interact;
+pub mod place;
 pub mod r#break;
 pub mod tick;
 pub mod notify;
@@ -97,7 +99,7 @@ pub struct World {
     /// Internal cached queue of random ticks that should be computed, this queue is only
     /// used in the random ticking engine. It is put in an option in order to be owned
     /// while random ticking and therefore avoiding borrowing issue with the world.
-    pending_random_ticks: Option<Vec<(IVec3, u8, u8)>>,
+    random_ticks_pending: Option<Vec<(IVec3, u8, u8)>>,
 }
 
 impl World {
@@ -121,7 +123,7 @@ impl World {
             scheduled_ticks: BTreeSet::new(),
             scheduled_ticks_states: HashSet::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
-            pending_random_ticks: Some(Vec::new()),
+            random_ticks_pending: Some(Vec::new()),
         }
     }
 
@@ -348,7 +350,8 @@ impl World {
     /// of that removal and addition.
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
-        // block::notifying::changed_at(self, pos, prev_id, prev_metadata, id, metadata);
+        self.handle_block_remove(pos, prev_id, prev_metadata);
+        self.handle_block_add(pos, id, metadata);
         Some((prev_id, prev_metadata))
     }
 
@@ -378,7 +381,7 @@ impl World {
     /// Iterate over all blocks in the given area.
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
-        WorldBlocksIn::new(self, min, max)
+        BlocksInIter::new(self, min, max)
     }
 
     /// Iterate over all entities in the world.
@@ -477,7 +480,7 @@ impl World {
         }
 
         // Random ticking...
-        let mut pending_random_ticks = self.pending_random_ticks.take().unwrap();
+        let mut pending_random_ticks = self.random_ticks_pending.take().unwrap();
         debug_assert!(pending_random_ticks.is_empty());
 
         for (&(cx, cz), chunk) in &mut self.chunks {
@@ -508,7 +511,7 @@ impl World {
             self.handle_tick_block(pos, id, metadata, true);
         }
 
-        self.pending_random_ticks = Some(pending_random_ticks);
+        self.random_ticks_pending = Some(pending_random_ticks);
 
     }
 
@@ -814,7 +817,7 @@ impl Ord for ScheduledTick {
 
 
 /// An iterator for blocks in a world area. This returns the block id and metadata.
-struct WorldBlocksIn<'a> {
+struct BlocksInIter<'a> {
     /// Back-reference to the containing world.
     world: &'a World,
     /// This contains a temporary reference to the chunk being analyzed. This is used to
@@ -828,7 +831,7 @@ struct WorldBlocksIn<'a> {
     cursor: IVec3,
 }
 
-impl<'a> WorldBlocksIn<'a> {
+impl<'a> BlocksInIter<'a> {
 
     #[inline]
     fn new(world: &'a World, mut min: IVec3, mut max: IVec3) -> Self {
@@ -844,7 +847,7 @@ impl<'a> WorldBlocksIn<'a> {
             max = min;
         }
 
-        WorldBlocksIn {
+        BlocksInIter {
             world,
             chunk: None,
             min,
@@ -856,8 +859,8 @@ impl<'a> WorldBlocksIn<'a> {
 
 }
 
-impl<'a> FusedIterator for WorldBlocksIn<'a> {}
-impl<'a> Iterator for WorldBlocksIn<'a> {
+impl<'a> FusedIterator for BlocksInIter<'a> {}
+impl<'a> Iterator for BlocksInIter<'a> {
 
     type Item = (IVec3, u8, u8);
 
