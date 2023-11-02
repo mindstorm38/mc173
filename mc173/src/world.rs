@@ -73,7 +73,8 @@ pub struct World {
     /// raw chunk structure do not care of entities, this wrapper however keep track for
     /// each chunk of the entities in it.
     chunks: HashMap<(i32, i32), WorldChunk>,
-    /// Total entities count spawned since the world is running.
+    /// Total entities count spawned since the world is running. Also used to give 
+    /// entities a unique id.
     entities_count: u32,
     /// The entities are stored inside an option, this has no overhead because of niche 
     /// in the box type, but allows us to temporarily own the entity when updating it, 
@@ -100,6 +101,15 @@ pub struct World {
     /// used in the random ticking engine. It is put in an option in order to be owned
     /// while random ticking and therefore avoiding borrowing issue with the world.
     random_ticks_pending: Option<Vec<(IVec3, u8, u8)>>,
+    /// The current weather in that world, note that the Notchian server do not work like
+    /// this, but rather store two independent state for rain and thunder, but we simplify
+    /// the logic in this implementation since it is not strictly needed to be on parity.
+    weather: Weather,
+    /// Next time when the weather should be recomputed.
+    weather_next_time: u64,
+    /// The current sky light level, depending on the current time. This value is used
+    /// when subtracted from a chunk sky light level.
+    sky_light_subtracted: u8,
 }
 
 impl World {
@@ -124,6 +134,9 @@ impl World {
             scheduled_ticks_states: HashSet::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
             random_ticks_pending: Some(Vec::new()),
+            weather: Weather::Clear,
+            weather_next_time: 0,
+            sky_light_subtracted: 0,
         }
     }
 
@@ -174,6 +187,17 @@ impl World {
     /// Get a mutable access to this world's random number generator.
     pub fn get_rand_mut(&mut self) -> &mut JavaRandom {
         &mut self.rand
+    }
+
+    pub fn get_weather(&self) -> Weather {
+        self.weather
+    }
+
+    pub fn set_weather(&mut self, weather: Weather) {
+        if self.weather != weather {
+            self.push_event(Event::WeatherChange { prev: self.weather, new: weather });
+            self.weather = weather;
+        }
     }
 
     /// Get a reference to a chunk, if existing.
@@ -323,7 +347,7 @@ impl World {
     pub fn get_block(&self, pos: IVec3) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.get_chunk(cx, cz)?;
-        Some(chunk.block(pos))
+        Some(chunk.get_block(pos))
     }
 
     /// Set block and metadata at given position in the world, if the chunk is not
@@ -332,7 +356,7 @@ impl World {
     pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.get_chunk_mut(cx, cz)?;
-        let (prev_id, prev_metadata) = chunk.block(pos);
+        let (prev_id, prev_metadata) = chunk.get_block(pos);
         if prev_id != id || prev_metadata != metadata {
             chunk.set_block(pos, id, metadata);
             self.push_event(Event::BlockChange {
@@ -361,6 +385,33 @@ impl World {
         let (prev_id, prev_metadata) = self.set_block_self_notify(pos, id, metadata)?;
         self.notify_blocks_around(pos, id);
         Some((prev_id, prev_metadata))
+    }
+
+    /// Get light level at the given position, in range 0..16.
+    pub fn get_light(&self, mut pos: IVec3, actual_sky_light: bool) -> u8 {
+        
+        if pos.y > 127 {
+            pos.y = 127;
+        }
+
+        // TODO: If stair or farmland, get max value around them.
+        if let Some((cx, cz)) = calc_chunk_pos(pos) {
+            if let Some(chunk) = self.get_chunk(cx, cz) {
+
+                let block_light = chunk.get_block_light(pos);
+                let mut sky_light = chunk.get_sky_light(pos);
+
+                if actual_sky_light {
+                    sky_light = sky_light.saturating_sub(self.sky_light_subtracted);
+                }
+
+                return block_light.max(sky_light);
+
+            }
+        }
+
+        0
+
     }
 
     /// Schedule a tick update to happen at the given position, for the given block id
@@ -446,14 +497,82 @@ impl World {
     pub fn tick(&mut self) {
 
         if self.time % 20 == 0 {
-            // println!("scheduled_ticks_count: {}", self.scheduled_ticks_count);
+            // println!("time: {}", self.time);
+            // println!("weather: {:?}", self.weather);
+            // println!("weather_next_time: {}", self.weather_next_time);
+            // println!("sky_light_subtracted: {}", self.sky_light_subtracted);
         }
 
+        self.tick_weather();
+        // TODO: Wake up all sleeping player if day time.
+        // TODO: Perform mob spawning.
+        
+        self.tick_sky_light();
+
         self.time += 1;
+
         self.tick_blocks();
         self.tick_entities();
         // TODO: tick block entities.
         
+    }
+
+    /// Update current weather in the world.
+    fn tick_weather(&mut self) {
+
+        // No weather in the nether.
+        if self.dimension == Dimension::Nether {
+            return;
+        }
+
+        // When it's time to recompute weather.
+        if self.time >= self.weather_next_time {
+
+            // Don't update weather on first world tick.
+            if self.time != 0 {
+                let new_weather = match self.weather {
+                    Weather::Clear => self.rand.next_choice(&[Weather::Rain, Weather::Thunder]),
+                    _ => self.rand.next_choice(&[self.weather, Weather::Clear]),
+                };
+                self.set_weather(new_weather);
+            }
+
+            let bound = if self.weather == Weather::Clear { 168000 } else { 12000 };
+            let delay = self.rand.next_int_bounded(bound) as u64 + 12000;
+            self.weather_next_time = self.time + delay;
+
+        }
+
+    }
+
+    /// Update the sky light value depending on the current time, it is then used to get
+    /// the real light value of blocks.
+    fn tick_sky_light(&mut self) {
+
+        let time_wrapped = self.time % 24000;
+        let mut half_turn = (time_wrapped as f32 + 1.0) / 24000.0 - 0.25;
+
+        if half_turn < 0.0 {
+            half_turn += 1.0;
+        } else if half_turn > 1.0 {
+            half_turn -= 1.0;
+        }
+
+        let celestial_angle = match self.dimension {
+            Dimension::Nether => 0.5,
+            _ => half_turn + (1.0 - ((half_turn * std::f32::consts::PI).cos() + 1.0) / 2.0 - half_turn) / 3.0,
+        };
+
+        let factor = (celestial_angle * std::f32::consts::TAU).cos() * 2.0 + 0.5;
+        let factor = factor.clamp(0.0, 1.0);
+        let factor = match self.weather {
+            Weather::Clear => 1.0,
+            Weather::Rain => 0.6875,
+            Weather::Thunder => 0.47265625,
+        } * factor;
+
+        self.sky_light_subtracted = ((1.0 - factor) * 11.0) as u8;
+
     }
 
     /// Internal function to tick the internal scheduler.
@@ -500,7 +619,7 @@ impl World {
                 let rand = self.random_ticks_seed >> 2;
                 let pos = IVec3::new((rand >> 0) & 15, (rand >> 16) & 127, (rand >> 8) & 15);
 
-                let (id, metadata) = chunk.inner.block(pos);
+                let (id, metadata) = chunk.inner.get_block(pos);
                 pending_random_ticks.push((chunk_pos + pos, id, metadata));
 
             }
@@ -667,6 +786,17 @@ pub enum Dimension {
     Nether,
 }
 
+/// Type of weather currently in the world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Weather {
+    /// The weather is clear.
+    Clear,
+    /// It is raining.
+    Rain,
+    /// It is thundering.
+    Thunder,
+}
+
 /// An event that happened in the world.
 #[derive(Debug, Clone, Copy)]
 pub enum Event {
@@ -745,6 +875,10 @@ pub enum Event {
     SpawnPosition {
         /// The new spawn point position.
         pos: DVec3,
+    },
+    WeatherChange {
+        prev: Weather,
+        new: Weather,
     }
 }
 
@@ -887,7 +1021,7 @@ impl<'a> Iterator for BlocksInIter<'a> {
 
         // If a chunk exists for the current column.
         if let Some((_, _, Some(chunk))) = self.chunk {
-            let (block, metadata) = chunk.block(self.cursor);
+            let (block, metadata) = chunk.get_block(self.cursor);
             ret.1 = block;
             ret.2 = metadata;
         }

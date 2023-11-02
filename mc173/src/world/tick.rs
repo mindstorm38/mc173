@@ -3,7 +3,7 @@
 use glam::IVec3;
 
 use crate::block;
-use crate::util::Face;
+use crate::util::{Face, FaceSet};
 
 use super::{World, Dimension};
 
@@ -13,25 +13,27 @@ impl World {
     /// Tick a block in the world. The random 
     pub(super) fn handle_tick_block(&mut self, pos: IVec3, id: u8, metadata: u8, random: bool) {
         match id {
-            // NOTE: Notchian client has random tick on button?
+            // PARITY: Notchian client has random tick on button?
             block::BUTTON if !random => self.tick_button(pos, metadata),
             block::REPEATER if !random => self.tick_repeater(pos, metadata, false),
             block::REPEATER_LIT if !random => self.tick_repeater(pos, metadata, true),
-            // NOTE: Notchian client have random tick on redstone torch?
+            // PARITY: Notchian client have random tick on redstone torch?
             block::REDSTONE_TORCH if !random => self.tick_redstone_torch(pos, metadata, false),
             block::REDSTONE_TORCH_LIT if !random => self.tick_redstone_torch(pos, metadata, true),
             block::WATER_MOVING => self.tick_fluid_moving(pos, metadata, block::WATER_MOVING, block::WATER_STILL),
             block::LAVA_MOVING => self.tick_fluid_moving(pos, metadata, block::LAVA_MOVING, block::LAVA_STILL),
             block::CACTUS => {},
             block::CAKE => {}, // Seems unused in MC
-            block::WHEAT => {},
+            block::WHEAT => self.tick_wheat(pos, metadata),
             block::DETECTOR_RAIL => {},
             block::FARMLAND => {},
             block::FIRE => {},
+            // PARITY: Notchian client check if flowers can stay, we intentionally don't
+            // respect that to allow glitched plants to stay.
             block::DANDELION |
             block::POPPY |
             block::DEAD_BUSH |
-            block::TALL_GRASS => {}, // Check if it can stay
+            block::TALL_GRASS => {},
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM => {}, // Spread
             block::SAPLING => {}, // Grow tree
@@ -92,6 +94,69 @@ impl World {
             if !powered {
                 self.set_block_notify(pos, block::REDSTONE_TORCH_LIT, metadata);
             }
+        }
+
+    }
+
+    /// Tick a wheat crop, grow it if possible.
+    fn tick_wheat(&mut self, pos: IVec3, metadata: u8) {
+
+        // Do not tick if light level is too low or already fully grown.
+        if self.get_light(pos, true) < 9 || metadata >= 7 {
+            return;
+        }
+
+        // Growth rate.
+        let mut rate = 1.0;
+        
+        // Check each block below and add to the rate depending on its type.
+        for x in pos.x - 1..=pos.x + 1 {
+            for z in pos.z - 1..=pos.z + 1 {
+
+                let below_pos = IVec3::new(x, pos.y - 1, z);
+                if let Some((below_id, below_metadata)) = self.get_block(below_pos) {
+                    
+                    let mut below_rate = match (below_id, below_metadata) {
+                        (block::FARMLAND, 0) => 1.0,
+                        (block::FARMLAND, _) => 3.0,
+                        _ => continue,
+                    };
+
+                    if x != pos.x || z != pos.z {
+                        below_rate /= 4.0;
+                    }
+                    
+                    rate += below_rate;
+
+                }
+
+            }
+        }
+        
+        // Calculate the growth rate, it depends on surrounding wheat crops.
+        let mut same_faces = FaceSet::new();
+        let mut same_corner = false;
+
+        for face in Face::HORIZONTAL {
+            let face_pos = pos + face.delta();
+            if matches!(self.get_block(face_pos), Some((block::WHEAT, _))) {
+                same_faces.insert(face);
+            }
+            let corner_pos = face_pos + face.rotate_right().delta();
+            if matches!(self.get_block(corner_pos), Some((block::WHEAT, _))) {
+                // Same corner is enough to divide the growth rate, so we break here.
+                same_corner = true;
+                break;
+            }
+        }
+        
+        if same_corner || (same_faces.contains_x() && same_faces.contains_z()) {
+            rate /= 2.0;
+        }
+
+        // Randomly grow depending on the calculated rate.
+        if self.rand.next_int_bounded((100.0 / rate) as i32) == 0 {
+            self.set_block(pos, block::WHEAT, metadata + 1);
         }
 
     }

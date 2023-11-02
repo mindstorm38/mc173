@@ -545,7 +545,7 @@ pub struct ExplosionPacket {
 /// Packet 61
 #[derive(Debug, Clone)]
 pub struct EffectPlayPacket {
-    /// The effect id, the Nothcian client support the following effects:
+    /// The effect id, the Notchian client support the following effects:
     /// - 1000: Play sound 'random.click' with pitch 1.0
     /// - 1001: Play sound 'random.click' with pitch 1.2
     /// - 1002: Play sound 'random.bow' with pitch 1.2
@@ -567,6 +567,10 @@ pub struct EffectPlayPacket {
 /// Packet 70
 #[derive(Debug, Clone)]
 pub struct NotificationPacket {
+    /// The Notchian client understand 3 different values for this:
+    /// - 0: Impossible to sleep in a bed
+    /// - 1: Start raining
+    /// - 2: Stop raining
     pub reason: u8,
 }
 

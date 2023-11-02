@@ -15,7 +15,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
-use mc173::world::{World, Dimension, Event};
+use mc173::world::{World, Dimension, Event, Weather};
 use mc173::item::crafting::CraftingTracker;
 use mc173::item::inventory::Inventory;
 use mc173::item::{self, ItemStack};
@@ -214,6 +214,12 @@ impl Server {
             time: world.world.get_time(),
         }));
 
+        if world.world.get_weather() != Weather::Clear {
+            self.net.send(client, OutPacket::Notification(proto::NotificationPacket {
+                reason: 1,
+            }));
+        }
+
         // Finally insert the player tracker.
         let player_index = world.handle_player_join(ServerPlayer {
             net: self.net.clone(),
@@ -354,6 +360,8 @@ impl ServerWorld {
                     self.handle_block_sound(pos, id, metadata),
                 Event::SpawnPosition { pos } =>
                     self.handle_spawn_position(pos),
+                Event::WeatherChange { new, .. } =>
+                    self.handle_weather_change(new),
             }
             // println!("[WORLD] Event: {event:?}");
         }
@@ -545,6 +553,15 @@ impl ServerWorld {
             player.send(OutPacket::SpawnPosition(proto::SpawnPositionPacket {
                 pos,
             }))
+        }
+    }
+
+    /// Handle weather change in the world.
+    fn handle_weather_change(&mut self, weather: Weather) {
+        for player in &self.players {
+            player.send(OutPacket::Notification(proto::NotificationPacket {
+                reason: if weather == Weather::Clear { 2 } else { 1 },
+            }));
         }
     }
 

@@ -74,14 +74,14 @@ impl Chunk {
             block: [AIR; CHUNK_SIZE],
             metadata: ChunkNibbleArray::new(0),
             block_light: ChunkNibbleArray::new(15),
-            sky_light: ChunkNibbleArray::new(0),
+            sky_light: ChunkNibbleArray::new(15),
         })
     }
 
     /// Get block id and metadata at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
-    pub fn block(&self, pos: IVec3) -> (u8, u8) {
+    pub fn get_block(&self, pos: IVec3) -> (u8, u8) {
         let index = calc_index(pos);
         (self.block[index], self.metadata.get(index))
     }
@@ -98,7 +98,7 @@ impl Chunk {
     /// Get block light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
-    pub fn block_light(&self, pos: IVec3) -> u8 {
+    pub fn get_block_light(&self, pos: IVec3) -> u8 {
         self.block_light.get(calc_index(pos))
     }
 
@@ -112,7 +112,7 @@ impl Chunk {
     /// Get sky light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
-    pub fn sky_light(&self, pos: IVec3) -> u8 {
+    pub fn get_sky_light(&self, pos: IVec3) -> u8 {
         self.sky_light.get(calc_index(pos))
     }
 

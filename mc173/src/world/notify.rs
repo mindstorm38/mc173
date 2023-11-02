@@ -42,6 +42,14 @@ impl World {
             block::TRAPDOOR => self.notify_trapdoor(pos, metadata, origin_id),
             block::WOOD_DOOR |
             block::IRON_DOOR => self.notify_door(pos, id, metadata, origin_id),
+            block::DANDELION |
+            block::POPPY |
+            block::SAPLING |
+            block::TALL_GRASS => self.notify_flower(pos, &[block::GRASS, block::DIRT, block::FARMLAND]),
+            block::DEAD_BUSH => self.notify_flower(pos, &[block::SAND]),
+            block::WHEAT => self.notify_flower(pos, &[block::FARMLAND]),
+            block::RED_MUSHROOM |
+            block::BROWN_MUSHROOM => self.notify_mushroom(pos),
             _ => {}
         }
     }
@@ -75,6 +83,39 @@ impl World {
         }
     }
 
+    /// Notification of a moving fluid block.
+    fn notify_fluid_moving(&mut self, pos: IVec3, id: u8) {
+        // TODO: Make obsidian or cobblestone.
+    }
+
+    /// Notification of a still fluid block.
+    fn notify_fluid_still(&mut self, pos: IVec3, id: u8, metadata: u8) {
+
+        self.notify_fluid_moving(pos, id);
+
+        // Subtract 1 from id to go from still to moving.
+        self.set_block_notify(pos, id - 1, metadata);
+
+    }
+
+    /// Notification of standard flower subclasses.
+    fn notify_flower(&mut self, pos: IVec3, stay_blocks: &[u8]) {
+        if self.get_light(pos, false) >= 8 || false /* block can see sky */ {
+            let (below_id, _) = self.get_block(pos - IVec3::Y).unwrap_or((0, 0));
+            if stay_blocks.iter().any(|&id| id == below_id) {
+                return;
+            }
+        }
+        self.break_block(pos);
+    }
+
+    /// Notification of a mushroom block.
+    fn notify_mushroom(&mut self, pos: IVec3) {
+        if self.get_light(pos, false) >= 13 || !self.is_block_opaque(pos - IVec3::Y) {
+            self.break_block(pos);
+        }
+    }
+
     /// Notification of a redstone repeater block.
     fn notify_repeater(&mut self, pos: IVec3, id: u8, metadata: u8) {
 
@@ -92,21 +133,6 @@ impl World {
     /// Notification of a redstone repeater block.
     fn notify_redstone_torch(&mut self, pos: IVec3, id: u8) {
         self.schedule_tick(pos, id, 2);
-    }
-
-    /// Notification of a moving fluid block.
-    fn notify_fluid_moving(&mut self, pos: IVec3, id: u8) {
-        // TODO: Make obsidian or cobblestone.
-    }
-
-    /// Notification of a still fluid block.
-    fn notify_fluid_still(&mut self, pos: IVec3, id: u8, metadata: u8) {
-
-        self.notify_fluid_moving(pos, id);
-
-        // Subtract 1 from id to go from still to moving.
-        self.set_block_notify(pos, id - 1, metadata);
-
     }
 
     /// Notification of a trapdoor, breaking it if no longer on its wall, or updating its 
