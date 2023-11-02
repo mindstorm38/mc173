@@ -22,7 +22,7 @@ impl World {
             block::REDSTONE_TORCH_LIT if !random => self.tick_redstone_torch(pos, metadata, true),
             block::WATER_MOVING => self.tick_fluid_moving(pos, metadata, block::WATER_MOVING, block::WATER_STILL),
             block::LAVA_MOVING => self.tick_fluid_moving(pos, metadata, block::LAVA_MOVING, block::LAVA_STILL),
-            block::CACTUS => {},
+            block::CACTUS => self.tick_cactus(pos, metadata),
             block::CAKE => {}, // Seems unused in MC
             block::WHEAT => self.tick_wheat(pos, metadata),
             block::DETECTOR_RAIL => {},
@@ -94,6 +94,32 @@ impl World {
             if !powered {
                 self.set_block_notify(pos, block::REDSTONE_TORCH_LIT, metadata);
             }
+        }
+
+    }
+
+    /// Tick a cactus.
+    fn tick_cactus(&mut self, pos: IVec3, metadata: u8) {
+
+        // If the block above is air, count how many cactus block are below.
+        if self.is_block_air(pos + IVec3::Y) {
+            
+            for dy in 1.. {
+                if !self.is_block(pos - IVec3::new(0, dy, 0), block::CACTUS) {
+                    break;
+                } else if dy == 2 {
+                    // Two cactus blocks below, should not grow more.
+                    return;
+                }
+            }
+
+            if metadata == 15 {
+                self.set_block_notify(pos + IVec3::Y, block::CACTUS, 0);
+                self.set_block_notify(pos, block::CACTUS, 0);
+            } else {
+                self.set_block_notify(pos, block::CACTUS, metadata + 1);
+            }
+
         }
 
     }
@@ -172,7 +198,7 @@ impl World {
             };
 
             if self.get_light(spread_pos, false) < 13 {
-                if matches!(self.get_block(spread_pos), Some((block::AIR, _))) {
+                if self.is_block_air(spread_pos) {
                     if self.is_block_opaque(spread_pos - IVec3::Y) {
                         self.set_block_notify(spread_pos, id, 0);
                     }

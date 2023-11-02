@@ -610,7 +610,7 @@ impl World {
             let chunk_pos = IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32);
             
             // Minecraft run 80 random ticks per tick per chunk.
-            for _ in 0..80 {
+            for _ in 0..800 {
 
                 self.random_ticks_seed = self.random_ticks_seed
                     .wrapping_mul(3)

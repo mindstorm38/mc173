@@ -36,4 +36,20 @@ impl World {
         }
     }
 
+    /// Return true if the block at position is air.
+    #[inline]
+    pub fn is_block_air(&mut self, pos: IVec3) -> bool {
+        matches!(self.get_block(pos), Some((block::AIR, _)))
+    }
+
+    /// Return true if the block at position is the given one. 
+    #[inline]
+    pub fn is_block(&mut self, pos: IVec3, id: u8) -> bool {
+        if let Some((pos_id, _)) = self.get_block(pos) {
+            pos_id == id
+        } else {
+            false
+        }
+    }
+
 }

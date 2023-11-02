@@ -50,6 +50,7 @@ impl World {
             block::WHEAT => self.notify_flower(pos, &[block::FARMLAND]),
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM => self.notify_mushroom(pos),
+            block::CACTUS => self.notify_cactus(pos),
             _ => {}
         }
     }
@@ -63,6 +64,7 @@ impl World {
             block::REPEATER_LIT => self.notify_repeater(pos, id, metadata),
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, id),
+            block::CACTUS => self.notify_cactus(pos),  // To break when it grows.
             _ => {}
         }
     }
@@ -112,6 +114,19 @@ impl World {
     /// Notification of a mushroom block.
     fn notify_mushroom(&mut self, pos: IVec3) {
         if self.get_light(pos, false) >= 13 || !self.is_block_opaque(pos - IVec3::Y) {
+            self.break_block(pos);
+        }
+    }
+
+    /// Notification of a cactus block. The block is broken if 
+    fn notify_cactus(&mut self, pos: IVec3) {
+        for face in Face::HORIZONTAL {
+            if self.is_block_solid(pos + face.delta()) {
+                self.break_block(pos);
+                return;
+            }
+        }
+        if !matches!(self.get_block(pos - IVec3::Y), Some((block::CACTUS | block::SAND, _))) {
             self.break_block(pos);
         }
     }

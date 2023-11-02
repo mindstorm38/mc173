@@ -60,7 +60,7 @@ impl World {
     }
 
     fn can_place_cactus(&mut self, pos: IVec3) -> bool {
-        for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+        for face in Face::HORIZONTAL {
             if self.is_block_solid(pos + face.delta()) {
                 return false;
             }
@@ -70,7 +70,7 @@ impl World {
 
     fn can_place_chest(&mut self, pos: IVec3) -> bool {
         let mut found_single_chest = false;
-        for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+        for face in Face::HORIZONTAL {
             // If block on this face is a chest, check if that block also has a chest.
             let neighbor_pos = pos + face.delta();
             if matches!(self.get_block(neighbor_pos), Some((block::CHEST, _))) {
@@ -79,7 +79,7 @@ impl World {
                     return false;
                 }
                 // Check if the chest we found isn't a double chest.
-                for neighbor_face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+                for neighbor_face in Face::HORIZONTAL {
                     // Do not check our potential position.
                     if face != neighbor_face.opposite() {
                         if matches!(self.get_block(neighbor_pos + neighbor_face.delta()), Some((block::CHEST, _))) {
