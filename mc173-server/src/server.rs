@@ -15,6 +15,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
+use mc173::world::interact::Interaction;
 use mc173::world::{World, Dimension, Event, Weather};
 use mc173::item::crafting::CraftingTracker;
 use mc173::item::inventory::Inventory;
@@ -230,7 +231,9 @@ impl Server {
             look: offline_player.look,
             tracked_chunks: HashSet::new(),
             tracked_entities: HashSet::new(),
-            slot_changes: Vec::new(),
+            window_count: 0,
+            window: None,
+            window_slot_changes: Vec::new(),
             crafting_tracker: CraftingTracker::default(),
             breaking_block: None,
         });
@@ -587,14 +590,32 @@ struct ServerPlayer {
     /// known and rendered by the client, when the entity will disappear, a kill packet
     /// should be sent.
     tracked_entities: HashSet<u32>,
+    /// The total number of windows that have been opened by this player, this is also 
+    /// used to generate a unique window id. This id should never be zero because it is
+    /// reserved for the player inventory.
+    window_count: u32,
+    /// The current window opened on the client side.
+    window: Option<Window>,
     /// A temporary list of item changes in the current window, each item is associated 
     /// to its slot number.
-    slot_changes: Vec<(i16, ItemStack)>,
+    window_slot_changes: Vec<(i16, ItemStack)>,
     /// This crafting tracker is used to update the current craft being constructed by 
     /// the player in the current window (player inventory or crafting table interface).
     crafting_tracker: CraftingTracker,
     /// If the player is breaking a block, this record the breaking state.
     breaking_block: Option<BreakingBlock>,
+}
+
+/// Describe an opened window and how to handle clicks into it.
+struct Window {
+    /// The unique id of the currently opened window.
+    id: u8,
+    /// Specialization kind of window.
+    kind: WindowKind,
+}
+
+enum WindowKind {
+    CraftingTable,
 }
 
 /// State of a player breaking a block.
@@ -643,6 +664,8 @@ impl ServerPlayer {
                 self.handle_hand_slot(world, packet.slot),
             InPacket::WindowClick(packet) =>
                 self.handle_window_click(world, packet),
+            InPacket::WindowClose(packet) =>
+                self.handle_window_close(world, packet),
             _ => println!("[{:?}] Packet: {packet:?}", self.client)
         }
 
@@ -768,6 +791,8 @@ impl ServerPlayer {
             // Start breaking a block, ignore if the position is invalid.
             if let Some((id, _)) = world.get_block(pos) {
 
+                // We ignore any interaction result for the left click (break block) to
+                // avoid opening an inventory when breaking a container.
                 world.interact_block(pos);
                 
                 let break_duration = world.get_break_duration(stack.id, id, in_water, on_ground);
@@ -847,8 +872,15 @@ impl ServerPlayer {
             let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
             // The real action depends on 
             if let Some(face) = face {
-                if !world.interact_block(pos) {
-                    new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
+                match world.interact_block(pos) {
+                    Interaction::None => {
+                        // No interaction, use the item at that block.
+                        new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
+                    }
+                    Interaction::CraftingTable => {
+                        self.open_window(WindowKind::CraftingTable);
+                    }
+                    _ => {}
                 }
             } else {
                 new_hand_stack = item::using::use_raw(world, self.entity_id, hand_stack);
@@ -903,7 +935,19 @@ impl ServerPlayer {
             if packet.window_id == 0 {
                 slot_handle = SlotHandle::new_player(self, packet.slot, base);
             } else {
-                todo!()
+
+                // Check if the window id is coherent with the server's one.
+                let Some(window) = &self.window else { return };
+                if window.id != packet.window_id {
+                    return;
+                }
+
+                match window.kind {
+                    WindowKind::CraftingTable => {
+                        slot_handle = SlotHandle::new_crafting_table(self, packet.slot, base);
+                    }
+                }
+
             }
 
             slot_stack = slot_handle.stack();
@@ -995,7 +1039,7 @@ impl ServerPlayer {
 
         // This temporary vector is filled by slot handles and contains stacks to update
         // in the current window.
-        for (slot, stack) in self.slot_changes.drain(..) {
+        for (slot, stack) in self.window_slot_changes.drain(..) {
             self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
                 window_id: packet.window_id,
                 slot,
@@ -1019,6 +1063,33 @@ impl ServerPlayer {
         let Entity::Player(base) = world.get_entity_mut(self.entity_id).unwrap() else { panic!() };
         base.kind.kind.cursor_stack = cursor_stack;
 
+    }
+
+    /// Handle a window close packet, it just forget the current window.
+    fn handle_window_close(&mut self, world: &mut World, packet: proto::WindowClosePacket) {
+        // FIXME: Drop crafting matrix items for example.
+        self.window = None;
+    }
+
+    /// Open the given window kind on client-side by sending appropriate packet. A new
+    /// window id is automatically associated to that window.
+    fn open_window(&mut self, kind: WindowKind) {
+        // NOTE: We should never get a window id of 0 because it is the player inventory.
+        let id = (self.window_count % 100 + 1) as u8;
+        self.window_count += 1;
+        let packet = match kind {
+            WindowKind::CraftingTable => proto::WindowOpenPacket {
+                window_id: id,
+                inventory_type: 1,
+                title: "Crafting".to_string(),
+                slots_count: 9,
+            }
+        };
+        self.send(OutPacket::WindowOpen(packet));
+        self.window = Some(Window { 
+            id,
+            kind,
+        });
     }
 
     /// Drop an item from the player's entity, items are drop in front of the player, but
@@ -1435,19 +1506,16 @@ enum SlotKind<'w> {
         inv: &'w mut Inventory,
         index: usize,
     },
-    /// This slot is part of a crafting grid.
+    /// This slot is part of a crafting grid, the inventory is the 3x3 of the player,
+    /// even if only the 2x2 matrix is used.
     CraftingGrid {
         inv: &'w mut Inventory,
-        inv_width: u8,
-        inv_height: u8,
         index: usize,
         result_slot: i16,
     },
     /// This slot is used for the result of a crafting recipe.
     CraftingResult {
         inv: &'w mut Inventory,
-        inv_width: u8,
-        inv_height: u8,
         grid_first_slot: i16,
     },
 }
@@ -1459,15 +1527,17 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
         Self::new(player, slot, match slot {
             0 => SlotKind::CraftingResult {
                 inv: &mut base.kind.kind.craft_inv,
-                inv_width: 2,
-                inv_height: 2,
                 grid_first_slot: 1,
             },
             1..=4 => SlotKind::CraftingGrid { 
                 inv: &mut base.kind.kind.craft_inv, 
-                inv_width: 2,
-                inv_height: 2,
-                index: slot as usize - 1, 
+                index: match slot {
+                    1 => 0,
+                    2 => 1,
+                    3 => 3,
+                    4 => 4,
+                    _ => unreachable!()
+                }, 
                 result_slot: 0,
             },
             5..=8 => SlotKind::Armor { 
@@ -1481,6 +1551,30 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
             36..=44 => SlotKind::Storage { 
                 inv: &mut base.kind.kind.main_inv, 
                 index: slot as usize - 36,
+            },
+            _ => panic!()
+        })
+    }
+
+    /// Create a new slot handle for a crafting table inventory slot.
+    fn new_crafting_table(player: &'p mut ServerPlayer, slot: i16, base: &'w mut PlayerEntity) -> Self {
+        Self::new(player, slot, match slot {
+            0 => SlotKind::CraftingResult {
+                inv: &mut base.kind.kind.craft_inv,
+                grid_first_slot: 1,
+            },
+            1..=9 => SlotKind::CraftingGrid { 
+                inv: &mut base.kind.kind.craft_inv, 
+                index: slot as usize - 1,
+                result_slot: 0,
+            },
+            10..=36 => SlotKind::Storage { 
+                inv: &mut base.kind.kind.main_inv, 
+                index: slot as usize - 1,
+            },
+            37..=45 => SlotKind::Storage { 
+                inv: &mut base.kind.kind.main_inv, 
+                index: slot as usize - 37,
             },
             _ => panic!()
         })
@@ -1557,27 +1651,27 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
             SlotKind::Armor { ref mut inv, index } => {
                 
                 inv.set_stack(index, stack);
-                self.player.slot_changes.push((self.slot, stack));
+                self.player.window_slot_changes.push((self.slot, stack));
 
             }
             SlotKind::CraftingGrid { 
-                ref mut inv, inv_width, inv_height, 
+                ref mut inv, 
                 index, 
                 result_slot,
             } => {
 
                 inv.set_stack(index, stack);
-                self.player.crafting_tracker.update(inv, inv_width, inv_height);
+                self.player.crafting_tracker.update(inv, 3, 3);
 
                 let result_stack = self.player.crafting_tracker.recipe()
                     .unwrap_or(ItemStack::EMPTY);
 
-                self.player.slot_changes.push((self.slot, stack));
-                self.player.slot_changes.push((result_slot, result_stack));
+                self.player.window_slot_changes.push((self.slot, stack));
+                self.player.window_slot_changes.push((result_slot, result_stack));
 
             }
             SlotKind::CraftingResult { 
-                ref mut inv, inv_width, inv_height,
+                ref mut inv,
                 grid_first_slot,
             } => {
 
@@ -1586,16 +1680,16 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
                 debug_assert_eq!(stack, ItemStack::EMPTY);
 
                 self.player.crafting_tracker.consume(inv);
-                self.player.crafting_tracker.update(inv, inv_width, inv_height);
+                self.player.crafting_tracker.update(inv, 3, 3);
 
                 let result_stack = self.player.crafting_tracker.recipe()
                     .unwrap_or(ItemStack::EMPTY);
                 
                 for (i, grid_stack) in inv.stacks().iter().copied().enumerate() {
-                    self.player.slot_changes.push((grid_first_slot + i as i16, grid_stack));
+                    self.player.window_slot_changes.push((grid_first_slot + i as i16, grid_stack));
                 } 
 
-                self.player.slot_changes.push((self.slot, result_stack));
+                self.player.window_slot_changes.push((self.slot, result_stack));
 
             }
         }

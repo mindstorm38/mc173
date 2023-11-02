@@ -88,7 +88,7 @@ const PAPER_3: ItemStack = ItemStack::new_sized(item::PAPER, 0, 3);
 const FENCE_2: ItemStack = ItemStack::new_block_sized(block::FENCE, 0, 2);
 const STONE_SLAB_3: ItemStack = ItemStack::new_block_sized(block::SLAB, 0, 3);
 const SANDSTONE_SLAB_3: ItemStack = ItemStack::new_block_sized(block::SLAB, 1, 3);
-const WOOD_SLAB_3: ItemStack = ItemStack::new_block_sized(block::WOOD, 2, 3);
+const WOOD_SLAB_3: ItemStack = ItemStack::new_block_sized(block::SLAB, 2, 3);
 const COBBLESTONE_SLAB_3: ItemStack = ItemStack::new_block_sized(block::SLAB, 3, 3);
 const LADDER_2: ItemStack = ItemStack::new_block_sized(block::LADDER, 0, 2);
 const TRAPDOOR_2: ItemStack = ItemStack::new_block_sized(block::TRAPDOOR, 0, 2);
@@ -138,8 +138,8 @@ const_stacks! {
     STONE           = block::STONE;
     SANDSTONE       = block::SANDSTONE;
     COBBLE          = block::COBBLESTONE;
-    WOOD_DOOR       = block::WOOD_DOOR;
-    IRON_DOOR       = block::IRON_DOOR;
+    WOOD_DOOR       = item::WOOD_DOOR;
+    IRON_DOOR       = item::IRON_DOOR;
     IRON_INGOT      = item::IRON_INGOT;
     SIGN            = item::SIGN;
     SUGAR           = item::SUGAR;
@@ -436,55 +436,56 @@ impl ShapedRecipe {
 
         // For each possible starting point in the inventory, check.
         for start_x in 0..=(inv_width - recipe_width) {
-            for start_y in 0..=(inv_height - recipe_height) {
-                if self.check_at(inv, inv_width, start_x, start_y, false) {
-                    return Some(self.result);
-                } else if self.check_at(inv, inv_width, start_x, start_y, true) {
+            'out: for start_y in 0..=(inv_height - recipe_height) {
+
+                let mut normal_valid = true;
+                let mut flip_valid = true;
+
+                for dx in 0..inv_width {
+                    for dy in 0..inv_height {
+                        let stack = inv.stack(dx + dy * inv_width);
+                        if dx < start_x || dx >= start_x + recipe_width || dy < start_y || dy >= start_y + recipe_height {
+                            // We are outside the checked region, slot should be empty.
+                            if !stack.is_empty() {
+                                continue 'out;
+                            }
+                        } else {
+
+                            // We are in the checked region.
+                            let pattern_x = dx - start_x;
+                            let pattern_y = dy - start_y;
+                            let flip_pattern_x = recipe_width - pattern_x - 1;
+
+                            if normal_valid {
+                                let normal_stack = self.pattern[pattern_x + pattern_y * recipe_width];
+                                normal_valid = 
+                                    (normal_stack.is_empty() && stack.is_empty()) ||
+                                    ((normal_stack.id, normal_stack.damage) == (stack.id, stack.damage));
+                            }
+
+                            if flip_valid {
+                                let flip_stack = self.pattern[flip_pattern_x + pattern_y * recipe_width];
+                                flip_valid = 
+                                    (flip_stack.is_empty() && stack.is_empty()) ||
+                                    ((flip_stack.id, flip_stack.damage) == (stack.id, stack.damage));
+                            }
+
+                            if !normal_valid && !flip_valid {
+                                continue 'out;
+                            }
+                            
+                        }
+                    }
+                }
+
+                if normal_valid || flip_valid {
                     return Some(self.result);
                 }
+
             }
         }
 
         None
-
-    }
-
-    /// Internal function to check if this recipe can be crafted at the given coordinates
-    /// in the inventory. The `flip` argument is used to check the pattern but flipped.
-    fn check_at(&self, inv: &Inventory, inv_width: usize, start_x: usize, start_y: usize, flip: bool) -> bool {
-        
-        let recipe_width = self.width as usize;
-
-        let mut dx = if flip { recipe_width - 1 } else { 0 };
-        let mut dy = 0;
-
-        for pat_stack in self.pattern {
-
-            let stack = inv.stack((start_x + dx) + (start_y + dy) * inv_width);
-            if pat_stack.is_empty() && !stack.is_empty() {
-                return false;
-            } else if (pat_stack.id, pat_stack.damage) != (stack.id, stack.damage) {
-                return false;
-            }
-
-            if flip {
-                if dx == 0 {
-                    dy += 1;
-                    dx = recipe_width - 1;
-                } else {
-                    dx -= 1;
-                }
-            } else {
-                dx += 1;
-                if dx >= recipe_width {
-                    dy += 1;
-                    dx = 0;
-                }
-            }
-
-        }
-
-        true
 
     }
 

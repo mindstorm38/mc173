@@ -12,17 +12,17 @@ impl World {
     /// Interact with a block at given position. This function returns true if an 
     /// interaction has been handled and some action happened to the world, which should
     /// typically prevent usage of the player's hand item.
-    pub fn interact_block(&mut self, pos: IVec3) -> bool {
+    pub fn interact_block(&mut self, pos: IVec3) -> Interaction {
         if let Some((id, metadata)) = self.get_block(pos) {
             self.handle_interact_block(pos, id, metadata)
         } else {
-            false
+            Interaction::None
         }
     }
 
     /// Internal function to handle block interaction at given position and with known
     /// block and metadata. The function returns true if an interaction has been handled.
-    pub(super) fn handle_interact_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> bool {
+    pub(super) fn handle_interact_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Interaction {
         match id {
             block::BUTTON => self.interact_button(pos, metadata),
             block::LEVER => self.interact_lever(pos, metadata),
@@ -32,8 +32,9 @@ impl World {
             block::REPEATER |
             block::REPEATER_LIT => self.interact_repeater(pos, id, metadata),
             block::REDSTONE_ORE => self.interact_redstone_ore(pos),
-            _ => return false
-        }
+            block::CRAFTING_TABLE => return Interaction::CraftingTable,
+            _ => return Interaction::None
+        }.into()
     }
 
     /// Interact with a button block.
@@ -96,4 +97,33 @@ impl World {
         false  // Notchian client lit the ore but do not mark the interaction.
     }
 
+}
+
+
+/// The result of an interaction with a block in the world.
+#[derive(Debug, Clone)]
+pub enum Interaction {
+    /// No interaction has been handled.
+    None,
+    /// An interaction has been handled by the world.
+    Handled,
+    /// A crafting table has been interacted, the front-end should interpret this and 
+    /// open the crafting table window.
+    CraftingTable,
+    /// A chest has been interacted, the front-end should interpret this and open the
+    /// chest window.
+    Chest,
+    /// A furnace has been interacted, the front-end should interpret this and open the
+    /// furnace window.
+    Furnace,
+    /// A dispenser has been interacted, the front-end should interpret this and open
+    /// the dispenser window.
+    Dispenser,
+}
+
+impl From<bool> for Interaction {
+    #[inline]
+    fn from(value: bool) -> Self {
+        if value { Self::Handled } else { Self::None }
+    }
 }

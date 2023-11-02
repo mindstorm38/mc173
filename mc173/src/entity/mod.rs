@@ -273,7 +273,7 @@ pub struct Player {
     pub main_inv: Inventory,
     /// Armor inventory, with 4 slots.
     pub armor_inv: Inventory,
-    /// The crafting matrix inventory with 4 slots.
+    /// The crafting matrix inventory with 9 slots, also used for the 4 slots matrix.
     pub craft_inv: Inventory,
     /// Current item stack being hold by the player's window cursor, placed here in order
     /// to drop it when the player dies.
@@ -289,7 +289,7 @@ impl Default for Player {
             sleeping: false, 
             main_inv: Inventory::new(36),
             armor_inv: Inventory::new(4), 
-            craft_inv: Inventory::new(4),
+            craft_inv: Inventory::new(9),
             cursor_stack: ItemStack::EMPTY, 
             hand_slot: 0,
         }
