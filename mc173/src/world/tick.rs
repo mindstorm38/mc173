@@ -35,7 +35,7 @@ impl World {
             block::DEAD_BUSH |
             block::TALL_GRASS => {},
             block::RED_MUSHROOM |
-            block::BROWN_MUSHROOM => {}, // Spread
+            block::BROWN_MUSHROOM => self.tick_mushroom(pos, id),
             block::SAPLING => {}, // Grow tree
             block::GRASS => {}, // Spread
             block::ICE => {}, // Melt
@@ -156,9 +156,30 @@ impl World {
 
         // Randomly grow depending on the calculated rate.
         if self.rand.next_int_bounded((100.0 / rate) as i32) == 0 {
-            self.set_block(pos, block::WHEAT, metadata + 1);
+            self.set_block_notify(pos, block::WHEAT, metadata + 1);
         }
 
+    }
+
+    /// Tick a mushroom to try spreading it.
+    fn tick_mushroom(&mut self, pos: IVec3, id: u8) {
+        if self.rand.next_int_bounded(100) == 0 {
+
+            let spread_pos = pos + IVec3 {
+                x: self.rand.next_int_bounded(3) - 1,
+                y: self.rand.next_int_bounded(2) - self.rand.next_int_bounded(2),
+                z: self.rand.next_int_bounded(3) - 1,
+            };
+
+            if self.get_light(spread_pos, false) < 13 {
+                if matches!(self.get_block(spread_pos), Some((block::AIR, _))) {
+                    if self.is_block_opaque(spread_pos - IVec3::Y) {
+                        self.set_block_notify(spread_pos, id, 0);
+                    }
+                }
+            }
+
+        }
     }
 
     /// Tick a moving fluid block.
