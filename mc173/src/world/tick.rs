@@ -22,7 +22,9 @@ impl World {
             block::REDSTONE_TORCH_LIT if !random => self.tick_redstone_torch(pos, metadata, true),
             block::WATER_MOVING => self.tick_fluid_moving(pos, metadata, block::WATER_MOVING, block::WATER_STILL),
             block::LAVA_MOVING => self.tick_fluid_moving(pos, metadata, block::LAVA_MOVING, block::LAVA_STILL),
-            block::CACTUS => self.tick_cactus(pos, metadata),
+            // NOTE: Sugar canes and cactus have the same logic, we just give the block.
+            block::SUGAR_CANES |
+            block::CACTUS => self.tick_cactus_or_sugar_canes(pos, id, metadata),
             block::CAKE => {}, // Seems unused in MC
             block::WHEAT => self.tick_wheat(pos, metadata),
             block::DETECTOR_RAIL => {},
@@ -34,6 +36,7 @@ impl World {
             block::POPPY |
             block::DEAD_BUSH |
             block::TALL_GRASS => {},
+            // Mushrooms ticking
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM => self.tick_mushroom(pos, id),
             block::SAPLING => {}, // Grow tree
@@ -44,8 +47,7 @@ impl World {
             block::STONE_PRESSURE_PLATE => {}, // Weird, why random tick for redstone?
             block::PUMPKIN |
             block::PUMPKIN_LIT => {}, // Seems unused
-            block::REDSTONE_ORE_LIT => {}, // Unlit
-            block::SUGAR_CANES => {}, // Grow
+            block::REDSTONE_ORE_LIT => self.tick_redstone_ore_lit(pos),
             block::SNOW => {}, // Melt
             block::SNOW_BLOCK => {}, // Melt (didn't know wtf?)
             block::LAVA_STILL => {}, // Specific to lava still
@@ -99,13 +101,13 @@ impl World {
     }
 
     /// Tick a cactus.
-    fn tick_cactus(&mut self, pos: IVec3, metadata: u8) {
+    fn tick_cactus_or_sugar_canes(&mut self, pos: IVec3, id: u8, metadata: u8) {
 
         // If the block above is air, count how many cactus block are below.
         if self.is_block_air(pos + IVec3::Y) {
             
             for dy in 1.. {
-                if !self.is_block(pos - IVec3::new(0, dy, 0), block::CACTUS) {
+                if !self.is_block(pos - IVec3::new(0, dy, 0), id) {
                     break;
                 } else if dy == 2 {
                     // Two cactus blocks below, should not grow more.
@@ -114,10 +116,10 @@ impl World {
             }
 
             if metadata == 15 {
-                self.set_block_notify(pos + IVec3::Y, block::CACTUS, 0);
-                self.set_block_notify(pos, block::CACTUS, 0);
+                self.set_block_notify(pos + IVec3::Y, id, 0);
+                self.set_block_notify(pos, id, 0);
             } else {
-                self.set_block_notify(pos, block::CACTUS, metadata + 1);
+                self.set_block_notify(pos, id, metadata + 1);
             }
 
         }
@@ -206,6 +208,10 @@ impl World {
             }
 
         }
+    }
+
+    fn tick_redstone_ore_lit(&mut self, pos: IVec3) {
+        self.set_block_notify(pos, block::REDSTONE_ORE, 0);
     }
 
     /// Tick a moving fluid block.

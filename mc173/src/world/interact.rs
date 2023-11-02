@@ -31,6 +31,7 @@ impl World {
             block::WOOD_DOOR => self.interact_wood_door(pos, metadata),
             block::REPEATER |
             block::REPEATER_LIT => self.interact_repeater(pos, id, metadata),
+            block::REDSTONE_ORE => self.interact_redstone_ore(pos),
             _ => return false
         }
     }
@@ -88,6 +89,11 @@ impl World {
         block::repeater::set_delay(&mut metadata, (delay + 1) % 4);
         self.set_block_notify(pos, id, metadata);
         true
+    }
+
+    fn interact_redstone_ore(&mut self, pos: IVec3) -> bool {
+        self.set_block_notify(pos, block::REDSTONE_ORE_LIT, 0);
+        false  // Notchian client lit the ore but do not mark the interaction.
     }
 
 }
