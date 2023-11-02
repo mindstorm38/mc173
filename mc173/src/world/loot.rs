@@ -40,9 +40,9 @@ impl World {
     /// if looting is checked on each try, typically used for explosions.
     pub fn spawn_block_loot(&mut self, pos: IVec3, id: u8, metadata: u8, chance: f32) {
         let tries = self.get_block_loot_tries(id, metadata);
-        for _ in 0..tries {
-            if self.rand.next_float() <= chance {
-                let stack = self.get_block_loot_stack(id, metadata);
+        for try_num in 0..tries {
+            if self.rand.next_float() <= self.get_block_loot_chance(id, metadata, try_num, chance) {
+                let stack = self.get_block_loot_stack(id, metadata, try_num);
                 if !stack.is_empty() {
                     self.spawn_loot(pos, stack, 0.7);
                 }
@@ -57,7 +57,7 @@ impl World {
             block::BOOKSHELF => 0,
             block::CAKE => 0,
             block::CLAY => 4,
-            block::WHEAT => 1,
+            block::WHEAT => 4,  // 1 for wheat item + 3 for seeds
             block::FIRE => 0,
             block::WATER_MOVING |
             block::WATER_STILL |
@@ -82,8 +82,15 @@ impl World {
         }
     }
 
+    fn get_block_loot_chance(&mut self, id: u8, metadata: u8, try_num: u8, default_chance: f32) -> f32 {
+        match id {
+            block::WHEAT if try_num != 0 => metadata as f32 / 14.0,  // Fully grown wheat have 0.5 chance.
+            _ => default_chance,
+        }
+    }
+
     /// Get the drop item stack from a block and metadata. This is called for each try.
-    fn get_block_loot_stack(&mut self, id: u8, metadata: u8) -> ItemStack {
+    fn get_block_loot_stack(&mut self, id: u8, metadata: u8, try_num: u8) -> ItemStack {
         match id {
             // Bed only drop if not head piece. 
             block::BED if block::bed::is_head(metadata) => ItemStack::EMPTY,
@@ -93,8 +100,9 @@ impl World {
             // Clay.
             block::CLAY => ItemStack::new_single(item::CLAY, 0),
             // Wheat, only drop if reached max stage.
-            block::WHEAT if metadata != 7 => return ItemStack::EMPTY,
-            block::WHEAT => ItemStack::new_single(item::WHEAT, 0),
+            block::WHEAT if try_num == 0 && metadata != 7 => return ItemStack::EMPTY,
+            block::WHEAT if try_num == 0 => ItemStack::new_single(item::WHEAT, 0),
+            block::WHEAT => ItemStack::new_single(item::WHEAT_SEEDS, 0),
             // Dead bush.
             block::DEAD_BUSH => ItemStack::EMPTY,
             // Door only drop if lower part.
