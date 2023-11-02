@@ -5,7 +5,7 @@ use crate::item;
 
 
 /// An base generic inventory with the given number of rows.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Inventory {
     /// Rows of items in the inventory, we use a two-dimensional array in order to easily
     /// multiply the `ROWS` const generic.

@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
+use crate::block_entity::BlockEntity;
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
 use crate::util::{JavaRandom, BoundingBox};
 use crate::item::ItemStack;
@@ -73,6 +74,8 @@ pub struct World {
     /// raw chunk structure do not care of entities, this wrapper however keep track for
     /// each chunk of the entities in it.
     chunks: HashMap<(i32, i32), WorldChunk>,
+    /// Mapping for block entities.
+    block_entities: HashMap<IVec3, Box<BlockEntity>>,
     /// Total entities count spawned since the world is running. Also used to give 
     /// entities a unique id.
     entities_count: u32,
@@ -124,6 +127,7 @@ impl World {
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
+            block_entities: HashMap::new(),
             entities_count: 0,
             entities: Vec::new(),
             entities_map: HashMap::new(),
@@ -267,79 +271,6 @@ impl World {
 
     }
 
-    /// Internal function to ensure monomorphization and reduce bloat of the 
-    /// generic [`spawn_entity`].
-    #[inline(never)]
-    fn spawn_entity_inner(&mut self, mut entity: Box<Entity>) -> u32 {
-
-        // Initial position is used to known in which chunk to cache it.
-        let entity_base = entity.base_mut();
-        let entity_index = self.entities.len();
-
-        // Get the next unique entity id.
-        let id = self.entities_count;
-        self.entities_count = self.entities_count.checked_add(1)
-            .expect("entity count overflow");
-
-        entity_base.id = id;
-
-        // Bind the entity to an existing chunk if possible.
-        let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
-        let mut world_entity = WorldEntity {
-            inner: Some(entity),
-            id,
-            cx,
-            cz,
-            orphan: false,
-            bb: None,
-        };
-        
-        if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
-            chunk.entities.insert(entity_index);
-        } else {
-            self.entities_orphan.insert(entity_index);
-            world_entity.orphan = true;
-        }
-
-        self.entities.push(world_entity);
-        self.entities_map.insert(id, entity_index);
-
-        self.push_event(Event::EntitySpawn { id });
-        id
-
-    }
-
-    /// Spawn an entity in this world, this function gives it a unique id and ensure 
-    /// coherency with chunks cache.
-    /// 
-    /// **This function is legal to call from ticking entities, but such entities will be
-    /// ticked once in the same cycle as the currently ticking entity.**
-    #[inline(always)]
-    pub fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32 {
-        // NOTE: This method is just a wrapper to ensure boxed entity.
-        self.spawn_entity_inner(entity.into())
-    }
-
-    /// Get a generic entity from its unique id. This generic entity can later be checked
-    /// for being of a particular type.
-    #[track_caller]
-    pub fn get_entity(&self, id: u32) -> Option<&Entity> {
-        let index = *self.entities_map.get(&id)?;
-        Some(self.entities[index].inner
-            .as_deref()
-            .expect("entity is being updated"))
-    }
-
-    /// Get a generic entity from its unique id. This generic entity can later be checked
-    /// for being of a particular type.
-    #[track_caller]
-    pub fn get_entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
-        let index = *self.entities_map.get(&id)?;
-        Some(self.entities[index].inner
-            .as_deref_mut()
-            .expect("entity is being updated"))
-    }
-
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.
     /// 
@@ -412,6 +343,101 @@ impl World {
 
         0
 
+    }
+
+    /// Get a block entity from its position.
+    /// TODO: Improve API
+    pub fn get_block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
+        self.block_entities.get(&pos).map(|b| &**b)
+    }
+
+    /// Get a block entity from its position.
+    /// TODO: Improve API
+    pub fn get_block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
+        self.block_entities.get_mut(&pos).map(|b| &mut **b)
+    }
+
+    /// TODO: Improve API
+    pub fn set_block_entity(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
+        self.block_entities.insert(pos, block_entity);
+    }
+
+    /// TODO: Improve API
+    pub fn remove_block_entity(&mut self, pos: IVec3) -> Option<Box<BlockEntity>> {
+        self.block_entities.remove(&pos)
+    }
+
+    /// Internal function to ensure monomorphization and reduce bloat of the 
+    /// generic [`spawn_entity`].
+    #[inline(never)]
+    fn spawn_entity_inner(&mut self, mut entity: Box<Entity>) -> u32 {
+
+        // Initial position is used to known in which chunk to cache it.
+        let entity_base = entity.base_mut();
+        let entity_index = self.entities.len();
+
+        // Get the next unique entity id.
+        let id = self.entities_count;
+        self.entities_count = self.entities_count.checked_add(1)
+            .expect("entity count overflow");
+
+        entity_base.id = id;
+
+        // Bind the entity to an existing chunk if possible.
+        let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
+        let mut world_entity = WorldEntity {
+            inner: Some(entity),
+            id,
+            cx,
+            cz,
+            orphan: false,
+            bb: None,
+        };
+        
+        if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
+            chunk.entities.insert(entity_index);
+        } else {
+            self.entities_orphan.insert(entity_index);
+            world_entity.orphan = true;
+        }
+
+        self.entities.push(world_entity);
+        self.entities_map.insert(id, entity_index);
+
+        self.push_event(Event::EntitySpawn { id });
+        id
+
+    }
+
+    /// Spawn an entity in this world, this function gives it a unique id and ensure 
+    /// coherency with chunks cache.
+    /// 
+    /// **This function is legal to call from ticking entities, but such entities will be
+    /// ticked once in the same cycle as the currently ticking entity.**
+    #[inline(always)]
+    pub fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32 {
+        // NOTE: This method is just a wrapper to ensure boxed entity.
+        self.spawn_entity_inner(entity.into())
+    }
+
+    /// Get a generic entity from its unique id. This generic entity can later be checked
+    /// for being of a particular type.
+    #[track_caller]
+    pub fn get_entity(&self, id: u32) -> Option<&Entity> {
+        let index = *self.entities_map.get(&id)?;
+        Some(self.entities[index].inner
+            .as_deref()
+            .expect("entity is being updated"))
+    }
+
+    /// Get a generic entity from its unique id. This generic entity can later be checked
+    /// for being of a particular type.
+    #[track_caller]
+    pub fn get_entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
+        let index = *self.entities_map.get(&id)?;
+        Some(self.entities[index].inner
+            .as_deref_mut()
+            .expect("entity is being updated"))
     }
 
     /// Schedule a tick update to happen at the given position, for the given block id
