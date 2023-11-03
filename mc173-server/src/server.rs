@@ -18,9 +18,9 @@ use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH,
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::interact::Interaction;
 use mc173::world::{World, Dimension, Event, Weather};
-use mc173::item::crafting::CraftingTracker;
-use mc173::item::inventory::Inventory;
 use mc173::item::{self, ItemStack};
+use mc173::craft::CraftingTracker;
+use mc173::inventory::Inventory;
 use mc173::util::Face;
 use mc173::block;
 

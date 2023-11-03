@@ -1,7 +1,7 @@
 //! Item crafting management.
 
-use crate::item::inventory::Inventory;
 use crate::item::{self, ItemStack};
+use crate::inventory::Inventory;
 use crate::block;
 
 

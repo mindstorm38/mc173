@@ -7,6 +7,9 @@ pub mod item;
 pub mod entity;
 pub mod block_entity;
 
+pub mod inventory;
+pub mod craft;
+
 pub mod chunk;
 pub mod world;
 pub mod path;

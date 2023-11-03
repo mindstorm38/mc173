@@ -1,6 +1,6 @@
 //! Chest block entity.
 
-use crate::item::inventory::Inventory;
+use crate::inventory::Inventory;
 
 
 #[derive(Debug, Clone)]

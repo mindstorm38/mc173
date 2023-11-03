@@ -4,7 +4,7 @@ use derive_more::{Deref, DerefMut};
 use glam::{DVec3, Vec2, IVec3};
 
 use crate::util::{JavaRandom, BoundingBox};
-use crate::item::inventory::Inventory;
+use crate::inventory::Inventory;
 use crate::item::ItemStack;
 use crate::world::World;
 
