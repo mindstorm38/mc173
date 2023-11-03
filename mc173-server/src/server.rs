@@ -1016,7 +1016,7 @@ impl ServerPlayer {
             } else {
 
                 // This last case is when the slot and the cursor are not empty, but we
-                // can't drop the cursor into the slot, in such case we try to pick the 
+                // can't drop the cursor into the slot, in such case we try to pick item.
 
                 if (slot_stack.id, slot_stack.damage) == (cursor_stack.id, cursor_stack.damage) {
                     let cursor_item = item::from_id(cursor_stack.id);

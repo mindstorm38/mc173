@@ -270,6 +270,9 @@ pub struct Player {
     /// True when the player is sleeping.
     pub sleeping: bool,
     /// Main inventory, with 36 slots.
+    /// TODO: Maybe move this to the server crate, because players are not saved like 
+    /// other entities, we could instead just use a more versatile buffer inventory to
+    /// pick items on ground and just transfer items to the server player on events.
     pub main_inv: Inventory,
     /// Armor inventory, with 4 slots.
     pub armor_inv: Inventory,
