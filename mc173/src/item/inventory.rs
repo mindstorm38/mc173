@@ -34,6 +34,11 @@ impl Inventory {
         &self.stacks
     }
 
+    /// Get a mutable slice of all stacks in this inventory.
+    pub fn stacks_mut(&mut self) -> &mut [ItemStack] {
+        &mut self.stacks
+    }
+
     /// Get an item at the given index.
     pub fn stack(&self, index: usize) -> ItemStack {
         self.stacks[index]

@@ -274,4 +274,12 @@ impl ItemStack {
         self
     }
 
+    /// Modify this item stack and make it empty after returning the contained item stack,
+    /// only if not already empty.
+    pub fn take_non_empty(&mut self) -> Option<ItemStack> {
+        let ret = self.to_non_empty();
+        *self = Self::EMPTY;
+        ret
+    }
+
 }

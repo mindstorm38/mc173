@@ -594,7 +594,9 @@ struct ServerPlayer {
     /// used to generate a unique window id. This id should never be zero because it is
     /// reserved for the player inventory.
     window_count: u32,
-    /// The current window opened on the client side.
+    /// The current window opened on the client side. Note that the player inventory is
+    /// not registered here while opened because we can't know when it is. However we 
+    /// know that its window id is always 0.
     window: Option<Window>,
     /// A temporary list of item changes in the current window, each item is associated 
     /// to its slot number.
@@ -1066,17 +1068,42 @@ impl ServerPlayer {
     }
 
     /// Handle a window close packet, it just forget the current window.
-    fn handle_window_close(&mut self, world: &mut World, packet: proto::WindowClosePacket) {
-        // FIXME: Drop crafting matrix items for example.
+    fn handle_window_close(&mut self, world: &mut World, _packet: proto::WindowClosePacket) {
+
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
+        
+        // For any closed inventory, we drop the cursor stack and crafting matrix.
+        let mut drop_stacks = Vec::new();
+        drop_stacks.extend(base.kind.kind.cursor_stack.take_non_empty());
+        for stack in base.kind.kind.craft_inv.stacks_mut() {
+            drop_stacks.extend(stack.take_non_empty());
+        }
+
+        for drop_stack in drop_stacks {
+            self.drop_item(world, drop_stack, false);
+        }
+
+        // Force clear the 2x2 inventory matrix.
+        for slot in 1..=4 {
+            self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
+                window_id: 0,
+                slot,
+                stack: None,
+            }));
+        }
+
         self.window = None;
+
     }
 
     /// Open the given window kind on client-side by sending appropriate packet. A new
     /// window id is automatically associated to that window.
     fn open_window(&mut self, kind: WindowKind) {
+        
         // NOTE: We should never get a window id of 0 because it is the player inventory.
         let id = (self.window_count % 100 + 1) as u8;
         self.window_count += 1;
+        
         let packet = match kind {
             WindowKind::CraftingTable => proto::WindowOpenPacket {
                 window_id: id,
@@ -1085,11 +1112,13 @@ impl ServerPlayer {
                 slots_count: 9,
             }
         };
+
         self.send(OutPacket::WindowOpen(packet));
         self.window = Some(Window { 
             id,
             kind,
         });
+
     }
 
     /// Drop an item from the player's entity, items are drop in front of the player, but
