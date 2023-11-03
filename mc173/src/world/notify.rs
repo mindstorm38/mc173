@@ -36,7 +36,7 @@ impl World {
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, id),
             block::WATER_MOVING |
-            block::LAVA_MOVING => self.notify_fluid_moving(pos, id),
+            block::LAVA_MOVING => self.notify_fluid(pos, id, metadata),
             block::WATER_STILL |
             block::LAVA_STILL => self.notify_fluid_still(pos, id, metadata),
             block::TRAPDOOR => self.notify_trapdoor(pos, metadata, origin_id),
@@ -90,17 +90,31 @@ impl World {
     }
 
     /// Notification of a moving fluid block.
-    fn notify_fluid_moving(&mut self, pos: IVec3, id: u8) {
-        // TODO: Make obsidian or cobblestone.
+    fn notify_fluid(&mut self, pos: IVec3, id: u8, metadata: u8) {
+        // If the fluid block is lava, check if we make cobblestone or lava.
+        if id == block::LAVA_MOVING {
+            let distance = block::fluid::get_distance(metadata);
+            for face in Face::HORIZONTAL {
+                if let Some((block::WATER_MOVING | block::WATER_STILL, _)) = self.get_block(pos + face.delta()) {
+                    // If there is at least one water block around.
+                    if distance == 0 {
+                        self.set_block_notify(pos, block::OBSIDIAN, 0);
+                    } else if distance <= 4 {
+                        self.set_block_notify(pos, block::COBBLESTONE, 0);
+                    }
+                }
+            }
+        }
     }
 
     /// Notification of a still fluid block.
     fn notify_fluid_still(&mut self, pos: IVec3, id: u8, metadata: u8) {
 
-        self.notify_fluid_moving(pos, id);
-
         // Subtract 1 from id to go from still to moving.
-        self.set_block_notify(pos, id - 1, metadata);
+        let moving_id = id - 1;
+
+        self.notify_fluid(pos, moving_id, metadata);
+        self.set_block_notify(pos, moving_id, metadata);
 
     }
 

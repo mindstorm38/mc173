@@ -287,6 +287,7 @@ impl World {
             }
 
         } else {
+            // No update to we fix the 
             self.set_block_notify(pos, still_id, metadata);
         }
 
