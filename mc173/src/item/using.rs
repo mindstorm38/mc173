@@ -135,12 +135,12 @@ fn place_door_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32, 
     } else {
 
         let left_count = 
-            world.is_block_opaque(left_pos) as u8 + 
-            world.is_block_opaque(left_pos + IVec3::Y) as u8;
+            world.is_block_opaque_cube(left_pos) as u8 + 
+            world.is_block_opaque_cube(left_pos + IVec3::Y) as u8;
     
         let right_count = 
-            world.is_block_opaque(right_pos) as u8 + 
-            world.is_block_opaque(right_pos + IVec3::Y) as u8;
+            world.is_block_opaque_cube(right_pos) as u8 + 
+            world.is_block_opaque_cube(right_pos + IVec3::Y) as u8;
 
         if left_count > right_count {
             flip = true;
@@ -182,7 +182,7 @@ fn place_bed_at(world: &mut World, mut pos: IVec3, face: Face, entity_id: u32) -
         return false;
     } else if !matches!(world.get_block(head_pos), Some((block::AIR, _))) {
         return false;
-    } else if !world.is_block_opaque(pos - IVec3::Y) || !world.is_block_opaque(head_pos - IVec3::Y) {
+    } else if !world.is_block_opaque_cube(pos - IVec3::Y) || !world.is_block_opaque_cube(head_pos - IVec3::Y) {
         return false;
     }
 

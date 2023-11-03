@@ -305,8 +305,8 @@ impl World {
     /// of that removal and addition.
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
-        self.handle_block_remove(pos, prev_id, prev_metadata);
-        self.handle_block_add(pos, id, metadata);
+        self.notify_remove_unchecked(pos, prev_id, prev_metadata);
+        self.notify_add_unchecked(pos, id, metadata);
         Some((prev_id, prev_metadata))
     }
 
@@ -358,8 +358,8 @@ impl World {
     }
 
     /// TODO: Improve API
-    pub fn set_block_entity(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
-        self.block_entities.insert(pos, block_entity);
+    pub fn set_block_entity(&mut self, pos: IVec3, block_entity: impl Into<Box<BlockEntity>>) {
+        self.block_entities.insert(pos, block_entity.into());
     }
 
     /// TODO: Improve API
@@ -615,7 +615,7 @@ impl World {
                 // Check coherency of the scheduled tick and current block.
                 if let Some((id, metadata)) = self.get_block(tick.state.pos) {
                     if id == tick.state.id {
-                        self.handle_tick_block(tick.state.pos, id, metadata, false);
+                        self.tick_block_unchecked(tick.state.pos, id, metadata, false);
                     }
                 }
             } else {
@@ -653,7 +653,7 @@ impl World {
         }
 
         for (pos, id, metadata) in pending_random_ticks.drain(..) {
-            self.handle_tick_block(pos, id, metadata, true);
+            self.tick_block_unchecked(pos, id, metadata, true);
         }
 
         self.random_ticks_pending = Some(pending_random_ticks);

@@ -7,11 +7,11 @@ pub mod chest;
 #[derive(Debug, Clone)]
 pub enum BlockEntity {
     Chest(chest::ChestBlockEntity),
-    Furnace(),
-    Dispenser(),
-    Spawner(),
-    NoteBlock(),
-    Piston(),
-    Sign(),
-    Jukebox(),
+    Furnace(()),
+    Dispenser(()),
+    Spawner(()),
+    NoteBlock(()),
+    Piston(()),
+    Sign(()),
+    Jukebox(()),
 }

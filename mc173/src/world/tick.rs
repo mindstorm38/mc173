@@ -11,7 +11,7 @@ use super::{World, Dimension};
 impl World {
 
     /// Tick a block in the world. The random 
-    pub(super) fn handle_tick_block(&mut self, pos: IVec3, id: u8, metadata: u8, random: bool) {
+    pub(super) fn tick_block_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8, random: bool) {
         match id {
             // PARITY: Notchian client has random tick on button?
             block::BUTTON if !random => self.tick_button(pos, metadata),
@@ -201,7 +201,7 @@ impl World {
 
             if self.get_light(spread_pos, false) < 13 {
                 if self.is_block_air(spread_pos) {
-                    if self.is_block_opaque(spread_pos - IVec3::Y) {
+                    if self.is_block_opaque_cube(spread_pos - IVec3::Y) {
                         self.set_block_notify(spread_pos, id, 0);
                     }
                 }

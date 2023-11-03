@@ -1,8 +1,11 @@
 //! Interaction of players with blocks in the world.
 
 use glam::IVec3;
+use smallvec::SmallVec;
 
 use crate::block;
+use crate::block_entity::BlockEntity;
+use crate::util::Face;
 
 use super::World;
 
@@ -14,7 +17,7 @@ impl World {
     /// typically prevent usage of the player's hand item.
     pub fn interact_block(&mut self, pos: IVec3) -> Interaction {
         if let Some((id, metadata)) = self.get_block(pos) {
-            self.handle_interact_block(pos, id, metadata)
+            self.interact_block_unchecked(pos, id, metadata)
         } else {
             Interaction::None
         }
@@ -22,7 +25,7 @@ impl World {
 
     /// Internal function to handle block interaction at given position and with known
     /// block and metadata. The function returns true if an interaction has been handled.
-    pub(super) fn handle_interact_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Interaction {
+    pub(super) fn interact_block_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8) -> Interaction {
         match id {
             block::BUTTON => self.interact_button(pos, metadata),
             block::LEVER => self.interact_lever(pos, metadata),
@@ -33,6 +36,9 @@ impl World {
             block::REPEATER_LIT => self.interact_repeater(pos, id, metadata),
             block::REDSTONE_ORE => self.interact_redstone_ore(pos),
             block::CRAFTING_TABLE => return Interaction::CraftingTable,
+            block::CHEST => return self.interact_chest(pos),
+            block::FURNACE => return self.interact_furnace(pos),
+            block::DISPENSER => return self.interact_dispenser(pos),
             _ => return Interaction::None
         }.into()
     }
@@ -97,6 +103,58 @@ impl World {
         false  // Notchian client lit the ore but do not mark the interaction.
     }
 
+    fn interact_chest(&mut self, pos: IVec3) -> Interaction {
+
+        let Some(BlockEntity::Chest(_)) = self.get_block_entity(pos) else {
+            return Interaction::Handled
+        };
+
+        if self.is_block_opaque_cube(pos + IVec3::Y) {
+            return Interaction::Handled;
+        }
+
+        for face in Face::HORIZONTAL {
+            if self.is_block_opaque_cube(pos + face.delta() + IVec3::Y) {
+                return Interaction::Handled;
+            }
+        }
+
+        let mut block_entities = SmallVec::new();
+        block_entities.push(pos);
+
+        // NOTE: Same order as Notchian server for parity, we also insert first or last
+        // depending on the neighbor chest being on neg or pos face, like Notchian client.
+        for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
+            let face_pos = pos + face.delta();
+            if let Some(BlockEntity::Chest(_)) = self.get_block_entity(face_pos) {
+                if face.is_neg() {
+                    block_entities.insert(0, face_pos);
+                } else {
+                    block_entities.push(face_pos);
+                }
+            }
+        }
+
+        Interaction::Chest { block_entities }
+
+    }
+
+    fn interact_furnace(&mut self, pos: IVec3) -> Interaction {
+        if let Some(BlockEntity::Furnace(_)) = self.get_block_entity(pos) {
+            Interaction::Furnace { block_entity: pos }
+        } else {
+            Interaction::None
+        }
+    }
+
+    fn interact_dispenser(&mut self, pos: IVec3) -> Interaction {
+        if let Some(BlockEntity::Dispenser(_)) = self.get_block_entity(pos) {
+            Interaction::Dispenser { block_entity: pos }
+        } else {
+            Interaction::None
+        }
+    }
+
 }
 
 
@@ -112,13 +170,25 @@ pub enum Interaction {
     CraftingTable,
     /// A chest has been interacted, the front-end should interpret this and open the
     /// chest window.
-    Chest,
+    Chest {
+        /// Positions of the chest block entities to connect to, from top layer in the
+        /// window to bottom one. They have been checked to exists before.
+        block_entities: SmallVec<[IVec3; 2]>,
+    },
     /// A furnace has been interacted, the front-end should interpret this and open the
     /// furnace window.
-    Furnace,
+    Furnace {
+        /// Position of the furnace block entity to connect to, it has been checked to
+        /// exists.
+        block_entity: IVec3,
+    },
     /// A dispenser has been interacted, the front-end should interpret this and open
     /// the dispenser window.
-    Dispenser,
+    Dispenser {
+        /// Position of the dispenser block entity to connect to, it has been checked to
+        /// exists.
+        block_entity: IVec3,
+    },
 }
 
 impl From<bool> for Interaction {

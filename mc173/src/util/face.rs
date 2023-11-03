@@ -47,6 +47,16 @@ impl Face {
     }
 
     #[inline]
+    pub fn is_pos(self) -> bool {
+        matches!(self, Face::PosX | Face::PosY | Face::PosZ)
+    }
+
+    #[inline]
+    pub fn is_neg(self) -> bool {
+        matches!(self, Face::NegX | Face::NegY | Face::NegZ)
+    }
+
+    #[inline]
     pub fn is_y(self) -> bool {
         matches!(self, Face::NegY | Face::PosY)
     }

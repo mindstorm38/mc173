@@ -19,7 +19,7 @@ impl World {
     }
 
     /// Return true if the block at position is opaque.
-    pub fn is_block_opaque(&mut self, pos: IVec3) -> bool {
+    pub fn is_block_opaque_cube(&mut self, pos: IVec3) -> bool {
         if let Some((id, _)) = self.get_block(pos) {
             block::material::is_opaque_cube(id)
         } else {

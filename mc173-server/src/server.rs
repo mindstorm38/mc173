@@ -882,7 +882,7 @@ impl ServerPlayer {
                     Interaction::CraftingTable => {
                         self.open_window(WindowKind::CraftingTable);
                     }
-                    _ => {}
+                    interaction => println!("interaction: {interaction:?}")
                 }
             } else {
                 new_hand_stack = item::using::use_raw(world, self.entity_id, hand_stack);

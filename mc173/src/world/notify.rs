@@ -23,12 +23,12 @@ impl World {
     /// Notify a block a the position, the notification origin block id is given.
     pub fn notify_block(&mut self, pos: IVec3, origin_id: u8) {
         if let Some((id, metadata)) = self.get_block(pos) {
-            self.handle_block_notify(pos, id, metadata, origin_id);
+            self.notify_block_unchecked(pos, id, metadata, origin_id);
         }
     }
 
     /// Notify a block a the position, the notification origin block id is given.
-    pub(super) fn handle_block_notify(&mut self, pos: IVec3, id: u8, metadata: u8, origin_id: u8) {
+    pub(super) fn notify_block_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8, origin_id: u8) {
         match id {
             block::REDSTONE if origin_id != block::REDSTONE => self.notify_redstone(pos),
             block::REPEATER |
@@ -55,7 +55,7 @@ impl World {
         }
     }
 
-    pub(super) fn handle_block_add(&mut self, pos: IVec3, id: u8, metadata: u8) {
+    pub(super) fn notify_add_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8) {
         match id {
             block::WATER_MOVING => self.schedule_tick(pos, id, 5),
             block::LAVA_MOVING => self.schedule_tick(pos, id, 30),
@@ -69,7 +69,8 @@ impl World {
         }
     }
 
-    pub(super) fn handle_block_remove(&mut self, pos: IVec3, id: u8, metadata: u8) {
+    pub(super) fn notify_remove_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8) {
+       
         match id {
             block::BUTTON => {
                 if let Some(face) = block::button::get_face(metadata) {
@@ -83,6 +84,9 @@ impl World {
             }
             _ => {}
         }
+
+        self.remove_block_entity(pos);
+
     }
 
     /// Notification of a moving fluid block.
@@ -113,7 +117,7 @@ impl World {
 
     /// Notification of a mushroom block.
     fn notify_mushroom(&mut self, pos: IVec3) {
-        if self.get_light(pos, false) >= 13 || !self.is_block_opaque(pos - IVec3::Y) {
+        if self.get_light(pos, false) >= 13 || !self.is_block_opaque_cube(pos - IVec3::Y) {
             self.break_block(pos);
         }
     }
@@ -154,7 +158,7 @@ impl World {
     /// state depending on redstone signal.
     fn notify_trapdoor(&mut self, pos: IVec3, mut metadata: u8, origin_id: u8) {
         let face = block::trapdoor::get_face(metadata);
-        if !self.is_block_opaque(pos + face.delta()) {
+        if !self.is_block_opaque_cube(pos + face.delta()) {
             self.break_block(pos);
         } else {
             let open = block::trapdoor::is_open(metadata);
@@ -195,7 +199,7 @@ impl World {
             }
 
             // Also check that door can stay in place.
-            if !self.is_block_opaque(pos - IVec3::Y) {
+            if !self.is_block_opaque_cube(pos - IVec3::Y) {
                 // NOTE: This will notify the upper part and destroy it.
                 self.break_block(pos);
                 return;

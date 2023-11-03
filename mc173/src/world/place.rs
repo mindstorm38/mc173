@@ -3,6 +3,7 @@
 use glam::IVec3;
 
 use crate::block;
+use crate::block_entity::BlockEntity;
 use crate::util::Face;
 
 use super::World;
@@ -15,12 +16,12 @@ impl World {
     pub fn can_place_block(&mut self, pos: IVec3, face: Face, id: u8) -> bool {
         let base = match id {
             block::BUTTON if face.is_y() => false,
-            block::BUTTON => self.is_block_opaque(pos + face.delta()),
+            block::BUTTON => self.is_block_opaque_cube(pos + face.delta()),
             block::LEVER if face == Face::PosY => false,
-            block::LEVER => self.is_block_opaque(pos + face.delta()),
+            block::LEVER => self.is_block_opaque_cube(pos + face.delta()),
             block::LADDER => self.is_block_opaque_around(pos),
             block::TRAPDOOR if face.is_y() => false,
-            block::TRAPDOOR => self.is_block_opaque(pos + face.delta()),
+            block::TRAPDOOR => self.is_block_opaque_cube(pos + face.delta()),
             block::PISTON_EXT |
             block::PISTON_MOVING => false,
             block::DEAD_BUSH => matches!(self.get_block(pos - IVec3::Y), Some((block::SAND, _))),
@@ -39,7 +40,7 @@ impl World {
             block::FIRE => true, // TODO:
             block::TORCH |
             block::REDSTONE_TORCH |
-            block::REDSTONE_TORCH_LIT => self.is_block_opaque(pos + face.delta()),
+            block::REDSTONE_TORCH_LIT => self.is_block_opaque_cube(pos + face.delta()),
             // Common blocks that needs opaque block below.
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM |
@@ -53,7 +54,7 @@ impl World {
             block::REPEATER |
             block::REPEATER_LIT |
             block::REDSTONE |
-            block::SNOW => self.is_block_opaque(pos - IVec3::Y),
+            block::SNOW => self.is_block_opaque_cube(pos - IVec3::Y),
             _ => true,
         };
         base && self.is_block_replaceable(pos)
@@ -95,7 +96,7 @@ impl World {
     }
 
     fn can_place_door(&mut self, pos: IVec3) -> bool {
-        self.is_block_opaque(pos - IVec3::Y) && self.is_block_replaceable(pos + IVec3::Y)
+        self.is_block_opaque_cube(pos - IVec3::Y) && self.is_block_replaceable(pos + IVec3::Y)
     }
 
 
@@ -103,6 +104,7 @@ impl World {
     /// that this function do not check if this is legal, it will do what's asked. Also, the
     /// given metadata may be modified to account for the placement.
     pub fn place_block(&mut self, pos: IVec3, face: Face, id: u8, metadata: u8) {
+        
         match id {
             block::BUTTON => self.place_faced(pos, face, id, metadata, block::button::set_face),
             block::TRAPDOOR => self.place_faced(pos, face, id, metadata, block::trapdoor::set_face),
@@ -125,6 +127,12 @@ impl World {
                 self.set_block_notify(pos, id, metadata);
             }
         }
+
+        match id {
+            block::CHEST => self.set_block_entity(pos, BlockEntity::Chest(Default::default())),
+            _ => {}
+        }
+
     }
 
     /// Generic function to place a block that has a basic facing function.
@@ -144,10 +152,10 @@ impl World {
 
     fn place_ladder(&mut self, pos: IVec3, mut face: Face, mut metadata: u8) {
         // Privileging desired face, but if desired face cannot support a ladder.
-        if face.is_y() || !self.is_block_opaque(pos + face.delta()) {
+        if face.is_y() || !self.is_block_opaque_cube(pos + face.delta()) {
             // NOTE: Order is important for parity with client.
             for around_face in [Face::PosZ, Face::NegZ, Face::PosX, Face::NegX] {
-                if self.is_block_opaque(pos + around_face.delta()) {
+                if self.is_block_opaque_cube(pos + around_face.delta()) {
                     face = around_face;
                     break;
                 }
@@ -160,7 +168,7 @@ impl World {
     /// Check is there are at least one opaque block around horizontally.
     fn is_block_opaque_around(&mut self, pos: IVec3) -> bool {
         for face in Face::HORIZONTAL {
-            if self.is_block_opaque(pos + face.delta()) {
+            if self.is_block_opaque_cube(pos + face.delta()) {
                 return true;
             }
         }
