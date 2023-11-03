@@ -5,13 +5,14 @@ use crate::item::inventory::Inventory;
 
 #[derive(Debug, Clone)]
 pub struct ChestBlockEntity {
-    pub inventory: Inventory,
+    /// The inventory of the chest.
+    pub inv: Inventory,
 }
 
 impl Default for ChestBlockEntity {
     fn default() -> Self {
         Self {
-            inventory: Inventory::new(36),
+            inv: Inventory::new(27),
         }
     }
 }

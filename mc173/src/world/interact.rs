@@ -1,7 +1,6 @@
 //! Interaction of players with blocks in the world.
 
 use glam::IVec3;
-use smallvec::SmallVec;
 
 use crate::block;
 use crate::block_entity::BlockEntity;
@@ -119,8 +118,7 @@ impl World {
             }
         }
 
-        let mut block_entities = SmallVec::new();
-        block_entities.push(pos);
+        let mut block_entities = vec![pos];
 
         // NOTE: Same order as Notchian server for parity, we also insert first or last
         // depending on the neighbor chest being on neg or pos face, like Notchian client.
@@ -173,7 +171,7 @@ pub enum Interaction {
     Chest {
         /// Positions of the chest block entities to connect to, from top layer in the
         /// window to bottom one. They have been checked to exists before.
-        block_entities: SmallVec<[IVec3; 2]>,
+        block_entities: Vec<IVec3>,
     },
     /// A furnace has been interacted, the front-end should interpret this and open the
     /// furnace window.

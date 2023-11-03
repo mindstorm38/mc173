@@ -623,7 +623,6 @@ pub struct WindowSetItemPacket {
 #[derive(Debug, Clone)]
 pub struct WindowItemsPacket {
     pub window_id: u8,
-    pub count: i16,
     pub stacks: Vec<Option<ItemStack>>,
 }
 

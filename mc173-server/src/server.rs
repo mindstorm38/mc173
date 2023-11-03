@@ -13,6 +13,7 @@ use flate2::Compression;
 
 use glam::{DVec3, Vec2, IVec3};
 
+use mc173::block_entity::BlockEntity;
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::interact::Interaction;
@@ -618,6 +619,9 @@ struct Window {
 
 enum WindowKind {
     CraftingTable,
+    Chest {
+        block_entities: Vec<IVec3>,
+    },
 }
 
 /// State of a player breaking a block.
@@ -880,7 +884,10 @@ impl ServerPlayer {
                         new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
                     }
                     Interaction::CraftingTable => {
-                        self.open_window(WindowKind::CraftingTable);
+                        self.open_window(world, WindowKind::CraftingTable);
+                    }
+                    Interaction::Chest { block_entities } => {
+                        self.open_window(world, WindowKind::Chest { block_entities });
                     }
                     interaction => println!("interaction: {interaction:?}")
                 }
@@ -932,25 +939,8 @@ impl ServerPlayer {
             todo!()
         } else {
 
-            let mut slot_handle;
-
-            if packet.window_id == 0 {
-                slot_handle = SlotHandle::new_player(self, packet.slot, base);
-            } else {
-
-                // Check if the window id is coherent with the server's one.
-                let Some(window) = &self.window else { return };
-                if window.id != packet.window_id {
-                    return;
-                }
-
-                match window.kind {
-                    WindowKind::CraftingTable => {
-                        slot_handle = SlotHandle::new_crafting_table(self, packet.slot, base);
-                    }
-                }
-
-            }
+            let slot_handle = self.make_window_slot_handle(world, packet.window_id, packet.slot);
+            let Some(mut slot_handle) = slot_handle else { return };
 
             slot_stack = slot_handle.stack();
 
@@ -1098,26 +1088,167 @@ impl ServerPlayer {
 
     /// Open the given window kind on client-side by sending appropriate packet. A new
     /// window id is automatically associated to that window.
-    fn open_window(&mut self, kind: WindowKind) {
+    fn open_window(&mut self, world: &mut World, kind: WindowKind) {
         
         // NOTE: We should never get a window id of 0 because it is the player inventory.
         let id = (self.window_count % 100 + 1) as u8;
         self.window_count += 1;
         
-        let packet = match kind {
-            WindowKind::CraftingTable => proto::WindowOpenPacket {
-                window_id: id,
-                inventory_type: 1,
-                title: "Crafting".to_string(),
-                slots_count: 9,
+        match kind {
+            WindowKind::CraftingTable => {
+                self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
+                    window_id: id,
+                    inventory_type: 1,
+                    title: "Crafting".to_string(),
+                    slots_count: 9,
+                }));
+            }
+            WindowKind::Chest { ref block_entities } => {
+
+                self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
+                    window_id: id,
+                    inventory_type: 0,
+                    title: if block_entities.len() <= 1 { "Chest" } else { "Large Chest" }.to_string(),
+                    slots_count: (block_entities.len() * 27) as u8,  // TODO: Checked cast
+                }));
+
+                let mut stacks = Vec::new();
+
+                for &block_entity_pos in block_entities {
+                    if let Some(BlockEntity::Chest(chest)) = world.get_block_entity(block_entity_pos) {
+                        stacks.extend(chest.inv.stacks().iter().map(|stack| stack.to_non_empty()));
+                    } else {
+                        stacks.extend(std::iter::repeat(None).take(27));
+                    }
+                }
+
+                self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
+                    window_id: id,
+                    stacks,
+                }));
+
             }
         };
 
-        self.send(OutPacket::WindowOpen(packet));
         self.window = Some(Window { 
             id,
             kind,
         });
+
+    }
+
+    /// Internal function to create a window slot handle. This handle is temporary and
+    /// own two mutable reference to the player itself and the world, it can only work
+    /// on the given slot.
+    fn make_window_slot_handle<'p, 'w>(&'p mut self, world: &'w mut World, window_id: u8, slot: i16) -> Option<SlotHandle<'p, 'w>> {
+
+        // This avoid temporary cast issues afterward, even if we keep the signed type.
+        if slot < 0 {
+            return None;
+        }
+
+        // Internal function to get the common slot kind for player inventory of window.
+        fn make_player_window_slot<'w>(base: &'w mut PlayerEntity, relative_slot: i16) -> Option<SlotKind<'w>> {
+            Some(match relative_slot {
+                0..=26 => SlotKind::Storage { 
+                    inv: &mut base.kind.kind.main_inv, 
+                    index: relative_slot as usize + 9,
+                },
+                27..=35 => SlotKind::Storage { 
+                    inv: &mut base.kind.kind.main_inv, 
+                    index: relative_slot as usize - 27,
+                },
+                _ => return None,
+            })
+        }
+
+        let kind: SlotKind<'w>;
+        if window_id == 0 {
+
+            // Currently only work for player entity.
+            let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
+                return None
+            };
+
+            kind = match slot {
+                0 => SlotKind::CraftingResult {
+                    inv: &mut base.kind.kind.craft_inv,
+                    grid_first_slot: 1,
+                },
+                1..=4 => SlotKind::CraftingGrid { 
+                    inv: &mut base.kind.kind.craft_inv, 
+                    index: match slot {
+                        1 => 0,
+                        2 => 1,
+                        3 => 3,
+                        4 => 4,
+                        _ => unreachable!()
+                    },
+                    result_slot: 0,
+                },
+                5..=8 => SlotKind::Armor { 
+                    inv: &mut base.kind.kind.armor_inv, 
+                    index: slot as usize - 5,
+                },
+                _ => make_player_window_slot(base, slot - 9)?
+            };
+
+        } else {
+
+            let window = self.window.as_ref()?;
+            if window.id != window_id {
+                return None;
+            }
+
+            match window.kind {
+                WindowKind::CraftingTable => {
+
+                    // Currently only work for player entity.
+                    let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
+                        return None
+                    };
+                    
+                    kind = match slot {
+                        0 => SlotKind::CraftingResult {
+                            inv: &mut base.kind.kind.craft_inv,
+                            grid_first_slot: 1,
+                        },
+                        1..=9 => SlotKind::CraftingGrid { 
+                            inv: &mut base.kind.kind.craft_inv, 
+                            index: slot as usize - 1,
+                            result_slot: 0,
+                        },
+                        _ => make_player_window_slot(base, slot - 10)?,
+                    };
+
+                }
+                WindowKind::Chest { ref block_entities } => {
+
+                    let block_entity_index = slot as usize / 27;
+                    if let Some(&block_entity_pos) = block_entities.get(block_entity_index) {
+                        // Get the chest tile entity corresponding to the clicked slot,
+                        // if not found we just ignore.
+                        let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(block_entity_pos) else {
+                            return None
+                        };
+                        kind = SlotKind::Storage { 
+                            inv: &mut chest.inv,
+                            index: slot as usize % 27,
+                        };
+                    } else {
+                        // Currently only work for player entity.
+                        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
+                            return None
+                        };
+                        kind = make_player_window_slot(base, slot - block_entities.len() as i16 * 27)?;
+                    }
+
+                }
+            }
+
+        };
+
+        Some(SlotHandle::new(self, slot, kind))
 
     }
 
@@ -1551,64 +1682,6 @@ enum SlotKind<'w> {
 
 impl<'p, 'w> SlotHandle<'p, 'w> {
 
-    /// Create a new slot handle for a player inventory slot.
-    fn new_player(player: &'p mut ServerPlayer, slot: i16, base: &'w mut PlayerEntity) -> Self {
-        Self::new(player, slot, match slot {
-            0 => SlotKind::CraftingResult {
-                inv: &mut base.kind.kind.craft_inv,
-                grid_first_slot: 1,
-            },
-            1..=4 => SlotKind::CraftingGrid { 
-                inv: &mut base.kind.kind.craft_inv, 
-                index: match slot {
-                    1 => 0,
-                    2 => 1,
-                    3 => 3,
-                    4 => 4,
-                    _ => unreachable!()
-                }, 
-                result_slot: 0,
-            },
-            5..=8 => SlotKind::Armor { 
-                inv: &mut base.kind.kind.armor_inv, 
-                index: slot as usize - 5,
-            },
-            9..=35 => SlotKind::Storage { 
-                inv: &mut base.kind.kind.main_inv, 
-                index: slot as usize,
-            },
-            36..=44 => SlotKind::Storage { 
-                inv: &mut base.kind.kind.main_inv, 
-                index: slot as usize - 36,
-            },
-            _ => panic!()
-        })
-    }
-
-    /// Create a new slot handle for a crafting table inventory slot.
-    fn new_crafting_table(player: &'p mut ServerPlayer, slot: i16, base: &'w mut PlayerEntity) -> Self {
-        Self::new(player, slot, match slot {
-            0 => SlotKind::CraftingResult {
-                inv: &mut base.kind.kind.craft_inv,
-                grid_first_slot: 1,
-            },
-            1..=9 => SlotKind::CraftingGrid { 
-                inv: &mut base.kind.kind.craft_inv, 
-                index: slot as usize - 1,
-                result_slot: 0,
-            },
-            10..=36 => SlotKind::Storage { 
-                inv: &mut base.kind.kind.main_inv, 
-                index: slot as usize - 1,
-            },
-            37..=45 => SlotKind::Storage { 
-                inv: &mut base.kind.kind.main_inv, 
-                index: slot as usize - 37,
-            },
-            _ => panic!()
-        })
-    }
-
     fn new(player: &'p mut ServerPlayer, slot: i16, kind: SlotKind<'w>) -> Self {
         Self { player, slot, kind }
     }
@@ -1716,7 +1789,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
                 
                 for (i, grid_stack) in inv.stacks().iter().copied().enumerate() {
                     self.player.window_slot_changes.push((grid_first_slot + i as i16, grid_stack));
-                } 
+                }
 
                 self.player.window_slot_changes.push((self.slot, result_stack));
 
