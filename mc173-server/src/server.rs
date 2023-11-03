@@ -617,8 +617,11 @@ struct Window {
     kind: WindowKind,
 }
 
+/// Describe a kind of opened window on the client side.
 enum WindowKind {
+    /// The client-side has a crafting table window opened.
     CraftingTable,
+    /// The client-side has a chest window opened referencing the listed block entities.
     Chest {
         block_entities: Vec<IVec3>,
     },
