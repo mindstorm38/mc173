@@ -44,14 +44,14 @@ on them. The priority of each feature is defined by its order in the list.
     - [ ] Player window
         - [x] Left and right click support
         - [x] Player inventory crafting grid
-        - [ ] Crafting table
+        - [x] Crafting table
         - [ ] Chest
         - [ ] Furnace
         - [ ] Shift-click on items
-    - [ ] Block breaking
+    - [x] Block breaking
         - [x] Long block breaking
-        - [ ] Instant block breaking
-        - [ ] Block breaking duration check
+        - [x] Instant block breaking
+        - [x] Block breaking duration check
     - [ ] Entity tracking
         - [ ] Client-side spawn (partial) 
 - [ ] World generation
