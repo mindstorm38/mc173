@@ -26,6 +26,7 @@ pub mod place;
 pub mod r#break;
 pub mod tick;
 pub mod notify;
+pub mod light;
 
 
 /// Data structure for a whole world.

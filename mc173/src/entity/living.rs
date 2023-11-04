@@ -79,9 +79,9 @@ impl<I> Base<Living<I>> {
             if self.on_ground {
                 slipperiness = 546.0 * 0.1 * 0.1 * 0.1;
                 let ground_pos = self.pos.as_ivec3();
-                if let Some((block, _)) = world.get_block(ground_pos) {
-                    if block != 0 {
-                        slipperiness = block::from_id(block).slipperiness * 0.91;
+                if let Some((ground_id, _)) = world.get_block(ground_pos) {
+                    if ground_id != 0 {
+                        slipperiness = block::material::get_slipperiness(ground_id) * 0.91;
                     }
                 }
             }

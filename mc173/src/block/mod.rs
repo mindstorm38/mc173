@@ -51,10 +51,10 @@ blocks! {
     WOOD/5:             Block::new("wood", Material::Wood, 15.0),
     SAPLING/6:          Block::new("sapling", Material::Plant, 0.0),
     BEDROCK/7:          Block::new("bedrock", Material::Rock, 18000000.0),
-    WATER_MOVING/8:     Block::new("water_moving", Material::Water, 0.0).set_light_opacity(3),
-    WATER_STILL/9:      Block::new("water_still", Material::Water, 0.0).set_light_opacity(3),
-    LAVA_MOVING/10:     Block::new("lava_moving", Material::Lava, 0.0).set_light_emission(15),
-    LAVA_STILL/11:      Block::new("lava_still", Material::Lava, 0.0).set_light_emission(15),
+    WATER_MOVING/8:     Block::new("water_moving", Material::Water, 0.0),
+    WATER_STILL/9:      Block::new("water_still", Material::Water, 0.0),
+    LAVA_MOVING/10:     Block::new("lava_moving", Material::Lava, 0.0),
+    LAVA_STILL/11:      Block::new("lava_still", Material::Lava, 0.0),
     SAND/12:            Block::new("sand", Material::Sand, 0.0),
     GRAVEL/13:          Block::new("gravel", Material::Sand,0.0),
     GOLD_ORE/14:        Block::new("gold_ore", Material::Rock, 15.0),
@@ -93,8 +93,8 @@ blocks! {
     BOOKSHELF/47:       Block::new("bookshelf", Material::Wood, 0.0),
     MOSSY_COBBLESTONE/48: Block::new("mossy_cobblestone", Material::Rock, 30.0),
     OBSIDIAN/49:        Block::new("obsidian", Material::Rock, 6000.0),
-    TORCH/50:           Block::new("torch", Material::Circuit, 0.0).set_light_emission(14),
-    FIRE/51:            Block::new("fire", Material::Fire, 0.0).set_light_emission(15),
+    TORCH/50:           Block::new("torch", Material::Circuit, 0.0),
+    FIRE/51:            Block::new("fire", Material::Fire, 0.0),
     SPAWNER/52:         Block::new("spawner", Material::Rock, 0.0),
     WOOD_STAIR/53:      Block::new("wood_stair", Material::Wood, 15.0),
     CHEST/54:           Block::new("chest", Material::Wood, 0.0),
@@ -105,7 +105,7 @@ blocks! {
     WHEAT/59:           Block::new("wheat", Material::Plant, 0.0),
     FARMLAND/60:        Block::new("farmland", Material::Ground, 0.0),
     FURNACE/61:         Block::new("furnace", Material::Rock, 0.0),
-    FURNACE_LIT/62:     Block::new("furnace_lit", Material::Rock, 0.0).set_light_emission(14),
+    FURNACE_LIT/62:     Block::new("furnace_lit", Material::Rock, 0.0),
     SIGN/63:            Block::new("sign", Material::Wood, 0.0),
     WOOD_DOOR/64:       Block::new("wood_door", Material::Wood, 0.0),
     LADDER/65:          Block::new("ladder", Material::Circuit, 0.0),
@@ -117,12 +117,12 @@ blocks! {
     IRON_DOOR/71:       Block::new("iron_door", Material::Iron, 15.0),
     WOOD_PRESSURE_PLATE/72: Block::new("wood_pressure_plate", Material::Wood, 0.0),
     REDSTONE_ORE/73:    Block::new("redstone_ore", Material::Rock, 15.0),
-    REDSTONE_ORE_LIT/74: Block::new("redstone_ore_lit", Material::Rock, 15.0).set_light_emission(9),
+    REDSTONE_ORE_LIT/74: Block::new("redstone_ore_lit", Material::Rock, 15.0),
     REDSTONE_TORCH/75:  Block::new("redstone_torch", Material::Circuit, 0.0),
-    REDSTONE_TORCH_LIT/76:  Block::new("redstone_torch_lit", Material::Circuit, 0.0).set_light_emission(7),
+    REDSTONE_TORCH_LIT/76:  Block::new("redstone_torch_lit", Material::Circuit, 0.0),
     BUTTON/77:          Block::new("button", Material::Circuit, 0.0),
     SNOW/78:            Block::new("snow", Material::Snow, 0.0),
-    ICE/79:             Block::new("ice", Material::Ice, 0.0).set_light_opacity(3).set_slipperiness(0.98),
+    ICE/79:             Block::new("ice", Material::Ice, 0.0),
     SNOW_BLOCK/80:      Block::new("snow_block", Material::SnowBlock, 0.0),
     CACTUS/81:          Block::new("cactus", Material::Cactus, 0.0),
     CLAY/82:            Block::new("clay", Material::Clay, 0.0),
@@ -132,14 +132,14 @@ blocks! {
     PUMPKIN/86:         Block::new("pumpkin", Material::Pumpkin, 0.0),
     NETHERRACK/87:      Block::new("netherrack", Material::Rock, 0.0),
     SOULSAND/88:        Block::new("soulsand", Material::Sand, 0.0),
-    GLOWSTONE/89:       Block::new("glowstone", Material::Rock, 0.0).set_light_emission(15),
-    PORTAL/90:          Block::new("portal", Material::Portal, 0.0).set_light_emission(15),
+    GLOWSTONE/89:       Block::new("glowstone", Material::Rock, 0.0),
+    PORTAL/90:          Block::new("portal", Material::Portal, 0.0),
     PUMPKIN_LIT/91:     Block::new("pumpkin_lit", Material::Pumpkin, 0.0),
-    CAKE/92:            Block::new("cake", Material::Cake, 0.0).set_light_opacity(0),
+    CAKE/92:            Block::new("cake", Material::Cake, 0.0),
     REPEATER/93:        Block::new("repeater", Material::Circuit, 0.0),
-    REPEATER_LIT/94:    Block::new("repeater_lit", Material::Circuit, 0.0).set_light_emission(9),
-    LOCKED_CHEST/95:    Block::new("locked_chest", Material::Wood, 0.0).set_light_emission(15),
-    TRAPDOOR/96:        Block::new("trapdoor", Material::Wood, 0.0).set_light_opacity(0),
+    REPEATER_LIT/94:    Block::new("repeater_lit", Material::Circuit, 0.0),
+    LOCKED_CHEST/95:    Block::new("locked_chest", Material::Wood, 0.0),
+    TRAPDOOR/96:        Block::new("trapdoor", Material::Wood, 0.0),
 }
 
 
@@ -166,14 +166,6 @@ pub struct Block {
     /// Block resistance to explosions.
     /// TODO: Move to specific module.
     pub resistance: f32,
-    /// The block slipperiness for entities.
-    pub slipperiness: f32,
-    /// Opacity to light.
-    /// TODO: Move to specific module.
-    pub light_opacity: u8,
-    /// Light emission.
-    /// TODO: Move to specific module.
-    pub light_emission: u8,
     /// The item corresponding to this block.
     pub item: Item,
 }
@@ -185,9 +177,6 @@ impl Block {
             name,
             material,
             resistance,
-            slipperiness: 0.6,
-            light_opacity: 255,
-            light_emission: 0,
             item: Item {
                 name,
                 block: true,
@@ -195,21 +184,6 @@ impl Block {
                 max_damage: 0,
             },
         }
-    }
-
-    const fn set_slipperiness(mut self, slipperiness: f32) -> Self {
-        self.slipperiness = slipperiness;
-        self
-    }
-
-    const fn set_light_opacity(mut self, opacity: u8) -> Self {
-        self.light_opacity = opacity;
-        self
-    }
-
-    const fn set_light_emission(mut self, light: u8) -> Self {
-        self.light_emission = light;
-        self
     }
 
 }

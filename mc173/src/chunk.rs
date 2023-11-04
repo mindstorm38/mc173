@@ -11,20 +11,30 @@ use crate::block::AIR;
 pub const CHUNK_WIDTH: usize = 16;
 /// Chunk height.
 pub const CHUNK_HEIGHT: usize = 128;
-/// Internal chunk size, in number of elements per chunk.
-const CHUNK_SIZE: usize = CHUNK_HEIGHT * CHUNK_WIDTH * CHUNK_WIDTH;
+/// Internal chunk 2D size, in number of columns per chunk.
+const CHUNK_2D_SIZE: usize = CHUNK_WIDTH * CHUNK_WIDTH;
+/// Internal chunk 3D size, in number of block per chunk.
+const CHUNK_3D_SIZE: usize = CHUNK_HEIGHT * CHUNK_2D_SIZE;
 
-
-/// Calculate the index in the chunk's arrays for the given chunk-local position. This
+/// Calculate the index in the chunk's arrays for the given position (local or not). This
 /// is the same layout used by Minecraft's code `_xxx xzzz zyyy yyyy`. Only firsts 
 /// relevant bits are taken in each coordinate component.
 #[inline]
-fn calc_index(pos: IVec3) -> usize {
+fn calc_3d_index(pos: IVec3) -> usize {
     debug_assert!(pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32);
     let x = pos.x as u32 & 0b1111;
     let z = pos.z as u32 & 0b1111;
     let y = pos.y as u32 & 0b1111111;
     ((x << 11) | (z << 7) | (y << 0)) as usize
+}
+
+/// Calculate the index in the chunk's 2D arrays for the given position (local or not).
+/// Y position is ignored.
+#[inline]
+fn calc_2d_index(pos: IVec3) -> usize {
+    let x = pos.x as u32 & 0b1111;
+    let z = pos.z as u32 & 0b1111;
+    ((z << 4) | (x << 0)) as usize
 }
 
 /// Calculate the chunk position corresponding to the given block position. This returns
@@ -64,6 +74,8 @@ pub struct Chunk {
     block_light: ChunkNibbleArray,
     /// Sky light level for each block.
     sky_light: ChunkNibbleArray,
+    ///  The height map
+    heigh_map: ChunkHeightMap,
 }
 
 impl Chunk {
@@ -71,10 +83,11 @@ impl Chunk {
     /// Create a new empty chunk, full of air blocks.
     pub fn new() -> Box<Self> {
         Box::new(Self {
-            block: [AIR; CHUNK_SIZE],
+            block: [AIR; CHUNK_3D_SIZE],
             metadata: ChunkNibbleArray::new(0),
-            block_light: ChunkNibbleArray::new(15),
+            block_light: ChunkNibbleArray::new(0),
             sky_light: ChunkNibbleArray::new(15),
+            heigh_map: [0; CHUNK_2D_SIZE],
         })
     }
 
@@ -82,7 +95,7 @@ impl Chunk {
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn get_block(&self, pos: IVec3) -> (u8, u8) {
-        let index = calc_index(pos);
+        let index = calc_3d_index(pos);
         (self.block[index], self.metadata.get(index))
     }
 
@@ -90,7 +103,7 @@ impl Chunk {
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) {
-        let index = calc_index(pos);
+        let index = calc_3d_index(pos);
         self.block[index] = id;
         self.metadata.set(index, metadata);
     }
@@ -99,28 +112,42 @@ impl Chunk {
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn get_block_light(&self, pos: IVec3) -> u8 {
-        self.block_light.get(calc_index(pos))
+        self.block_light.get(calc_3d_index(pos))
     }
 
     /// Get block light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn set_block_light(&mut self, pos: IVec3, level: u8) {
-        self.block_light.set(calc_index(pos), level);
+        self.block_light.set(calc_3d_index(pos), level);
     }
 
     /// Get sky light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn get_sky_light(&self, pos: IVec3) -> u8 {
-        self.sky_light.get(calc_index(pos))
+        self.sky_light.get(calc_3d_index(pos))
     }
 
     /// Get sky light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
     pub fn set_sky_light(&mut self, pos: IVec3, level: u8) {
-        self.sky_light.set(calc_index(pos), level);
+        self.sky_light.set(calc_3d_index(pos), level);
+    }
+
+    /// Get the height at the given position, the Y component is ignored.
+    /// The height value corresponds to the Y value of the first block above the column.
+    #[inline]
+    pub fn get_height(&self, pos: IVec3) -> u8 {
+        self.heigh_map[calc_2d_index(pos)]
+    }
+
+    /// Set the height at the given position, the Y component is ignored. 
+    /// The height value corresponds to the Y value of the first block above the column.
+    #[inline]
+    pub fn set_height(&mut self, pos: IVec3, height: u8) {
+        self.heigh_map[calc_2d_index(pos)] = height;
     }
 
     /// Fill the given chunk area with given block id and metadata.
@@ -129,7 +156,7 @@ impl Chunk {
 
         for x in start.x..start.x + size.x {
             for z in start.z..start.z + size.z {
-                let mut index = calc_index(IVec3::new(x, start.y, z));
+                let mut index = calc_3d_index(IVec3::new(x, start.y, z));
                 for _ in start.y..start.y + size.y {
 
                     self.block[index] = id;
@@ -155,12 +182,15 @@ impl Chunk {
 
 }
 
-/// Type alias for a chunk array that stores `u8 * CHUNK_SIZE` values.
-type ChunkByteArray = [u8; CHUNK_SIZE];
+/// Type alias for a chunk array that stores `u8 * CHUNK_2D_SIZE` values.
+type ChunkHeightMap = [u8; CHUNK_2D_SIZE];
 
-/// Special arrays for chunks that stores `u4 * CHUNK_SIZE` values.
+/// Type alias for a chunk array that stores `u8 * CHUNK_3D_SIZE` values.
+type ChunkByteArray = [u8; CHUNK_3D_SIZE];
+
+/// Special arrays for chunks that stores `u4 * CHUNK_3D_SIZE` values.
 struct ChunkNibbleArray {
-    inner: [u8; CHUNK_SIZE / 2]
+    inner: [u8; CHUNK_3D_SIZE / 2]
 }
 
 impl ChunkNibbleArray {
@@ -168,7 +198,7 @@ impl ChunkNibbleArray {
     const fn new(init: u8) -> Self {
         debug_assert!(init <= 0x0F);
         let init = init << 4 | init;
-        Self { inner: [init; CHUNK_SIZE / 2] }
+        Self { inner: [init; CHUNK_3D_SIZE / 2] }
     }
 
     #[inline]
