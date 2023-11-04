@@ -137,14 +137,18 @@ impl Chunk {
     }
 
     /// Get the height at the given position, the Y component is ignored.
-    /// The height value corresponds to the Y value of the first block above the column.
+    /// 
+    /// The height value corresponds to the Y value of the first block above the column
+    /// with full sky light.
     #[inline]
     pub fn get_height(&self, pos: IVec3) -> u8 {
         self.heigh_map[calc_2d_index(pos)]
     }
 
     /// Set the height at the given position, the Y component is ignored. 
-    /// The height value corresponds to the Y value of the first block above the column.
+    /// 
+    /// The height value corresponds to the Y value of the first block above the column
+    /// with full sky light.
     #[inline]
     pub fn set_height(&mut self, pos: IVec3, height: u8) {
         self.heigh_map[calc_2d_index(pos)] = height;

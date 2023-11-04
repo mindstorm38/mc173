@@ -73,6 +73,7 @@ pub fn is_opaque_cube(id: u8) -> bool {
 /// Get the light opacity of a block given its id.
 pub fn get_light_opacity(id: u8) -> u8 {
     match id {
+        block::AIR => 0,
         block::LEAVES |
         block::COBWEB => 1,
         block::WATER_MOVING |

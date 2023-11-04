@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
+use crate::block;
 use crate::block_entity::BlockEntity;
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
 use crate::util::{JavaRandom, BoundingBox};
@@ -286,11 +287,42 @@ impl World {
     /// loaded, none is returned, but if it is existing the previous block and metadata
     /// is returned. This function also push a block change event.
     pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.get_chunk_mut(cx, cz)?;
         let (prev_id, prev_metadata) = chunk.get_block(pos);
+        
         if prev_id != id || prev_metadata != metadata {
+
             chunk.set_block(pos, id, metadata);
+
+            let prev_height = chunk.get_height(pos);
+            let height = pos.y as u8 + 1; // Cast is safe because we checked it before.
+
+            if block::material::get_light_opacity(id) != 0 {
+                // If the block is opaque and it is placed above current height, update
+                // that height to the new one.
+                if height > prev_height {
+                    chunk.set_height(pos, height);
+                }
+            } else if prev_height == height {
+                // We set a transparent block at the current height, so we need to find 
+                // an opaque block below to update height. While we are above 0 we check
+                // if the block below is opaque or not.
+                let mut check_pos = pos;
+                while check_pos.y > 0 {
+                    check_pos.y -= 1;
+                    let (id, _) = chunk.get_block(check_pos);
+                    if block::material::get_light_opacity(id) != 0 {
+                        // Increment to the new height just before breaking.
+                        check_pos.y += 1;
+                        break;
+                    }
+                }
+                // NOTE: If the loop don't find any opaque block below, it is set to 0.
+                chunk.set_height(check_pos, check_pos.y as u8);
+            }
+
             self.push_event(Event::BlockChange {
                 pos,
                 prev_id, 
@@ -298,8 +330,11 @@ impl World {
                 new_id: id,
                 new_metadata: metadata,
             });
+
         }
+
         Some((prev_id, prev_metadata))
+
     }
 
     /// Same as the `set_block` method, but the previous block and new block are notified
