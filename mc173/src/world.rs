@@ -867,10 +867,6 @@ impl World {
         // IMPORTANT NOTE: This algorithm is terrible but works, I've been trying to come
         // with a better one but it has been too complicated so far.
 
-        if !self.light_updates.is_empty() {
-            println!("remaining light updates: {}", self.light_updates.len());
-        }
-
         for _ in 0..1000 {
 
             let Some(update) = self.light_updates.pop_front() else { break };

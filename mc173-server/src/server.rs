@@ -629,8 +629,8 @@ enum WindowKind {
 
 /// State of a player breaking a block.
 struct BreakingBlock {
-    /// The minimum time this break can finish.
-    min_time: u64,
+    /// The start time of this block breaking.
+    start_time: u64,
     /// The position of the block.
     pos: IVec3,
     /// The block id.
@@ -840,7 +840,7 @@ impl ServerPlayer {
                     world.break_block(pos);
                 } else {
                     self.breaking_block = Some(BreakingBlock {
-                        min_time: world.get_time() + (break_duration * 0.7) as u64,
+                        start_time: world.get_time(), // + (break_duration * 0.7) as u64,
                         pos,
                         id,
                     });
@@ -850,12 +850,16 @@ impl ServerPlayer {
         } else if packet.status == 2 {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
-                if state.pos == pos && world.get_time() >= state.min_time {
-                    if matches!(world.get_block(pos), Some((id, _)) if id == state.id) {
+                if state.pos == pos && world.is_block(pos, state.id) {
+                    let break_duration = world.get_break_duration(stack.id, state.id, in_water, on_ground);
+                    let min_time = state.start_time + (break_duration * 0.7) as u64;
+                    if world.get_time() >= min_time {
                         world.break_block(pos);
+                    } else {
+                        println!("[WARN] Incoherent break (too early), expected {min_time}, got {}", world.get_time());
                     }
                 } else {
-                    println!("[WARNING] Incoherent break: {pos} @ {}, got {} @ {}", world.get_time(), state.pos, state.min_time);
+                    println!("[WARN] Incoherent break (position), expected {}, got {}", pos, state.pos);
                 }
             }
         } else if packet.status == 4 {
