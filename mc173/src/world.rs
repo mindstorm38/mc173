@@ -1,6 +1,6 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
-use std::collections::{HashMap, BTreeSet, HashSet};
+use std::collections::{HashMap, BTreeSet, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
@@ -11,7 +11,7 @@ use indexmap::IndexSet;
 use crate::block;
 use crate::block_entity::BlockEntity;
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
-use crate::util::{JavaRandom, BoundingBox};
+use crate::util::{JavaRandom, BoundingBox, Face};
 use crate::item::ItemStack;
 
 use crate::entity::Entity;
@@ -100,6 +100,8 @@ pub struct World {
     /// A set of all scheduled tick states, used to avoid ticking twice the same position
     /// and block id. 
     scheduled_ticks_states: HashSet<ScheduledTickState>,
+    /// Queue of pending light updates to be processed.
+    light_updates: VecDeque<LightUpdate>,
     /// This is the wrapping seed used by random ticks to compute random block positions.
     random_ticks_seed: i32,
     /// Internal cached queue of random ticks that should be computed, this queue is only
@@ -138,6 +140,7 @@ impl World {
             scheduled_ticks_count: 0,
             scheduled_ticks: BTreeSet::new(),
             scheduled_ticks_states: HashSet::new(),
+            light_updates: VecDeque::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
             random_ticks_pending: Some(Vec::new()),
             weather: Weather::Clear,
@@ -321,7 +324,20 @@ impl World {
                 }
                 // NOTE: If the loop don't find any opaque block below, it is set to 0.
                 chunk.set_height(check_pos, check_pos.y as u8);
+                
             }
+
+            self.light_updates.push_back(LightUpdate { 
+                kind: LightUpdateKind::Block,
+                pos,
+                credit: 15,
+            });
+
+            self.light_updates.push_back(LightUpdate { 
+                kind: LightUpdateKind::Sky,
+                pos,
+                credit: 15,
+            });
 
             self.push_event(Event::BlockChange {
                 pos,
@@ -354,30 +370,37 @@ impl World {
         Some((prev_id, prev_metadata))
     }
 
+    /// Get saved height of a chunk column.
+    pub fn get_height(&self, pos: IVec3) -> Option<u8> {
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.get_chunk(cx, cz)?;
+        Some(chunk.get_height(pos))
+    }
+
     /// Get light level at the given position, in range 0..16.
-    pub fn get_light(&self, mut pos: IVec3, actual_sky_light: bool) -> u8 {
+    pub fn get_light(&self, mut pos: IVec3, actual_sky_light: bool) -> Option<Light> {
         
         if pos.y > 127 {
             pos.y = 127;
         }
 
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.get_chunk(cx, cz)?;
+
         // TODO: If stair or farmland, get max value around them.
-        if let Some((cx, cz)) = calc_chunk_pos(pos) {
-            if let Some(chunk) = self.get_chunk(cx, cz) {
 
-                let block_light = chunk.get_block_light(pos);
-                let mut sky_light = chunk.get_sky_light(pos);
+        let block = chunk.get_block_light(pos);
+        let mut sky = chunk.get_sky_light(pos);
 
-                if actual_sky_light {
-                    sky_light = sky_light.saturating_sub(self.sky_light_subtracted);
-                }
-
-                return block_light.max(sky_light);
-
-            }
+        if actual_sky_light {
+            sky = sky.saturating_sub(self.sky_light_subtracted);
         }
 
-        0
+        Some(Light {
+            block,
+            sky,
+            max: block.max(sky),
+        })
 
     }
 
@@ -576,6 +599,8 @@ impl World {
         self.tick_blocks();
         self.tick_entities();
         // TODO: tick block entities.
+
+        self.tick_light();
         
     }
 
@@ -836,6 +861,94 @@ impl World {
 
     }
 
+    /// Tick pending light updates.
+    fn tick_light(&mut self) {
+
+        // IMPORTANT NOTE: This algorithm is terrible but works, I've been trying to come
+        // with a better one but it has been too complicated so far.
+
+        if !self.light_updates.is_empty() {
+            println!("remaining light updates: {}", self.light_updates.len());
+        }
+
+        for _ in 0..1000 {
+
+            let Some(update) = self.light_updates.pop_front() else { break };
+
+            let mut max_face_emission = 0;
+            for face in Face::ALL {
+
+                let face_pos = update.pos + face.delta();
+
+                let Some((cx, cz)) = calc_chunk_pos(face_pos) else { continue };
+                let Some(chunk) = self.chunks.get_mut(&(cx, cz)) else { continue };
+                let chunk = &mut *chunk.inner;
+
+                let face_emission = match update.kind {
+                    LightUpdateKind::Block => chunk.get_block_light(face_pos),
+                    LightUpdateKind::Sky => chunk.get_sky_light(face_pos),
+                };
+
+                max_face_emission = max_face_emission.max(face_emission);
+
+            }
+
+            let Some((cx, cz)) = calc_chunk_pos(update.pos) else { continue };
+            let Some(chunk) = self.chunks.get_mut(&(cx, cz)) else { continue };
+            let chunk = &mut *chunk.inner;
+
+            let (id, _) = chunk.get_block(update.pos);
+            let opacity = block::material::get_light_opacity(id).max(1);
+
+            let emission = match update.kind {
+                LightUpdateKind::Block => block::material::get_light_emission(id),
+                LightUpdateKind::Sky => {
+                    // If the block is above ground, then it has
+                    let column_height = chunk.get_height(update.pos) as i32;
+                    if update.pos.y >= column_height { 15 } else { 0 }
+                }
+            };
+
+            let new_light = emission.max(max_face_emission.saturating_sub(opacity));
+            let mut changed = false;
+            let mut sky_exposed = false;
+
+            match update.kind {
+                LightUpdateKind::Block => {
+                    if chunk.get_block_light(update.pos) != new_light {
+                        chunk.set_block_light(update.pos, new_light);
+                        changed = true;
+                    }
+                }
+                LightUpdateKind::Sky => {
+                    if chunk.get_sky_light(update.pos) != new_light {
+                        chunk.set_sky_light(update.pos, new_light);
+                        changed = true;
+                        sky_exposed = emission == 15;
+                    }
+                }
+            }
+
+            if changed && update.credit >= 1 {
+                for face in Face::ALL {
+                    // Do not propagate light upward when the updated block is above 
+                    // ground, so all blocks above are also exposed and should already
+                    // be at max level.
+                    if face == Face::PosY && sky_exposed {
+                        continue;
+                    }
+                    self.light_updates.push_back(LightUpdate {
+                        kind: update.kind,
+                        pos: update.pos + face.delta(),
+                        credit: update.credit - 1,
+                    });
+                }
+            }
+            
+        }
+
+    }
+
 }
 
 
@@ -857,6 +970,17 @@ pub enum Weather {
     Rain,
     /// It is thundering.
     Thunder,
+}
+
+/// Light value of a position in the world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Light {
+    /// Block light level.
+    pub block: u8,
+    /// Sky light level, can the absolute sky light or the actual one depending on query.
+    pub sky: u8,
+    /// Maximum light level between block and sky value.
+    pub max: u8,
 }
 
 /// An event that happened in the world.
@@ -1009,6 +1133,29 @@ impl Ord for ScheduledTick {
         self.time.cmp(&other.time)
             .then(self.uid.cmp(&other.uid))
     }
+}
+
+/// A light update to apply to the world.
+struct LightUpdate {
+    /// Light kind targeted by this update, the update only applies to one of the kind.
+    kind: LightUpdateKind,
+    /// The position of the light update.
+    pos: IVec3,
+    /// Credit remaining to update light, this is used to limit the number of updates
+    /// produced by a block chance initial update. Initial value is something like 15
+    /// and decrease for each propagation, when it reaches 0 the light no longer 
+    /// propagates.
+    credit: u8,
+}
+
+/// Different kind of light updates, this affect how the light spread.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LightUpdateKind {
+    /// Block light level, the light spread in all directions and blocks have a minimum 
+    /// opacity of 1 in all directions.
+    Block,
+    /// Sky light level, same as block light but light do not decrease when going down.
+    Sky,
 }
 
 

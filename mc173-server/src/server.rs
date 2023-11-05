@@ -719,32 +719,59 @@ impl ServerPlayer {
                 } else if let Some(block_id) = block::from_name(id_raw.trim_start_matches("b/")) {
                     id = block_id as u16;
                 } else {
-                    return Err(format!("§cError: unknown item name or id: {id_raw}"));
+                    return Err(format!("§cError: unknown item name or id:§r {id_raw}"));
                 }
 
                 let item = item::from_id(id);
                 if item.name.is_empty() {
-                    return Err(format!("§cError: unknown item id: {id_raw}"));
+                    return Err(format!("§cError: unknown item id:§r {id_raw}"));
                 }
 
                 let mut stack = ItemStack::new_sized(id, 0, item.max_stack_size);
 
                 if !metadata_raw.is_empty() {
                     stack.damage = metadata_raw.parse::<u16>()
-                        .map_err(|_| format!("§cError: invalid item damage: {metadata_raw}"))?;
+                        .map_err(|_| format!("§cError: invalid item damage:§r {metadata_raw}"))?;
                 }
 
                 if let Some(size_raw) = parts.get(2) {
                     stack.size = size_raw.parse::<u16>()
-                        .map_err(|_| format!("§cError: invalid stack size: {size_raw}"))?;
+                        .map_err(|_| format!("§cError: invalid stack size:§r {size_raw}"))?;
                 }
 
                 base.kind.kind.main_inv.add_stack(stack);
-                self.send_chat(format!("§aGave {} ({}:{}) x{} to {}", item.name, stack.id, stack.damage, stack.size, self.username));
+                self.send_chat(format!("§aGave §r{}§a (§r{}:{}§a) x§r{}§a to §r{}", item.name, stack.id, stack.damage, stack.size, self.username));
                 Ok(())
 
             }
             ["/give", ..] => Err(format!("§eUsage: /give <item>[:<damage>] [<size>]")),
+            ["/time", ..] => {
+                self.send_chat(format!("§aTime:§r {}", world.get_time()));
+                Ok(())
+            }
+            ["/weather", ..] => {
+                self.send_chat(format!("§aWeather:§r {:?}", world.get_weather()));
+                Ok(())
+            }
+            ["/pos", ..] => {
+
+                let block_pos = self.pos.floor().as_ivec3();
+                self.send_chat(format!("§aPosition information"));
+                self.send_chat(format!("§a- Real:§r {}", self.pos));
+                self.send_chat(format!("§a- Block:§r {}", block_pos));
+
+                if let Some(height) = world.get_height(block_pos) {
+                    self.send_chat(format!("§a- Height:§r {}", height));
+                }
+
+                if let Some(light) = world.get_light(block_pos, false) {
+                    self.send_chat(format!("§a- Block light:§r {:?}", light.block));
+                    self.send_chat(format!("§a- Sky light:§r {:?}", light.sky));
+                    self.send_chat(format!("§a- Max light:§r {:?}", light.max));
+                }
+
+                Ok(())
+            }
             _ => Err(format!("§eUnknown command!"))
         }
     }
@@ -795,6 +822,8 @@ impl ServerPlayer {
         let main_inv = &mut base.kind.kind.main_inv;
         let hand_slot = base.kind.kind.hand_slot as usize;
         let mut stack = main_inv.stack(hand_slot);
+
+        println!("handle_break_block: {packet:?}");
 
         if packet.status == 0 {
             // Start breaking a block, ignore if the position is invalid.

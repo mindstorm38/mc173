@@ -80,7 +80,8 @@ pub struct Chunk {
 
 impl Chunk {
 
-    /// Create a new empty chunk, full of air blocks.
+    /// Create a new empty chunk, full of air blocks. All block light is zero and all sky
+    /// light is 15.
     pub fn new() -> Box<Self> {
         Box::new(Self {
             block: [AIR; CHUNK_3D_SIZE],
@@ -118,8 +119,8 @@ impl Chunk {
     /// Get block light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
-    pub fn set_block_light(&mut self, pos: IVec3, level: u8) {
-        self.block_light.set(calc_3d_index(pos), level);
+    pub fn set_block_light(&mut self, pos: IVec3, light: u8) {
+        self.block_light.set(calc_3d_index(pos), light);
     }
 
     /// Get sky light level at the given global position (rebased to chunk-local).
@@ -132,8 +133,8 @@ impl Chunk {
     /// Get sky light level at the given global position (rebased to chunk-local).
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     #[inline]
-    pub fn set_sky_light(&mut self, pos: IVec3, level: u8) {
-        self.sky_light.set(calc_3d_index(pos), level);
+    pub fn set_sky_light(&mut self, pos: IVec3, light: u8) {
+        self.sky_light.set(calc_3d_index(pos), light);
     }
 
     /// Get the height at the given position, the Y component is ignored.
@@ -157,22 +158,33 @@ impl Chunk {
     /// Fill the given chunk area with given block id and metadata.
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
     pub fn fill_block(&mut self, start: IVec3, size: IVec3, id: u8, metadata: u8) {
-
         for x in start.x..start.x + size.x {
             for z in start.z..start.z + size.z {
                 let mut index = calc_3d_index(IVec3::new(x, start.y, z));
                 for _ in start.y..start.y + size.y {
-
                     self.block[index] = id;
                     self.metadata.set(index, metadata);
-
                     // Increment Y component.
                     index += 1;
-
                 }
             }
         }
+    }
 
+    /// Fill the given chunk area with given block and sky light values.
+    /// Panics if Y component of the position is not between 0 and 128 (excluded).
+    pub fn fill_light(&mut self, start: IVec3, size: IVec3, block_light: u8, sky_light: u8)  {
+        for x in start.x..start.x + size.x {
+            for z in start.z..start.z + size.z {
+                let mut index = calc_3d_index(IVec3::new(x, start.y, z));
+                for _ in start.y..start.y + size.y {
+                    self.block_light.set(index, block_light);
+                    self.sky_light.set(index, sky_light);
+                    // Increment Y component.
+                    index += 1;
+                }
+            }
+        }
     }
 
     /// Write the chunk's data to the given writer.

@@ -130,7 +130,8 @@ impl World {
     fn tick_wheat(&mut self, pos: IVec3, metadata: u8) {
 
         // Do not tick if light level is too low or already fully grown.
-        if self.get_light(pos, true) < 9 || metadata >= 7 {
+        let Some(light) = self.get_light(pos, true) else { return };
+        if light.max < 9 || metadata >= 7 {
             return;
         }
 
@@ -199,10 +200,12 @@ impl World {
                 z: self.rand.next_int_bounded(3) - 1,
             };
 
-            if self.get_light(spread_pos, false) < 13 {
-                if self.is_block_air(spread_pos) {
-                    if self.is_block_opaque_cube(spread_pos - IVec3::Y) {
-                        self.set_block_notify(spread_pos, id, 0);
+            if let Some(light) = self.get_light(spread_pos, false) {
+                if light.max < 13 {
+                    if self.is_block_air(spread_pos) {
+                        if self.is_block_opaque_cube(spread_pos - IVec3::Y) {
+                            self.set_block_notify(spread_pos, id, 0);
+                        }
                     }
                 }
             }
