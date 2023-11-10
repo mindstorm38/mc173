@@ -19,6 +19,9 @@ roadmap summarize implemented and missing components and in which order we shoul
 on them. The priority of each feature is defined by its order in the list.
 
 - [x] World and chunk data structures
+- [ ] World serialization
+    - [ ] Chunk data
+    - [ ] Entity data (non-persistent support)
 - [ ] Blocks
     - [x] Definitions
     - [x] Item drop
@@ -41,17 +44,22 @@ on them. The priority of each feature is defined by its order in the list.
 - [ ] Server
     - [x] Protocol
     - [x] Network threading
-    - [ ] Player window
-        - [x] Left and right click support
-        - [x] Player inventory crafting grid
-        - [x] Crafting table
-        - [ ] Chest
-        - [ ] Furnace
-        - [ ] Shift-click on items
     - [x] Block breaking
         - [x] Long block breaking
         - [x] Instant block breaking
         - [x] Block breaking duration check
+    - [ ] Players inventory is stored server-side
+    - [ ] Players can be linked to any entity type
+    - [ ] Worlds serialization
+        - [ ] Non-persistent player entities
+        - [ ] Player entities saved appart
+    - [ ] Player window
+        - [x] Left and right click support
+        - [x] Player inventory crafting grid
+        - [x] Crafting table
+        - [x] Chest
+        - [ ] Furnace
+        - [ ] Shift-click on items
     - [ ] Entity tracking
         - [ ] Client-side spawn (partial) 
 - [x] Lighting engine
