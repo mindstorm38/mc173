@@ -7,9 +7,9 @@ use glam::{DVec3, Vec2, IVec3};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
+use mc173::util::{ReadJavaExt, WriteJavaExt};
 use mc173::item::ItemStack;
 
-use crate::io::{ReadJavaExt, WriteJavaExt};
 use crate::net;
 
 /// Type alias for Minecraft protocol server.

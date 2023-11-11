@@ -1,6 +1,5 @@
 //! A Minecraft beta 1.7.3 server in Rust.
 
-pub mod io;
 pub mod net;
 
 pub mod proto;
