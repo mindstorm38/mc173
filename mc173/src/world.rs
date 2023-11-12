@@ -330,7 +330,7 @@ impl World {
             self.light_updates.push_back(LightUpdate { 
                 kind: LightUpdateKind::Block,
                 pos,
-                credit: 15,
+                credit: 15, // TODO: Use the previous light emission as credit.
             });
 
             self.light_updates.push_back(LightUpdate { 
@@ -1108,7 +1108,7 @@ struct ScheduledTickState {
 /// A block tick scheduled in the future, it's associated to a world time in a tree map.
 /// This structure is ordered by time and then by position, this allows to have multiple
 /// block update at the same time but for different positions.
-#[derive(PartialEq, Eq)]
+#[derive(Eq)]
 struct ScheduledTick {
     /// This tick unique id within the world.
     uid: u64,
@@ -1116,6 +1116,12 @@ struct ScheduledTick {
     time: u64,
     /// State of that scheduled tick.
     state: ScheduledTickState,
+}
+
+impl PartialEq for ScheduledTick {
+    fn eq(&self, other: &Self) -> bool {
+        self.uid == other.uid && self.time == other.time
+    }
 }
 
 impl PartialOrd for ScheduledTick {

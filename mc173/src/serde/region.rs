@@ -23,10 +23,11 @@ fn calc_chunk_index(cx: i32, cz: i32) -> usize {
     (cx & 31) as usize | (((cz & 31) as usize) << 5)
 }
 
+/// Internal constant empty array of 4K to write an empty sector.
 const EMPTY_SECTOR: &'static [u8; 4096] = &[0; 4096];
 
 /// A handle to a region file. This is an implementation of ".mcr" region files following
-/// the same algorithms as the Notchian server, first developped by Scaevolus (legend!).
+/// the same algorithms as the Notchian server, first developed by Scaevolus (legend!).
 pub struct RegionFile {
     /// Underlying region file. 
     file: File,
