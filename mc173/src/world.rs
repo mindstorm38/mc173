@@ -8,13 +8,12 @@ use std::cmp::Ordering;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
-use crate::block;
-use crate::block_entity::BlockEntity;
 use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
 use crate::util::{JavaRandom, BoundingBox, Face};
+use crate::block_entity::BlockEntity;
 use crate::item::ItemStack;
-
 use crate::entity::Entity;
+use crate::block;
 
 
 // Following modules are order by order of importance, last modules depends on first ones.
@@ -27,7 +26,6 @@ pub mod place;
 pub mod r#break;
 pub mod tick;
 pub mod notify;
-pub mod light;
 
 
 /// Data structure for a whole world.

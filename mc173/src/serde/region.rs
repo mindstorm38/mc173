@@ -1,7 +1,9 @@
 //! Minecraft region file format storing 32x32 chunks inside a single file.
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io::{self, Seek, SeekFrom, Write, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::Take;
 
@@ -25,6 +27,36 @@ fn calc_chunk_index(cx: i32, cz: i32) -> usize {
 
 /// Internal constant empty array of 4K to write an empty sector.
 const EMPTY_SECTOR: &'static [u8; 4096] = &[0; 4096];
+
+/// A handle to a region directory storing all region files.
+pub struct RegionDir {
+    /// Path of the region directory.
+    path: PathBuf,
+    /// Cache of already loaded region files.
+    cache: HashMap<(i32, i32), RegionFile>,
+}
+
+impl RegionDir {
+    
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            cache: HashMap::new(),
+        }
+    }
+
+    /// Ensure that a region file exists for the given chunk coordinates.
+    pub fn ensure_region_file(&mut self, cx: i32, cz: i32) -> Result<&mut RegionFile, RegionError> {
+        let (rx, rz) = (cx >> 5, cz >> 5);
+        match self.cache.entry((rx, rz)) {
+            Entry::Occupied(o) => Ok(o.into_mut()),
+            Entry::Vacant(v) => {
+                Ok(v.insert(RegionFile::open(self.path.join(format!("r.{rx}.{rz}.mcr")), true)?))
+            }
+        }
+    }
+
+}
 
 /// A handle to a region file. This is an implementation of ".mcr" region files following
 /// the same algorithms as the Notchian server, first developed by Scaevolus (legend!).

@@ -13,11 +13,12 @@ use flate2::Compression;
 
 use glam::{DVec3, Vec2, IVec3};
 
-use mc173::block_entity::BlockEntity;
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
-use mc173::world::interact::Interaction;
 use mc173::world::{World, Dimension, Event, Weather};
+use mc173::world::interact::Interaction;
+use mc173::block_entity::BlockEntity;
+use mc173::serde::region::RegionDir;
 use mc173::item::{self, ItemStack};
 use mc173::craft::CraftingTracker;
 use mc173::inventory::Inventory;
@@ -300,6 +301,8 @@ struct ServerWorld {
     trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
     players: Vec<ServerPlayer>,
+    /// The region directory we are using to load and save the world chunks.
+    region_dir: RegionDir,
 }
 
 impl ServerWorld {
@@ -316,6 +319,7 @@ impl ServerWorld {
             init: false,
             trackers: HashMap::new(),
             players: Vec::new(),
+            region_dir: RegionDir::new(r"/home/theo/.minecraft-beta/saves/New World"),
         }
 
     }

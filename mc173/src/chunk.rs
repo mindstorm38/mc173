@@ -1,4 +1,6 @@
-//! A chunk storing blocks and other entities, optimized for runtime performance.
+//! A chunk storing blocks and other entities, optimized for runtime performance. This 
+//! module only provides low-level data structures, refer to the [`mc173::world`] module
+//! for world manipulation methods.
 
 use std::io::{self, Write};
 
