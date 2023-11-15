@@ -15,10 +15,12 @@ use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
+use mc173::serde::region::RegionDir;
 use mc173::world::{World, Dimension, Event, Weather};
 use mc173::world::interact::Interaction;
+use mc173::source::ChunkSourcePool;
 use mc173::block_entity::BlockEntity;
-use mc173::serde::region::RegionDir;
+use mc173::serde::RegionChunkSource;
 use mc173::item::{self, ItemStack};
 use mc173::craft::CraftingTracker;
 use mc173::inventory::Inventory;
@@ -26,7 +28,6 @@ use mc173::util::Face;
 use mc173::block;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
-use crate::overworld::new_overworld;
 
 
 /// Target tick duration. Currently 20 TPS, so 50 ms/tick.
@@ -54,7 +55,7 @@ impl Server {
             net: Network::bind(addr)?,
             clients: HashMap::new(),
             worlds: vec![
-                ServerWorld::new("overworld", new_overworld()),
+                ServerWorld::new("overworld"),
             ],
             offline_players: HashMap::new(),
         })
@@ -68,6 +69,8 @@ impl Server {
             let elapsed = start.elapsed();
             if let Some(missing) = TICK_DURATION.checked_sub(elapsed) {
                 std::thread::sleep(missing);
+            } else {
+                println!("[WARN] Tick was too long ({elapsed:?})");
             }
         }
     }
@@ -295,31 +298,37 @@ struct ServerWorld {
     name: String,
     /// The inner world data structure.
     world: World,
-    /// True when the world has been ticked once.
-    init: bool,
+    /// The chunk source used to load and save the world's chunk.
+    chunk_source: ChunkSourcePool,
     /// Entity tracker, each is associated to the entity id.
     trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
     players: Vec<ServerPlayer>,
-    /// The region directory we are using to load and save the world chunks.
-    region_dir: RegionDir,
+    /// True when the world has been ticked once.
+    init: bool,
 }
 
 impl ServerWorld {
 
     /// Internal function to create a server world.
-    fn new(name: impl Into<String>, mut inner: World) -> Self {
+    fn new(name: impl Into<String>) -> Self {
+
+        let mut inner = World::new(Dimension::Overworld);
+        inner.set_spawn_pos(DVec3::new(0.0, 100.0, 0.0));
 
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
+        let region_dir = RegionDir::new(r"C:\Users\theor\AppData\Roaming\.minecraft-b1.7.3\saves\New World\region");
+        let region_source = RegionChunkSource::new(region_dir);
+
         Self {
             name: name.into(),
             world: inner,
-            init: false,
+            chunk_source: ChunkSourcePool::new_single(region_source),
             trackers: HashMap::new(),
             players: Vec::new(),
-            region_dir: RegionDir::new(r"/home/theo/.minecraft-beta/saves/New World"),
+            init: false,
         }
 
     }
@@ -330,6 +339,12 @@ impl ServerWorld {
         if !self.init {
             self.handle_init();
             self.init = true;
+        }
+
+        // Poll all chunks to load in the world.
+        while let Some(proto_chunk) = self.chunk_source.poll_event() {
+            println!("[SOURCE] Inserting chunk {}/{}", proto_chunk.cx, proto_chunk.cz);
+            proto_chunk.insert_into(&mut self.world);
         }
 
         self.world.tick();
@@ -404,6 +419,12 @@ impl ServerWorld {
                 tracker.update_tracking_players(&mut self.players, &self.world);
                 tracker
             });
+        }
+
+        for cx in -1..=2 {
+            for cz in -1..=2 {
+                assert!(self.chunk_source.request_chunk_load(cx, cz));
+            }
         }
 
     }
@@ -645,6 +666,7 @@ impl ServerPlayer {
 
     /// Send a packet to this player.
     fn send(&self, packet: OutPacket) {
+        // println!("[NET] Sending packet {packet:?}");
         self.net.send(self.client, packet);
     }
 

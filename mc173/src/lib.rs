@@ -13,4 +13,5 @@ pub mod path;
 
 pub mod chunk;
 pub mod world;
+pub mod source;
 pub mod serde;

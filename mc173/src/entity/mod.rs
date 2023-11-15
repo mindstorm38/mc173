@@ -53,7 +53,7 @@ pub type ZombieEntity = LivingEntity<Zombie>;
 
 /// This is an enumeration of all entities supported by the game, this enumeration allows
 /// dispatching calls to update function and ensures that required functions gets called.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Entity {
     Item(ItemEntity),
     Painting(PaintingEntity),
@@ -84,7 +84,7 @@ pub enum Entity {
     Zombie(ZombieEntity),
 }
 
-#[derive(Debug, Default, Deref, DerefMut)]
+#[derive(Debug, Clone, Default, Deref, DerefMut)]
 pub struct Base<I> {
     /// Inner data.
     #[deref]
@@ -94,7 +94,7 @@ pub struct Base<I> {
     pub kind: I,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct BaseData {
     /// The internal entity id, it is unique to this entity within its world. It can be
     /// used to uniquely refer to this entity when and where needed.
@@ -162,7 +162,7 @@ pub struct BaseData {
     pub rand: JavaRandom,
 }
 
-#[derive(Debug, Default, Deref, DerefMut)]
+#[derive(Debug, Clone, Default, Deref, DerefMut)]
 pub struct Living<I> {
     /// Inner data.
     #[deref]
@@ -172,7 +172,7 @@ pub struct Living<I> {
     pub kind: I,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LivingData {
     /// The strafing acceleration.
     pub accel_strafing: f32,
@@ -190,7 +190,7 @@ pub struct LivingData {
     pub path: Option<Path>,
 }
 
-#[derive(Debug, Default, Deref, DerefMut)]
+#[derive(Debug, Clone, Default, Deref, DerefMut)]
 pub struct Projectile<I> {
     /// Inner data.
     #[deref]
@@ -200,7 +200,7 @@ pub struct Projectile<I> {
     pub kind: I,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ProjectileData {
     /// Set to the position and block id this projectile is stuck in.
     pub block_hit: Option<(IVec3, u8)>,
@@ -208,7 +208,7 @@ pub struct ProjectileData {
     pub owner_id: Option<u32>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Item {
     /// The item stack represented by this entity.
     pub stack: ItemStack,
@@ -216,7 +216,7 @@ pub struct Item {
     pub frozen_ticks: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Painting {
     /// Block position of this painting.
     pub block_pos: IVec3,
@@ -226,19 +226,19 @@ pub struct Painting {
     pub art: PaintingArt,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Boat { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Minecart { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Fish { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LightningBolt { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FallingBlock {
     /// Number of ticks since this block is falling.
     pub fall_ticks: u32,
@@ -246,24 +246,24 @@ pub struct FallingBlock {
     pub block_id: u8,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Tnt {
     pub fuse_ticks: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Arrow { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Egg { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Fireball { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Snowball { }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Player {
     /// The player username.
     pub username: String,
@@ -299,57 +299,57 @@ impl Default for Player {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Ghast { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Slime { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Pig {
     /// True when the pig has a saddle.
     pub saddle: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Chicken {
     /// Ticks remaining until this chicken lays an egg.
     pub next_egg_ticks: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Cow { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Sheep {
     pub color: u8, // TODO: Color enumeration.
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Squid { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Wolf {
     /// Entity owning the wolf.
     pub owner_id: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Creeper { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Giant { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PigZombie { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Skeleton { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Spider { }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Zombie { }
 
 
@@ -381,7 +381,7 @@ impl Size {
 
 
 /// Define a target for an entity to look at.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LookTarget {
     /// The entity id to look at.
     pub entity_id: u32,
@@ -391,7 +391,7 @@ pub struct LookTarget {
 
 
 /// A result of the path finder.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Path {
     pub points: Vec<IVec3>,
     pub index: usize,
@@ -412,7 +412,7 @@ impl Path {
 }
 
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaintingOrientation {
     #[default]
     North,
@@ -421,7 +421,7 @@ pub enum PaintingOrientation {
     West,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaintingArt {
     #[default]
     Kebab,

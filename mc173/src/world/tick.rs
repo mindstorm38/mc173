@@ -20,8 +20,8 @@ impl World {
             // PARITY: Notchian client have random tick on redstone torch?
             block::REDSTONE_TORCH if !random => self.tick_redstone_torch(pos, metadata, false),
             block::REDSTONE_TORCH_LIT if !random => self.tick_redstone_torch(pos, metadata, true),
-            block::WATER_MOVING => self.tick_fluid_moving(pos, metadata, block::WATER_MOVING, block::WATER_STILL),
-            block::LAVA_MOVING => self.tick_fluid_moving(pos, metadata, block::LAVA_MOVING, block::LAVA_STILL),
+            block::WATER_MOVING => self.tick_fluid_moving(pos, block::WATER_MOVING, metadata),
+            block::LAVA_MOVING => self.tick_fluid_moving(pos, block::LAVA_MOVING, metadata),
             // NOTE: Sugar canes and cactus have the same logic, we just give the block.
             block::SUGAR_CANES |
             block::CACTUS => self.tick_cactus_or_sugar_canes(pos, id, metadata),
@@ -218,10 +218,13 @@ impl World {
     }
 
     /// Tick a moving fluid block.
-    fn tick_fluid_moving(&mut self, pos: IVec3, mut metadata: u8, moving_id: u8, still_id: u8) {
+    fn tick_fluid_moving(&mut self, pos: IVec3, flowing_id: u8, mut metadata: u8) {
+
+        // +1 to get still fluid id.
+        let still_id = flowing_id + 1;
 
         // Default distance to decrement on each block unit.
-        let dist_drop = match moving_id {
+        let dist_drop = match flowing_id {
             block::LAVA_MOVING if self.get_dimension() != Dimension::Nether => 2,
             _ => 1,
         };
@@ -240,7 +243,8 @@ impl World {
             for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
                 if let Some((face_id, face_metadata)) = self.get_block(pos + face.delta()) {
                     // Only if this block is of the same type.
-                    if face_id == moving_id || face_id == still_id {
+                    // +1 to get the "still" id.
+                    if face_id == flowing_id || face_id == still_id {
                         let face_dist = block::fluid::get_actual_distance(face_metadata);
                         shortest_dist = shortest_dist.min(face_dist);
                         if block::fluid::is_source(face_metadata) {
@@ -258,7 +262,7 @@ impl World {
 
             // If the top block on top is the same fluid, this become a falling state fluid.
             if let Some((above_id, above_metadata)) = self.get_block(pos + IVec3::Y) {
-                if above_id == moving_id || above_id == still_id {
+                if above_id == flowing_id || above_id == still_id {
                     // Copy the above metadata but force falling state.
                     new_metadata = above_metadata;
                     block::fluid::set_falling(&mut new_metadata, true);
@@ -266,10 +270,10 @@ impl World {
             }
 
             // Infinite water sources!
-            if sources_around >= 2 && moving_id == block::WATER_MOVING {
+            if sources_around >= 2 && flowing_id == block::WATER_MOVING {
                 if block::from_id(below_id).material.is_solid() {
                     block::fluid::set_source(&mut new_metadata);
-                } else if below_id == moving_id || below_id == still_id {
+                } else if below_id == flowing_id || below_id == still_id {
                     if block::fluid::is_source(below_metadata) {
                         block::fluid::set_source(&mut new_metadata);
                     }
@@ -283,15 +287,16 @@ impl World {
                 if new_metadata == 0xFF {
                     self.set_block_notify(pos, block::AIR, 0);
                 } else {
-                    self.set_block_notify(pos, moving_id, new_metadata);
+                    self.set_block_notify(pos, flowing_id, new_metadata);
                 }
             } else {
-                self.set_block_notify(pos, still_id, metadata);
+                // Metadata is the same, set still.
+                self.set_block(pos, still_id, metadata);
             }
 
         } else {
-            // No update to we fix the 
-            self.set_block_notify(pos, still_id, metadata);
+            // Moving source is systematically set to still source.
+            self.set_block(pos, still_id, metadata);
         }
 
         // The block has been removed, don't propagate it.
@@ -304,7 +309,7 @@ impl World {
             // The block below is not a fluid block and do not block fluids, the fluid below
             // is set to a falling version of the current block.
             block::fluid::set_falling(&mut metadata, true);
-            self.set_block_notify(below_pos, moving_id, metadata);
+            self.set_block_notify(below_pos, flowing_id, metadata);
         } else if block::fluid::is_source(metadata) || blocked_below {
 
             // The block is a source or is blocked below, we spread it horizontally.
@@ -332,7 +337,7 @@ impl World {
                     if !block::fluid::is_fluid_block(face_id) && !block::fluid::is_fluid_blocked(face_id) {
                         // TODO: Break only for water.
                         self.break_block(face_pos);
-                        self.set_block_notify(face_pos, moving_id, new_dist);
+                        self.set_block_notify(face_pos, flowing_id, new_dist);
                     }
                 }
             }

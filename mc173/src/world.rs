@@ -4,6 +4,8 @@ use std::collections::{HashMap, BTreeSet, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
+use std::cell::Cell;
+use std::sync::Arc;
 
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
@@ -28,14 +30,38 @@ pub mod tick;
 pub mod notify;
 
 
-/// Data structure for a whole world.
+// Various thread local vectors that are used to avoid frequent reallocation of 
+// temporary vector used in the logic code.
+thread_local! {
+    /// This thread local vector is used temporally to stores the random ticks to be 
+    /// executed. This is mandatory since ticking a block requires full mutable access to
+    /// the world, but it's not possible while owning a reference to a chunk.
+    static RANDOM_TICKS_PENDING: Cell<Vec<(IVec3, u8, u8)>> = const { Cell::new(Vec::new()) };
+}
+
+
+/// This data structure stores different kind of component:
+/// - Chunks, these are the storage for block, light and height map of a 16x16 column in
+///   the world with a height of 128. This component is the larger one from memory point
+///   of view.
+/// - Entities, basically anything that needs to be ticked with 3 dimensional coordinates.
+///   They are not directly belonging to a particular chunk of 16x16 block, but they are
+///   internally associated to existing chunks in order to optimize collision detection.
+/// - Block Entities, this is a mix between entities and blocks, they can be ticked but
+///   are attached to integer coordinates.
 /// 
-/// This structure can be used as a data structure to read and modify the world's content,
-/// but it can also be ticked in order to run every world's logic (block ticks, random 
-/// ticks, entity ticks, time, weather, etc.). When manually modifying or ticking the
-/// world, events are produced *(of type [`Event`])* depending on what's modified. **By
-/// default**, events are not saved, but an events queue can be swapped in or out of the
-/// world to enable or disable events registration.
+/// This data structure is also optimized for actually running the world's logic if 
+/// needed. Such as weather, random block ticking, scheduled block ticking, entity 
+/// ticking or block notifications.
+/// 
+/// This structure also allows listening for events within it through a queue of 
+/// [`Event`], events listening is disabled by default but can be enabled by swapping
+/// a `Vec<Event>` into the world using the [`World::swap_events`]. Events are generated
+/// either by world's ticking logic or by manual changes to the world.
+/// 
+/// This data structure is however not design to handle automatic chunk loading and 
+/// saving, every chunk needs to be manually inserted and removed, same for entities and
+/// block entities.
 /// 
 /// Methods provided on this structure should follow a naming convention depending on the
 /// action that will apply to the world:
@@ -75,6 +101,7 @@ pub struct World {
     /// each chunk of the entities in it.
     chunks: HashMap<(i32, i32), WorldChunk>,
     /// Mapping for block entities.
+    /// TODO: Move this to entities.
     block_entities: HashMap<IVec3, Box<BlockEntity>>,
     /// Total entities count spawned since the world is running. Also used to give 
     /// entities a unique id.
@@ -85,10 +112,6 @@ pub struct World {
     entities: Vec<WorldEntity>,
     /// Entities' index mapping from their unique id.
     entities_map: HashMap<u32, usize>,
-    /// Queue of dead entities that should be removed after being updated. We keep this
-    /// queue in the world structure to avoid frequent allocation. This queue contains
-    /// entity indices and should be in ascending order.
-    entities_dead: Vec<usize>,
     /// Set of entities that are not belonging to any chunk at the moment.
     entities_orphan: IndexSet<usize>,
     /// Total scheduled ticks count since the world is running.
@@ -102,10 +125,6 @@ pub struct World {
     light_updates: VecDeque<LightUpdate>,
     /// This is the wrapping seed used by random ticks to compute random block positions.
     random_ticks_seed: i32,
-    /// Internal cached queue of random ticks that should be computed, this queue is only
-    /// used in the random ticking engine. It is put in an option in order to be owned
-    /// while random ticking and therefore avoiding borrowing issue with the world.
-    random_ticks_pending: Option<Vec<(IVec3, u8, u8)>>,
     /// The current weather in that world, note that the Notchian server do not work like
     /// this, but rather store two independent state for rain and thunder, but we simplify
     /// the logic in this implementation since it is not strictly needed to be on parity.
@@ -133,14 +152,12 @@ impl World {
             entities_count: 0,
             entities: Vec::new(),
             entities_map: HashMap::new(),
-            entities_dead: Vec::new(),
             entities_orphan: IndexSet::new(),
             scheduled_ticks_count: 0,
             scheduled_ticks: BTreeSet::new(),
             scheduled_ticks_states: HashSet::new(),
             light_updates: VecDeque::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
-            random_ticks_pending: Some(Vec::new()),
             weather: Weather::Clear,
             weather_next_time: 0,
             sky_light_subtracted: 0,
@@ -170,7 +187,10 @@ impl World {
         }
     }
 
-    /// Get the dimension of this world.
+    /// Get the dimension of this world, this is basically only for sky color on client
+    /// and also for celestial angle on the server side for sky light calculation. This
+    /// has not direct relation with the actual world generation that is providing this
+    /// world with chunks and entities.
     pub fn get_dimension(&self) -> Dimension {
         self.dimension
     }
@@ -196,10 +216,13 @@ impl World {
         &mut self.rand
     }
 
+    /// Get the current weather in the world.
     pub fn get_weather(&self) -> Weather {
         self.weather
     }
 
+    /// Set the current weather in this world. If the weather has changed an event will
+    /// be pushed into the events queue.
     pub fn set_weather(&mut self, weather: Weather) {
         if self.weather != weather {
             self.push_event(Event::WeatherChange { prev: self.weather, new: weather });
@@ -207,20 +230,59 @@ impl World {
         }
     }
 
+    /// Create a new view of a chunk's content, this only works if chunk data is existing.
+    /// This operation can be costly depending on the number of entities in the chunk, but
+    /// is free regarding the block and light data because it use shared reference.
+    pub fn make_chunk_view(&self, cx: i32, cz: i32) -> Option<ChunkView> {
+        let chunk = self.chunks.get(&(cx, cz))?;
+        Some(ChunkView {
+            cx, 
+            cz,
+            chunk: Arc::clone(&chunk.inner),
+            entities: chunk.entities.iter()
+                // Ignoring entities being updated, silently for now.
+                .filter_map(|&index| self.entities[index].inner.as_ref())
+                .cloned()
+                .collect(),
+        })
+    }
+
+    /// Remove a chunk and get the chunk view of all of its past content. All entities
+    /// that were in the chunk are removed alongside it.
+    pub fn remove_chunk_view(&mut self, cx: i32, cz: i32) -> Option<ChunkView> {
+        let chunk = self.chunks.remove(&(cx, cz))?;
+        Some(ChunkView { 
+            cx, 
+            cz, 
+            entities: chunk.entities.iter()
+                .filter_map(|&index| self.remove_entity_raw(index).inner)
+                .collect(),
+            chunk: chunk.inner,
+        })
+    }
+
     /// Get a reference to a chunk, if existing.
     pub fn get_chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
         self.chunks.get(&(cx, cz)).map(|c| &*c.inner)
     }
 
-    /// Get a mutable reference to a chunk, if existing.
+    /// Get a mutable reference to a chunk, if existing. This operation will clone the 
+    /// internal chunk data if it was previously shared in with a [`ChunkView`].
     pub fn get_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
-        self.chunks.get_mut(&(cx, cz)).map(|c| &mut *c.inner)
+        self.chunks.get_mut(&(cx, cz)).map(|c| Arc::make_mut(&mut c.inner))
     }
 
-    /// Insert a new chunk into the world. This function also generate an event for a new
-    /// chunk and also take cares of internal coherency with potential orphan entities 
-    /// that are placed in this new chunk.
-    pub fn insert_chunk(&mut self, cx: i32, cz: i32, chunk: Box<Chunk>) {
+    /// Raw function to add a chunk to the world at the given coordinates. Note that the
+    /// given chunk only contains block and light data, so no entity or block entity will
+    /// be added by this function.
+    /// 
+    /// If any chunk is existing at this coordinate, it will be replaced and all of its
+    /// entities will be transferred to that new chunk.
+    /// 
+    /// The world allows entities to update outside of actual chunks, such entities are
+    /// known as orphan ones. If such entities are currently present at this chunk's
+    /// coordinates, they will be moved to this new chunk.
+    pub fn insert_chunk(&mut self, cx: i32, cz: i32, chunk: Arc<Chunk>) {
         match self.chunks.entry((cx, cz)) {
             // There was no chunk here, we check in orphan entities if there are entities
             // currently in this chunk's position.
@@ -259,10 +321,12 @@ impl World {
         }
     }
 
-    /// Remove a chunk that may not exists. If the chunk exists, all of its owned entities 
-    /// will be transferred to the orphan entities list to be later picked up by another
-    /// chunk.
-    pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Box<Chunk>> {
+    /// Remove a chunk that may not exists. Note that this only removed the chunk data,
+    /// not its entities and block entities.
+    /// 
+    /// If the chunk exists, all of its owned entities will be transferred to the orphan 
+    /// entities list to be later picked up by another chunk.
+    pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Arc<Chunk>> {
         
         let chunk = self.chunks.remove(&(cx, cz))?;
         for &entity_index in &chunk.entities {
@@ -288,6 +352,8 @@ impl World {
     /// loaded, none is returned, but if it is existing the previous block and metadata
     /// is returned. This function also push a block change event.
     pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+
+        // println!("set_block({pos}, {id} ({}), {metadata})", block::from_id(id).name);
         
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.get_chunk_mut(cx, cz)?;
@@ -497,6 +563,56 @@ impl World {
             .expect("entity is being updated"))
     }
 
+    /// Internal raw function to remove an entity from its index. This function is not
+    /// exposed publicly because entity index is an internal implementation detail for
+    /// optimization of entity ticking. This function's complexity is O(1) because the
+    /// given entity is swap removed with the last one.
+    fn remove_entity_raw(&mut self, entity_index: usize) -> WorldEntity {
+
+        let removed_entity = self.entities.swap_remove(entity_index);
+        let remove_success = self.entities_map.remove(&removed_entity.id).is_some();
+        debug_assert!(remove_success, "removed entity was not in entity map");
+
+        // Remove the entity from the chunk it belongs to.
+        if removed_entity.orphan {
+            &mut self.entities_orphan
+        } else {
+            &mut self.chunks.get_mut(&(removed_entity.cx, removed_entity.cz))
+                .expect("non-orphan entity referencing a non-existing chunk")
+                .entities
+        }.remove(&entity_index);
+
+        // Because we used swap remove, this may have moved the last entity (if
+        // existing) to the removed entity index. We need to update its index in 
+        // chunk or orphan entities.
+        if let Some(entity) = self.entities.get(entity_index) {
+
+            // Get the correct entities list depending on the entity being orphan or not.
+            let entities = if entity.orphan {
+                &mut self.entities_orphan
+            } else {
+                &mut self.chunks.get_mut(&(entity.cx, entity.cz))
+                    .expect("non-orphan entity referencing a non-existing chunk")
+                    .entities
+            };
+
+            // The swapped entity was at the end, so the new length.
+            let previous_index = self.entities.len();
+
+            // Update the mapping from entity unique id to the new index.
+            let previous_map_index = self.entities_map.insert(entity.id, entity_index);
+            debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
+
+            let remove_success = entities.remove(&previous_index);
+            debug_assert!(remove_success, "entity index not found where it belongs");
+            entities.insert(entity_index);
+            
+        }
+
+        removed_entity
+
+    }
+
     /// Schedule a tick update to happen at the given position, for the given block id
     /// and with a given delay in ticks.
     pub fn schedule_tick(&mut self, pos: IVec3, id: u8, delay: u64) {
@@ -684,7 +800,7 @@ impl World {
         }
 
         // Random ticking...
-        let mut pending_random_ticks = self.random_ticks_pending.take().unwrap();
+        let mut pending_random_ticks = RANDOM_TICKS_PENDING.take();
         debug_assert!(pending_random_ticks.is_empty());
 
         for (&(cx, cz), chunk) in &mut self.chunks {
@@ -715,7 +831,7 @@ impl World {
             self.tick_block_unchecked(pos, id, metadata, true);
         }
 
-        self.random_ticks_pending = Some(pending_random_ticks);
+        RANDOM_TICKS_PENDING.set(pending_random_ticks);
 
     }
 
@@ -723,7 +839,6 @@ impl World {
     fn tick_entities(&mut self) {
 
         debug_assert_eq!(self.entities.len(), self.entities_map.len());
-        debug_assert!(self.entities_dead.is_empty());
 
         // Update every entity's bounding box prior to actually ticking.
         for world_entity in &mut self.entities {
@@ -733,8 +848,9 @@ impl World {
             world_entity.bb = entity_base.coherent.then_some(entity_base.bb);
         }
 
-        // NOTE: We don't tick entities added while iterating.
-        for i in 0..self.entities.len() {
+        // NOTE: Update all entities, including ones that are added while ticking.
+        let mut i = 0;
+        while i < self.entities.len() {
 
             // We unwrap because all entities should be present except updated one.
             let mut entity = self.entities[i].inner.take().unwrap();
@@ -745,9 +861,11 @@ impl World {
             let mut new_chunk = None;
 
             if entity_base.dead {
-                // Add the entity to the despawning queue.
-                self.entities_dead.push(i);
                 self.push_event(Event::EntityDead { id: entity_base.id });
+                self.remove_entity_raw(i);
+                // We skip the update part because the entity has been removed. 
+                // Most importantly, this avoid increment 'i' so we tick the swapped one.
+                continue;
             } else {
 
                 // If the position is dirty, compute the expected chunk position and trigger
@@ -805,55 +923,7 @@ impl World {
                 }
             }
 
-        }
-
-        // We swap remove each dead entity. We know that this dead queue is sorted in
-        // ascending order because we updated index in order. By reversing the iterator
-        // we ensure that we'll not modify any dead entity's index, that would by 
-        // impossible to manage.
-        for entity_index in self.entities_dead.drain(..).rev() {
-
-            let removed_entity = self.entities.swap_remove(entity_index);
-            debug_assert!(removed_entity.inner.is_some(), "dead entity is updating");
-
-            let remove_success = self.entities_map.remove(&removed_entity.id).is_some();
-            debug_assert!(remove_success, "dead entity was not in entity map");
-
-            // Remove the entity from the chunk it belongs to.
-            if removed_entity.orphan {
-                &mut self.entities_orphan
-            } else {
-                &mut self.chunks.get_mut(&(removed_entity.cx, removed_entity.cz))
-                    .expect("non-orphan entity referencing a non-existing chunk")
-                    .entities
-            }.remove(&entity_index);
-
-            // Because we used swap remove, this may have moved the last entity (if
-            // existing) to the removed entity index. We need to update its index in 
-            // chunk or orphan entities.
-            if let Some(entity) = self.entities.get(entity_index) {
-
-                // Get the correct entities list depending on the entity being orphan or not.
-                let entities = if entity.orphan {
-                    &mut self.entities_orphan
-                } else {
-                    &mut self.chunks.get_mut(&(entity.cx, entity.cz))
-                        .expect("non-orphan entity referencing a non-existing chunk")
-                        .entities
-                };
-
-                // The swapped entity was at the end, so the new length.
-                let previous_index = self.entities.len();
-
-                // Update the mapping from entity unique id to the new index.
-                let previous_map_index = self.entities_map.insert(entity.id, entity_index);
-                debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
-
-                let remove_success = entities.remove(&previous_index);
-                debug_assert!(remove_success, "entity index not found where it belongs");
-                entities.insert(entity_index);
-                
-            }
+            i += 1;
 
         }
 
@@ -875,8 +945,7 @@ impl World {
                 let face_pos = update.pos + face.delta();
 
                 let Some((cx, cz)) = calc_chunk_pos(face_pos) else { continue };
-                let Some(chunk) = self.chunks.get_mut(&(cx, cz)) else { continue };
-                let chunk = &mut *chunk.inner;
+                let Some(chunk) = self.get_chunk_mut(cx, cz) else { continue };
 
                 let face_emission = match update.kind {
                     LightUpdateKind::Block => chunk.get_block_light(face_pos),
@@ -888,8 +957,7 @@ impl World {
             }
 
             let Some((cx, cz)) = calc_chunk_pos(update.pos) else { continue };
-            let Some(chunk) = self.chunks.get_mut(&(cx, cz)) else { continue };
-            let chunk = &mut *chunk.inner;
+            let Some(chunk) = self.get_chunk_mut(cx, cz) else { continue };
 
             let (id, _) = chunk.get_block(update.pos);
             let opacity = block::material::get_light_opacity(id).max(1);
@@ -1062,16 +1130,62 @@ pub enum Event {
     }
 }
 
+/// A chunk view contains all of the content within a chunk, block, light, height map,
+/// entities and block entities are all included. This structure can be considered as
+/// a "view" because the chunk data (around 80 KB) is referenced to with a [`Arc`], that
+/// allows either uniquely owning it, or sharing it with a world, which is practical when
+/// saving a chunk.
+pub struct ChunkView {
+    /// The X chunk coordinate.
+    pub cx: i32,
+    /// The Z chunk coordinate.
+    pub cz: i32,
+    /// The block, light and height map data of the chunk.
+    pub chunk: Arc<Chunk>,
+    /// The entities in that chunk, note that entities are not guaranteed to have a 
+    /// position that is within chunk boundaries.
+    pub entities: Vec<Box<Entity>>,
+}
+
+impl ChunkView {
+
+    /// Create a new empty chunk view of the given coordinates.
+    pub fn new(cx: i32, cz: i32) -> Self {
+        Self {
+            cx,
+            cz,
+            chunk: Chunk::new(),
+            entities: Vec::new(),
+        }
+    }
+
+}
+
 
 /// Internal type for storing a world chunk with its cached entities.
 struct WorldChunk {
-    /// Underlying chunk.
-    inner: Box<Chunk>,
+    /// Underlying chunk. This is important to understand why the data chunk is stored 
+    /// in an Atomically Reference-Counted container: first the chunk structure is large
+    /// (around 80 KB) so we want it be stored in heap while the Arc container allows us
+    /// to work with the chunk in a Clone-On-Write manner.
+    /// 
+    /// In normal conditions, this chunk will not be shared and so it could be mutated 
+    /// using the [`Arc::get_mut`] method that allows mutating the Arc's value if only
+    /// one reference exists. But there are situations when we want to have more 
+    /// references to that chunk data, for example when saving the chunk we'll temporarily
+    /// create a Arc referencing this chunk and pass it to the threaded loader/saver.
+    /// If the chunk is mutated while being saved, we'll just clone it and replace this
+    /// Arc with a new one that, by definition, has only one reference, all of this based
+    /// on the [`Arc::make_mut`] method. Depending on save being fast or not, this clone
+    /// will be more or less likely to happen.
+    inner: Arc<Chunk>,
     /// Entities belonging to this chunk.
     entities: IndexSet<usize>,
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.
+/// 
+/// TODO: Support tile entities in that same 
 struct WorldEntity {
     /// Underlying entity, the none variant is rare and only happen once per tick when
     /// the chunk is updated.

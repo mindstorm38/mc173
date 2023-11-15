@@ -51,6 +51,9 @@ where
         let mut listener = TcpListener::bind(addr)?;
         poll.registry().register(&mut listener, LISTENER_TOKEN, Interest::READABLE)?;
 
+        // TODO: Adapt channel sizes depending on number of players, maybe unbounded 
+        // queue could be better for our case.
+
         let (
             commands_sender,
             commands_receiver

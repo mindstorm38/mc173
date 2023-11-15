@@ -1,8 +1,9 @@
-//! A chunk storing blocks and other entities, optimized for runtime performance. This 
-//! module only provides low-level data structures, refer to the [`mc173::world`] module
-//! for world manipulation methods.
+//! A chunk storing block and light data of a world, optimized for runtime performance. 
+//! This  module only provides low-level data structures, refer to the [`mc173::world`] 
+//! module for world manipulation methods.
 
 use std::io::{self, Write};
+use std::sync::Arc;
 
 use glam::{IVec3, DVec3};
 
@@ -67,25 +68,33 @@ pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
 
 /// Data structure storing every chunk-local data, chunks are a world subdivision of 
 /// 16x16x256 blocks.
+#[derive(Clone)]
 pub struct Chunk {
     /// The numeric identifier of the block.
-    block: ChunkByteArray,
+    pub block: ChunkByteArray,
     /// Four byte metadata for each block.
-    metadata: ChunkNibbleArray,
+    pub metadata: ChunkNibbleArray,
     /// Block list level for each block.
-    block_light: ChunkNibbleArray,
+    pub block_light: ChunkNibbleArray,
     /// Sky light level for each block.
-    sky_light: ChunkNibbleArray,
+    pub sky_light: ChunkNibbleArray,
     ///  The height map
-    heigh_map: ChunkHeightMap,
+    pub heigh_map: ChunkHeightMap,
 }
 
 impl Chunk {
 
     /// Create a new empty chunk, full of air blocks. All block light is zero and all sky
-    /// light is 15.
-    pub fn new() -> Box<Self> {
-        Box::new(Self {
+    /// light is 15. This constructor directly returns an arc chunk to ensure that no 
+    /// useless copy will be done, and also because it make no sense to hold this 
+    /// structure on stack.
+    /// 
+    /// The chunk is specifically returned in a Atomic Reference-Counted container in 
+    /// order to be used as some kind of Clone-On-Write container (through the method
+    /// [`Arc::make_mut`]), this is especially useful when dealing with zero-copy 
+    /// asynchronous chunk saving.
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
             block: [AIR; CHUNK_3D_SIZE],
             metadata: ChunkNibbleArray::new(0),
             block_light: ChunkNibbleArray::new(0),
@@ -201,26 +210,27 @@ impl Chunk {
 }
 
 /// Type alias for a chunk array that stores `u8 * CHUNK_2D_SIZE` values.
-type ChunkHeightMap = [u8; CHUNK_2D_SIZE];
+pub type ChunkHeightMap = [u8; CHUNK_2D_SIZE];
 
 /// Type alias for a chunk array that stores `u8 * CHUNK_3D_SIZE` values.
-type ChunkByteArray = [u8; CHUNK_3D_SIZE];
+pub type ChunkByteArray = [u8; CHUNK_3D_SIZE];
 
 /// Special arrays for chunks that stores `u4 * CHUNK_3D_SIZE` values.
-struct ChunkNibbleArray {
-    inner: [u8; CHUNK_3D_SIZE / 2]
+#[derive(Clone)]
+pub struct ChunkNibbleArray {
+    pub inner: [u8; CHUNK_3D_SIZE / 2]
 }
 
 impl ChunkNibbleArray {
 
-    const fn new(init: u8) -> Self {
+    pub const fn new(init: u8) -> Self {
         debug_assert!(init <= 0x0F);
         let init = init << 4 | init;
         Self { inner: [init; CHUNK_3D_SIZE / 2] }
     }
 
     #[inline]
-    fn get(&self, index: usize) -> u8 {
+    pub fn get(&self, index: usize) -> u8 {
         let slot = self.inner[index >> 1];
         if index & 1 == 0 {
             slot & 0x0F
@@ -230,7 +240,7 @@ impl ChunkNibbleArray {
     }
 
     #[inline]
-    fn set(&mut self, index: usize, value: u8) {
+    pub fn set(&mut self, index: usize, value: u8) {
         debug_assert!(value <= 0x0F);
         let slot = &mut self.inner[index >> 1];
         if index & 1 == 0 {

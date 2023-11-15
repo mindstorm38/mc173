@@ -135,6 +135,7 @@ name = "mc173"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "crossbeam-channel",
  "derive_more",
  "flate2",
  "glam",

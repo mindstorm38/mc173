@@ -1,7 +1,8 @@
 //! NBT format serialization and deserialization.
 
-use std::collections::BTreeMap;
 use std::io::{Read, self, Write};
+use std::collections::BTreeMap;
+use std::fmt;
 
 use thiserror::Error;
 
@@ -9,7 +10,7 @@ use crate::util::{ReadJavaExt, WriteJavaExt};
 
 
 /// A generic NBT tag, this structure has a size of 32 bytes. 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Nbt {
     Byte(i8),
     Short(i16),
@@ -20,7 +21,13 @@ pub enum Nbt {
     ByteArray(Vec<u8>),
     String(String),
     List(Vec<Nbt>),
-    Compound(BTreeMap<String, Nbt>),
+    Compound(NbtCompound),
+}
+
+/// An abstract NBT compound type that hides the internal implementation of the mapping.
+#[derive(Clone, PartialEq)]
+pub struct NbtCompound {
+    inner: BTreeMap<String, Nbt>,
 }
 
 
@@ -87,7 +94,7 @@ fn from_reader_with_type(reader: &mut impl Read, type_id: i8) -> Result<Nbt, Nbt
 
                 let type_id = reader.read_java_byte()?;
                 if type_id == 0 {
-                    break Nbt::Compound(map);  // End tag.
+                    break Nbt::Compound(NbtCompound { inner: map });  // End tag.
                 }
 
                 let key = reader.read_java_string8()?;
@@ -139,9 +146,9 @@ fn to_writer_raw(writer: &mut impl Write, tag: &Nbt) -> Result<(), NbtError> {
             }
 
         }
-        Nbt::Compound(ref map) => {
+        Nbt::Compound(ref compound) => {
 
-            for (key, tag) in map {
+            for (key, tag) in &compound.inner {
                 writer.write_java_byte(get_nbt_type_id(tag))?;
                 writer.write_java_string8(&key)?;
                 to_writer_raw(writer, tag)?;
@@ -169,6 +176,182 @@ fn get_nbt_type_id(tag: &Nbt) -> i8 {
         Nbt::String(_) => 8,
         Nbt::List(_) => 9,
         Nbt::Compound(_) => 10,
+    }
+}
+
+
+impl Nbt {
+
+    #[inline]
+    pub fn as_byte(&self) -> Option<i8> {
+        match *self {
+            Self::Byte(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_short(&self) -> Option<i16> {
+        match *self {
+            Self::Short(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_int(&self) -> Option<i32> {
+        match *self {
+            Self::Int(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_long(&self) -> Option<i64> {
+        match *self {
+            Self::Long(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_float(&self) -> Option<f32> {
+        match *self {
+            Self::Float(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_double(&self) -> Option<f64> {
+        match *self {
+            Self::Double(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_byte_array(&self) -> Option<&[u8]> {
+        match self {
+            Self::ByteArray(buf) => Some(&buf[..]),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            Self::String(string) => Some(string.as_str()),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_list(&self) -> Option<&[Nbt]> {
+        match self {
+            Self::List(list) => Some(&list[..]),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_compound(&self) -> Option<&NbtCompound> {
+        match self {
+            Self::Compound(comp) => Some(comp),
+            _ => None
+        }
+    }
+
+}
+
+impl NbtCompound {
+
+    pub fn new() -> Self {
+        Self { inner: BTreeMap::new() }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: String, tag: Nbt) {
+        self.inner.insert(key, tag);
+    }
+
+    #[inline]
+    pub fn get(&self, key: &str) -> Option<&Nbt> {
+        self.inner.get(key)
+    }
+
+    #[inline]
+    pub fn get_byte(&self, key: &str) -> Option<i8> {
+        self.get(key).and_then(Nbt::as_byte)
+    }
+
+    #[inline]
+    pub fn get_short(&self, key: &str) -> Option<i16> {
+        self.get(key).and_then(Nbt::as_short)
+    }
+
+    #[inline]
+    pub fn get_int(&self, key: &str) -> Option<i32> {
+        self.get(key).and_then(Nbt::as_int)
+    }
+
+    #[inline]
+    pub fn get_long(&self, key: &str) -> Option<i64> {
+        self.get(key).and_then(Nbt::as_long)
+    }
+
+    #[inline]
+    pub fn get_float(&self, key: &str) -> Option<f32> {
+        self.get(key).and_then(Nbt::as_float)
+    }
+
+    #[inline]
+    pub fn get_double(&self, key: &str) -> Option<f64> {
+        self.get(key).and_then(Nbt::as_double)
+    }
+
+    #[inline]
+    pub fn get_byte_array(&self, key: &str) -> Option<&[u8]> {
+        self.get(key).and_then(Nbt::as_byte_array)
+    }
+
+    #[inline]
+    pub fn get_string(&self, key: &str) -> Option<&str> {
+        self.get(key).and_then(Nbt::as_string)
+    }
+
+    #[inline]
+    pub fn get_list(&self, key: &str) -> Option<&[Nbt]> {
+        self.get(key).and_then(Nbt::as_list)
+    }
+
+    #[inline]
+    pub fn get_compound(&self, key: &str) -> Option<&NbtCompound> {
+        self.get(key).and_then(Nbt::as_compound)
+    }
+
+}
+
+
+/// Manual debug implement to shrink the potential huge byte arrays.
+impl fmt::Debug for Nbt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Byte(n) => f.debug_tuple("Byte").field(n).finish(),
+            Self::Short(n) => f.debug_tuple("Short").field(n).finish(),
+            Self::Int(n) => f.debug_tuple("Int").field(n).finish(),
+            Self::Long(n) => f.debug_tuple("Long").field(n).finish(),
+            Self::Float(n) => f.debug_tuple("Float").field(n).finish(),
+            Self::Double(n) => f.debug_tuple("Double").field(n).finish(),
+            Self::ByteArray(buf) => {
+                f.debug_tuple("ByteArray")
+                    .field(&format_args!("({}) {:X?}...", buf.len(), &buf[..buf.len().min(10)]))
+                    .finish()
+            }
+            Self::String(string) => f.debug_tuple("String").field(string).finish(),
+            Self::List(list) => f.debug_tuple("List").field(list).finish(),
+            Self::Compound(compound) => f.debug_tuple("Compound").field(&compound.inner).finish(),
+        }
     }
 }
 

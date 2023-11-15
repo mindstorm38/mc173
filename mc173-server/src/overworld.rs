@@ -33,6 +33,7 @@ pub fn new_overworld() -> World {
 pub fn new_overworld_chunk(height: i32) -> Box<Chunk> {
 
     let mut chunk = Chunk::new();
+    
     chunk.fill_block(IVec3::new(0, 0, 0), IVec3::new(CHUNK_WIDTH as _, height - 3, CHUNK_WIDTH as _), block::STONE, 0);
     chunk.fill_block(IVec3::new(0, height - 3, 0), IVec3::new(CHUNK_WIDTH as _, 2, CHUNK_WIDTH as _), block::DIRT, 0);
     chunk.fill_block(IVec3::new(0, height - 1, 0), IVec3::new(CHUNK_WIDTH as _, 1, CHUNK_WIDTH as _), block::GRASS, 0);

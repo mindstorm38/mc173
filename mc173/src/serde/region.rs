@@ -45,13 +45,15 @@ impl RegionDir {
         }
     }
 
-    /// Ensure that a region file exists for the given chunk coordinates.
-    pub fn ensure_region_file(&mut self, cx: i32, cz: i32) -> Result<&mut RegionFile, RegionError> {
+    /// Ensure that a region file exists for the given chunk coordinates. If false is
+    /// given as the 'create' argument, then the file will not be created and initialized
+    /// if not existing.
+    pub fn ensure_region_file(&mut self, cx: i32, cz: i32, create: bool) -> Result<&mut RegionFile, RegionError> {
         let (rx, rz) = (cx >> 5, cz >> 5);
         match self.cache.entry((rx, rz)) {
             Entry::Occupied(o) => Ok(o.into_mut()),
             Entry::Vacant(v) => {
-                Ok(v.insert(RegionFile::open(self.path.join(format!("r.{rx}.{rz}.mcr")), true)?))
+                Ok(v.insert(RegionFile::open(self.path.join(format!("r.{rx}.{rz}.mcr")), create)?))
             }
         }
     }
