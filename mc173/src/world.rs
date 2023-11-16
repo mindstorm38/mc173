@@ -42,8 +42,8 @@ thread_local! {
 
 /// This data structure stores different kind of component:
 /// - Chunks, these are the storage for block, light and height map of a 16x16 column in
-///   the world with a height of 128. This component is the larger one from memory point
-///   of view.
+///   the world with a height of 128. This component has the largest memory footprint
+///   overall and is stored in shared reference to avoid too much memory copy.
 /// - Entities, basically anything that needs to be ticked with 3 dimensional coordinates.
 ///   They are not directly belonging to a particular chunk of 16x16 block, but they are
 ///   internally associated to existing chunks in order to optimize collision detection.
