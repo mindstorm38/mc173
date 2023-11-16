@@ -298,7 +298,6 @@ impl World {
                     // If the entity is in the newly added chunk.
                     if (entity.cx, entity.cz) == (cx, cz) {
                         world_chunk.entities.insert(entity_index);
-                        entity.orphan = false;
                         // Do not retain entity, remove it from orphan list.
                         false
                     } else {
@@ -327,15 +326,9 @@ impl World {
     /// If the chunk exists, all of its owned entities will be transferred to the orphan 
     /// entities list to be later picked up by another chunk.
     pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Arc<Chunk>> {
-        
         let chunk = self.chunks.remove(&(cx, cz))?;
-        for &entity_index in &chunk.entities {
-            self.entities[entity_index].orphan = true;
-        }
-
         self.entities_orphan.extend(chunk.entities.into_iter());
         Some(chunk.inner)
-
     }
 
     /// Get block and metadata at given position in the world, if the chunk is not
@@ -508,12 +501,11 @@ impl World {
 
         // Bind the entity to an existing chunk if possible.
         let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
-        let mut world_entity = WorldEntity {
+        let world_entity = WorldEntity {
             inner: Some(entity),
             id,
             cx,
             cz,
-            orphan: false,
             bb: None,
         };
         
@@ -521,7 +513,6 @@ impl World {
             chunk.entities.insert(entity_index);
         } else {
             self.entities_orphan.insert(entity_index);
-            world_entity.orphan = true;
         }
 
         self.entities.push(world_entity);
@@ -573,14 +564,12 @@ impl World {
         let remove_success = self.entities_map.remove(&removed_entity.id).is_some();
         debug_assert!(remove_success, "removed entity was not in entity map");
 
-        // Remove the entity from the chunk it belongs to.
-        if removed_entity.orphan {
-            &mut self.entities_orphan
-        } else {
-            &mut self.chunks.get_mut(&(removed_entity.cx, removed_entity.cz))
-                .expect("non-orphan entity referencing a non-existing chunk")
-                .entities
-        }.remove(&entity_index);
+        let remove_success = self.chunks.get_mut(&(removed_entity.cx, removed_entity.cz))
+            .map(|chunk| &mut chunk.entities)
+            .unwrap_or(&mut self.entities_orphan)
+            .remove(&entity_index);
+
+        debug_assert!(remove_success, "entity index not found where it belongs");
 
         // Because we used swap remove, this may have moved the last entity (if
         // existing) to the removed entity index. We need to update its index in 
@@ -588,13 +577,9 @@ impl World {
         if let Some(entity) = self.entities.get(entity_index) {
 
             // Get the correct entities list depending on the entity being orphan or not.
-            let entities = if entity.orphan {
-                &mut self.entities_orphan
-            } else {
-                &mut self.chunks.get_mut(&(entity.cx, entity.cz))
-                    .expect("non-orphan entity referencing a non-existing chunk")
-                    .entities
-            };
+            let entities = self.chunks.get_mut(&(entity.cx, entity.cz))
+                .map(|chunk| &mut chunk.entities)
+                .unwrap_or(&mut self.entities_orphan);
 
             // The swapped entity was at the end, so the new length.
             let previous_index = self.entities.len();
@@ -651,7 +636,6 @@ impl World {
         entities.iter()
             .filter_map(move |&entity_index| {
                 let world_entity = &self.entities[entity_index];
-                debug_assert_eq!(world_entity.orphan, orphan, "incoherent orphan entity");
                 // If we are iterating the orphan entities, check the chunk.
                 if orphan {
                     if (world_entity.cx, world_entity.cz) != (cx, cz) {
@@ -898,25 +882,19 @@ impl World {
 
                     // Get the previous entities list, where the current entity should
                     // be cached in order to remove it.
-                    let entities = if world_entity.orphan {
-                        &mut self.entities_orphan
-                    } else {
-                        &mut self.chunks.get_mut(&(world_entity.cx, world_entity.cz))
-                            .expect("non-orphan entity referencing a non-existing chunk")
-                            .entities
-                    };
-
-                    let remove_success = entities.remove(&i);
+                    let remove_success = self.chunks.get_mut(&(world_entity.cx, world_entity.cz))
+                        .map(|chunk| &mut chunk.entities)
+                        .unwrap_or(&mut self.entities_orphan)
+                        .remove(&i);
+                    
                     debug_assert!(remove_success, "entity index not found where it belongs");
 
                     // Update the world entity to its new chunk and orphan state.
                     world_entity.cx = new_cx;
                     world_entity.cz = new_cz;
                     if let Some(chunk) = self.chunks.get_mut(&(new_cx, new_cz)) {
-                        world_entity.orphan = false;
                         chunk.entities.insert(i);
                     } else {
-                        world_entity.orphan = true;
                         self.entities_orphan.insert(i);
                     }
 
@@ -1184,8 +1162,6 @@ struct WorldChunk {
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.
-/// 
-/// TODO: Support tile entities in that same 
 struct WorldEntity {
     /// Underlying entity, the none variant is rare and only happen once per tick when
     /// the chunk is updated.
@@ -1197,8 +1173,6 @@ struct WorldEntity {
     cx: i32,
     /// The last computed chunk position Z.
     cz: i32,
-    /// Indicate if this entity is orphan and therefore does not belong to any chunk.
-    orphan: bool,
     /// The bounding box of this entity prior to ticking, none is used if the entity
     /// bounding box isn't coherent, which is the default when the entity has just been
     /// spawned.
