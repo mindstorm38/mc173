@@ -9,7 +9,7 @@ use crossbeam_channel::{bounded, Sender, Receiver, TrySendError, TryRecvError};
 use thiserror::Error;
 use glam::IVec3;
 
-use crate::world::ChunkView;
+use crate::world::ChunkSnapshot;
 use crate::block;
 
 
@@ -27,7 +27,7 @@ pub trait ChunkSource {
     /// Load a chunk at the given coordinates and return the associated proto-chunk. This
     /// function should load the chunk synchronously. The default implementation just
     /// return an unsupported operation error.
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkView, ChunkSourceError<Self::LoadError>> {
+    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
         let _ = (cx, cz);
         Err(ChunkSourceError::Unsupported)
     }
@@ -35,8 +35,8 @@ pub trait ChunkSource {
     /// Save a chunk from the given view and return Ok if successful. This function should
     /// save the chunk synchronously. The default implementation just return an
     /// unsupported operation error.
-    fn save_chunk(&mut self, view: ChunkView) -> Result<(), ChunkSourceError<Self::SaveError>> {
-        let _ = view;
+    fn save_chunk(&mut self, snapshot: ChunkSnapshot) -> Result<(), ChunkSourceError<Self::SaveError>> {
+        let _ = snapshot;
         Err(ChunkSourceError::Unsupported)
     }
 
@@ -68,8 +68,8 @@ impl ChunkSource for EmptyChunkSource {
     type LoadError = ();
     type SaveError = ();
 
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkView, ChunkSourceError<Self::LoadError>> {
-        Ok(ChunkView::new(cx, cz))
+    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
+        Ok(ChunkSnapshot::new(cx, cz))
     }
 
 }
@@ -82,8 +82,8 @@ impl ChunkSource for FlatChunkSource {
     type LoadError = ();
     type SaveError = ();
 
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkView, ChunkSourceError<Self::LoadError>> {
-        let mut view = ChunkView::new(cx, cz);
+    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
+        let mut view = ChunkSnapshot::new(cx, cz);
         let chunk = Arc::get_mut(&mut view.chunk).unwrap();
         chunk.fill_block(IVec3::new(0, 0, 0), IVec3::new(16, 1, 16), block::BEDROCK, 0);
         chunk.fill_block(IVec3::new(0, 1, 0), IVec3::new(16, 3, 16), block::DIRT, 0);
@@ -223,7 +223,7 @@ impl<S: ChunkSource> ChunkSourcePool<S> {
 
     /// Request a chunk to be saved from a view. This function returns true if the request
     /// has been successfully enqueued.
-    pub fn request_chunk_save(&self, view: ChunkView) -> bool {
+    pub fn request_chunk_save(&self, view: ChunkSnapshot) -> bool {
         match self.command_sender.try_send(WorkerCommand::Save { view }) {
             Ok(_) => true,
             Err(TrySendError::Full(_)) => false,
@@ -248,7 +248,7 @@ impl<S: ChunkSource> ChunkSourcePool<S> {
 /// Internal enumeration of results to commands sent to workers.
 pub enum ChunkSourceEvent<S: ChunkSource> {
     /// A chunk has been loaded, here is the chunk view or an error.
-    Load(Result<ChunkView, ChunkSourceError<S::LoadError>>),
+    Load(Result<ChunkSnapshot, ChunkSourceError<S::LoadError>>),
     /// A chunk has been saved, here is the chunk coordinates or an error.
     Save(Result<(i32, i32), ChunkSourceError<S::SaveError>>),
 }
@@ -265,7 +265,7 @@ enum WorkerCommand {
     /// Load a chunk at the given coordinates.
     Load { cx: i32, cz: i32 },
     /// Save a chunk from its view.
-    Save { view: ChunkView },
+    Save { view: ChunkSnapshot },
 }
 
 impl<S: ChunkSource> Worker<S> {

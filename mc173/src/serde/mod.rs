@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::source::{ChunkSource, ChunkSourceError};
-use crate::world::ChunkView;
+use crate::world::ChunkSnapshot;
 
 use self::region::{RegionDir, RegionError};
 
@@ -35,7 +35,7 @@ impl ChunkSource for RegionChunkSource {
     type LoadError = RegionError;
     type SaveError = RegionError;
 
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkView, ChunkSourceError<Self::LoadError>> {
+    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
 
         // Get the region file but do not create it if not already existing, returning
         // unsupported if not existing.
@@ -69,7 +69,7 @@ impl ChunkSource for RegionChunkSource {
             panic!("incoherent chunk coordinates");
         }
 
-        let mut view = ChunkView::new(cx, cz);
+        let mut view = ChunkSnapshot::new(cx, cz);
         let chunk = Arc::get_mut(&mut view.chunk).unwrap();
 
         let block = level.get_byte_array("Blocks").unwrap();

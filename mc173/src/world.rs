@@ -1,7 +1,7 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
 use std::collections::{HashMap, BTreeSet, HashSet, VecDeque};
-use std::collections::hash_map::Entry;
+use std::ops::{Deref, DerefMut};
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
 use std::cell::Cell;
@@ -37,6 +37,9 @@ thread_local! {
     /// executed. This is mandatory since ticking a block requires full mutable access to
     /// the world, but it's not possible while owning a reference to a chunk.
     static RANDOM_TICKS_PENDING: Cell<Vec<(IVec3, u8, u8)>> = const { Cell::new(Vec::new()) };
+    /// This thread local vector is used to temporally store entities or block entities 
+    /// indices that should be removed just after the update loop.
+    static INDICES_TO_REMOVE: Cell<Vec<usize>> = const { Cell::new(Vec::new()) };
 }
 
 
@@ -46,10 +49,9 @@ thread_local! {
 ///   overall and is stored in shared reference to avoid too much memory copy.
 ///   A chunk must be present in order to set block in the world.
 /// - Entities, basically anything that needs to be ticked with 3 dimensional coordinates.
-///   They are not directly belonging to a particular chunk of 16x16 block, but they are
-///   internally associated to existing chunks in order to optimize collision detection.
+///   They can control their own position, velocity and look for example.
 /// - Block Entities, this is a mix between entities and blocks, they can be ticked but
-///   are attached to integer coordinates.
+///   are attached to a block position that they cannot control.
 /// 
 /// These components are independent, but are internally optimized for access. For example
 /// entities are not directly linked to a chunk, but an iterator over entities within a
@@ -105,18 +107,19 @@ pub struct World {
     /// as chunk data, entities and block entities. Every world component must be linked
     /// to a world chunk.
     chunks: HashMap<(i32, i32), WorldChunk>,
-    /// Mapping for block entities.
-    /// TODO: Move this to entities.
-    block_entities: HashMap<IVec3, Box<BlockEntity>>,
     /// Total entities count spawned since the world is running. Also used to give 
     /// entities a unique id.
     entities_count: u32,
-    /// The entities are stored inside an option, this has no overhead because of niche 
-    /// in the box type, but allows us to temporarily own the entity when updating it, 
-    /// therefore avoiding borrowing issues.
+    /// The internal list of all loaded entities, they are referred to by their index in
+    /// this list. This implies that when an entity is moved, all index pointing to it
+    /// should be updated to its new index.
     entities: Vec<WorldEntity>,
     /// Entities' index mapping from their unique id.
     entities_id_map: HashMap<u32, usize>,
+    /// Same as entities but for block entities.
+    block_entities: Vec<WorldBlockEntity>,
+    /// Mapping of block entities to they block position.
+    block_entities_pos_map: HashMap<IVec3, usize>,
     /// Total scheduled ticks count since the world is running.
     scheduled_ticks_count: u64,
     /// Mapping of scheduled ticks in the future.
@@ -151,10 +154,11 @@ impl World {
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
-            block_entities: HashMap::new(),
             entities_count: 0,
             entities: Vec::new(),
             entities_id_map: HashMap::new(),
+            block_entities: Vec::new(),
+            block_entities_pos_map: HashMap::new(),
             scheduled_ticks_count: 0,
             scheduled_ticks: BTreeSet::new(),
             scheduled_ticks_states: HashSet::new(),
@@ -232,71 +236,77 @@ impl World {
         }
     }
 
-    /// Internal function to get a world chunk at the given chunk coordinates.
-    fn get_world_chunk(&self, cx: i32, cz: i32) -> Option<&WorldChunk> {
-        self.chunks.get(&(cx, cz))
-    }
+    // /// Internal function to get a world chunk at the given chunk coordinates.
+    // fn get_world_chunk(&self, cx: i32, cz: i32) -> Option<&WorldChunk> {
+    //     self.chunks.get(&(cx, cz))
+    // }
 
-    /// Internal function to get a mutable reference to a world chunk.
-    fn get_world_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut WorldChunk> {
-        self.chunks.get_mut(&(cx, cz))
-    }
+    // /// Internal function to get a mutable reference to a world chunk.
+    // fn get_world_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut WorldChunk> {
+    //     self.chunks.get_mut(&(cx, cz))
+    // }
 
-    /// Internal function to ensure that a world chunk at the given chunk coordinates 
-    /// exists, and return the mutable reference to it.
-    fn ensure_world_chunk(&mut self, cx: i32, cz: i32) -> &mut WorldChunk {
-        self.chunks.entry((cx, cz)).or_default()
-    }
+    // /// Internal function to ensure that a world chunk at the given chunk coordinates 
+    // /// exists, and return the mutable reference to it.
+    // fn ensure_world_chunk(&mut self, cx: i32, cz: i32) -> &mut WorldChunk {
+    //     self.chunks.entry((cx, cz)).or_default()
+    // }
 
-    /// Create a new view of a chunk's content, this only works if chunk data is existing.
+    /// Create a snapshot of a chunk's content, this only works if chunk data is existing.
     /// This operation can be costly depending on the number of entities in the chunk, but
     /// is free regarding the block and light data because it use shared reference.
-    pub fn make_chunk_view(&self, cx: i32, cz: i32) -> Option<ChunkView> {
-        let chunk = self.chunks.get(&(cx, cz))?;
-        Some(ChunkView {
+    pub fn take_chunk_snapshot(&self, cx: i32, cz: i32) -> Option<ChunkSnapshot> {
+        let world_chunk = self.chunks.get(&(cx, cz))?;
+        let chunk = world_chunk.data.as_ref()?;
+        Some(ChunkSnapshot {
             cx, 
             cz,
-            chunk: Arc::clone(&chunk.data),
-            entities: chunk.entities.iter()
+            chunk: Arc::clone(&chunk),
+            entities: world_chunk.entities.iter()
                 // Ignoring entities being updated, silently for now.
-                .filter_map(|&index| self.entities[index].inner.as_ref())
-                .cloned()
+                .filter_map(|&index| self.entities[index].inner.as_ref().cloned())
+                .collect(),
+            block_entities: world_chunk.block_entities.iter()
+                .filter_map(|(&pos, &index)| self.block_entities[index].inner.as_ref()
+                    .cloned()
+                    .map(|e| (pos, e)))
                 .collect(),
         })
     }
 
-    /// Remove a chunk and get the chunk view of all of its past content. All entities
-    /// that were in the chunk are removed alongside it.
-    pub fn remove_chunk_view(&mut self, cx: i32, cz: i32) -> Option<ChunkView> {
-        let chunk = self.chunks.remove(&(cx, cz))?;
-        Some(ChunkView { 
-            cx, 
-            cz, 
-            entities: chunk.entities.iter()
-                .filter_map(|&index| self.remove_entity_raw(index).inner)
-                .collect(),
-            chunk: chunk.data,
-        })
-    }
+    // /// Remove a chunk and get the chunk snapshot of all of its past content. All entities
+    // /// that were in the chunk are removed alongside it.
+    // pub fn remove_chunk_snapshot(&mut self, cx: i32, cz: i32) -> Option<ChunkSnapshot> {
+    //     let world_chunk = self.chunks.remove(&(cx, cz))?;
+
+    //     let world_chunk = self.get_world_chunk_mut(cx, cz)?;
+    //     let chunk = world_chunk.data.take()?;
+    //     Some(ChunkSnapshot {
+    //         cx,
+    //         cz, 
+    //         entities: world_chunk.entities.drain(..)
+    //             .filter_map(|index| self.entities[index].inner.take())
+    //             .collect(),
+    //         chunk,
+    //     })
+    // }
 
     /// Insert a chunk view into this world at its position with all entities and block
     /// entities attached to it.
-    pub fn insert_chunk_view(&mut self, view: ChunkView) {
-        self.chunks.insert((view.cx, view.cz), WorldChunk { 
-            data: view.chunk, 
-            entities: IndexSet::new(),
-        });
+    pub fn insert_chunk_view(&mut self, view: ChunkSnapshot) {
+        // let world_chunk = self.ensure_world_chunk(view.cx, view.cz);
+        todo!() // TODO:
     }
 
     /// Get a reference to a chunk, if existing.
     pub fn get_chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
-        self.get_world_chunk(cx, cz).and_then(|c| c.data.as_deref())
+        self.chunks.get(&(cx, cz)).and_then(|c| c.data.as_deref())
     }
 
     /// Get a mutable reference to a chunk, if existing. This operation will clone the 
     /// internal chunk data if it was previously shared in with a [`ChunkView`].
     pub fn get_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
-        self.get_world_chunk(cx, cz).and_then(|c| c.data.as_mut().map(Arc::make_mut))
+        self.chunks.get_mut(&(cx, cz)).and_then(|c| c.data.as_mut().map(Arc::make_mut))
     }
 
     /// Raw function to add a chunk to the world at the given coordinates. Note that the
@@ -310,39 +320,14 @@ impl World {
     /// known as orphan ones. If such entities are currently present at this chunk's
     /// coordinates, they will be moved to this new chunk.
     pub fn insert_chunk(&mut self, cx: i32, cz: i32, chunk: Arc<Chunk>) {
-        match self.chunks.entry((cx, cz)) {
-            // There was no chunk here, we check in orphan entities if there are entities
-            // currently in this chunk's position.
-            Entry::Vacant(v) => {
-
-                let mut world_chunk = WorldChunk {
-                    data: chunk,
-                    entities: IndexSet::new(),
-                };
-
-                self.entities_orphan.retain(|&entity_index| {
-                    let entity = &mut self.entities[entity_index];
-                    // If the entity is in the newly added chunk.
-                    if (entity.cx, entity.cz) == (cx, cz) {
-                        world_chunk.entities.insert(entity_index);
-                        // Do not retain entity, remove it from orphan list.
-                        false
-                    } else {
-                        true
-                    }
-                });
-
-                v.insert(world_chunk);
-
+        let world_chunk = self.chunks.entry((cx, cz)).or_default();
+        let was_unloaded = world_chunk.data.replace(chunk).is_none();
+        if was_unloaded {
+            for &entity_index in &world_chunk.entities {
+                self.entities[entity_index].loaded = true;
             }
-            // The chunk is being replaced, we just transfer all entity to the new one.
-            Entry::Occupied(mut o) => {
-                // Replace the previous chunk and then move all of its entities to it.
-                let prev_chunk = o.insert(WorldChunk {
-                    data: chunk,
-                    entities: IndexSet::new(),
-                });
-                o.get_mut().entities = prev_chunk.entities;
+            for &block_entity_index in world_chunk.block_entities.values() {
+                self.block_entities[block_entity_index].loaded = true;
             }
         }
     }
@@ -353,9 +338,17 @@ impl World {
     /// If the chunk exists, all of its owned entities will be transferred to the orphan 
     /// entities list to be later picked up by another chunk.
     pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Arc<Chunk>> {
-        let chunk = self.chunks.remove(&(cx, cz))?;
-        self.entities_orphan.extend(chunk.entities.into_iter());
-        Some(chunk.data)
+        let world_chunk = self.chunks.get_mut(&(cx, cz))?;
+        let ret = world_chunk.data.take();
+        if ret.is_some() {
+            for &entity_index in &world_chunk.entities {
+                self.entities[entity_index].loaded = false;
+            }
+            for &block_entity_index in world_chunk.block_entities.values() {
+                self.block_entities[block_entity_index].loaded = false;
+            }
+        }
+        ret
     }
 
     /// Get block and metadata at given position in the world, if the chunk is not
@@ -455,9 +448,9 @@ impl World {
         Some((prev_id, prev_metadata))
     }
 
-    /// Get saved height of a chunk column.
+    /// Get saved height of a chunk column, Y component is ignored in the position.
     pub fn get_height(&self, pos: IVec3) -> Option<u8> {
-        let (cx, cz) = calc_chunk_pos(pos)?;
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
         let chunk = self.get_chunk(cx, cz)?;
         Some(chunk.get_height(pos))
     }
@@ -489,28 +482,6 @@ impl World {
 
     }
 
-    /// Get a block entity from its position.
-    /// TODO: Improve API
-    pub fn get_block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
-        self.block_entities.get(&pos).map(|b| &**b)
-    }
-
-    /// Get a block entity from its position.
-    /// TODO: Improve API
-    pub fn get_block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
-        self.block_entities.get_mut(&pos).map(|b| &mut **b)
-    }
-
-    /// TODO: Improve API
-    pub fn set_block_entity(&mut self, pos: IVec3, block_entity: impl Into<Box<BlockEntity>>) {
-        self.block_entities.insert(pos, block_entity.into());
-    }
-
-    /// TODO: Improve API
-    pub fn remove_block_entity(&mut self, pos: IVec3) -> Option<Box<BlockEntity>> {
-        self.block_entities.remove(&pos)
-    }
-
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
@@ -526,20 +497,21 @@ impl World {
             .expect("entity count overflow");
 
         entity_base.id = id;
-
-        // Bind the entity to an existing chunk if possible.
+        
         let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
+
+        // NOTE: Entities should always be stored in a world chunk.
+        let world_chunk = self.chunks.entry((cx, cz)).or_default();
+        world_chunk.entities.insert(entity_index);
+
         let world_entity = WorldEntity {
-            inner: Some(entity),
+            inner: InnerStorage::Ready(entity),
             id,
             cx,
             cz,
+            loaded: world_chunk.data.is_some(),
             bb: None,
         };
-
-        // NOTE: Entities should always be stored in a world chunk.
-        let world_chunk = self.ensure_world_chunk(cx, cz);
-        world_chunk.entities.insert(entity_index);
         
         self.entities.push(world_entity);
         self.entities_id_map.insert(id, entity_index);
@@ -556,70 +528,94 @@ impl World {
     /// ticked once in the same cycle as the currently ticking entity.**
     #[inline(always)]
     pub fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32 {
-        // NOTE: This method is just a wrapper to ensure boxed entity.
+        // NOTE: This method is just a wrapper to erase generics.
         self.spawn_entity_inner(entity.into())
     }
 
     /// Get a generic entity from its unique id. This generic entity can later be checked
-    /// for being of a particular type.
-    #[track_caller]
+    /// for being of a particular type. None can be returned if no entity is existing for
+    /// this id or if the entity is the current entity being updated.
     pub fn get_entity(&self, id: u32) -> Option<&Entity> {
         let index = *self.entities_id_map.get(&id)?;
-        Some(self.entities[index].inner
-            .as_deref()
-            .expect("entity is being updated"))
+        self.entities[index].inner.as_deref()
     }
 
     /// Get a generic entity from its unique id. This generic entity can later be checked
-    /// for being of a particular type.
-    #[track_caller]
+    /// for being of a particular type. None can be returned if no entity is existing for
+    /// this id or if the entity is the current entity being updated.
     pub fn get_entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
         let index = *self.entities_id_map.get(&id)?;
-        Some(self.entities[index].inner
-            .as_deref_mut()
-            .expect("entity is being updated"))
+        self.entities[index].inner.as_deref_mut()
     }
 
-    /// Internal raw function to remove an entity from its index. This function is not
-    /// exposed publicly because entity index is an internal implementation detail for
-    /// optimization of entity ticking. This function's complexity is O(1) because the
-    /// given entity is swap removed with the last one.
-    fn remove_entity_raw(&mut self, entity_index: usize) -> WorldEntity {
+    /// Remove an entity from its id, returning some boxed entity is successful. This
+    /// returns true if the entity has been successfully marked for removal, this function
+    /// can be called from any entity updating or not.
+    pub fn remove_entity(&mut self, id: u32) -> bool {
+        // NOTE: Each entity can be removed once because its ID is removed.
+        let Some(index) = self.entities_id_map.remove(&id) else { return false };
+        let prev = self.entities[index].inner.replace(InnerStorage::Removed);
+        debug_assert!(!matches!(prev, InnerStorage::Removed), "entity should not already be removed");
+        true
+    }
 
-        let removed_entity = self.entities.swap_remove(entity_index);
+    /// Get a block entity from its position.
+    pub fn get_block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
+        let index = *self.block_entities_pos_map.get(&pos)?;
+        self.block_entities[index].inner.as_deref()
+    }
 
-        let remove_success = self.get_world_chunk_mut(removed_entity.cx, removed_entity.cz)
-            .expect("entity was not in a chunk")
-            .entities.remove(&entity_index);
-        debug_assert!(remove_success, "entity index was not in its chunk");
+    /// Get a block entity from its position.
+    pub fn get_block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
+        let index = *self.block_entities_pos_map.get(&pos)?;
+        self.block_entities[index].inner.as_deref_mut()
+    }
 
-        let remove_success = self.entities_id_map.remove(&removed_entity.id).is_some();
-        debug_assert!(remove_success, "removed entity was not in entity map");
+    /// Inner function to set block entity at given position, used to elide generics.
+    #[inline(never)]
+    fn set_block_entity_inner(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
 
-        // Because we used swap remove, this may have moved the last entity (if
-        // existing) to the removed entity index. We need to update its index in 
-        // chunk or orphan entities.
-        if let Some(entity) = self.entities.get(entity_index) {
+        let block_entity_index = self.block_entities.len();
 
-            let entities = &mut self.chunks.get_mut(&(entity.cx, entity.cz))
-                .expect("entity was not in a chunk")
-                .entities;
-
-            // The swapped entity was at the end, so the new length.
-            let previous_index = self.entities.len();
-
-            // Update the mapping from entity unique id to the new index.
-            let previous_map_index = self.entities_id_map.insert(entity.id, entity_index);
-            debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
-
-            let remove_success = entities.remove(&previous_index);
-            debug_assert!(remove_success, "entity index not found where it belongs");
-            entities.insert(entity_index);
-            
+        if let Some(prev_index) = self.block_entities_pos_map.insert(pos, block_entity_index) {
+            // If a block entity was already present at this position, mark the previous
+            // one as removed in order to clean it up later.
+            self.remove_block_entity_inner(prev_index);
         }
 
-        removed_entity
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        let world_chunk = self.chunks.entry((cx, cz)).or_default();
 
+        world_chunk.block_entities.insert(pos, block_entity_index);
+
+        let world_block_entity = WorldBlockEntity { 
+            inner: InnerStorage::Ready(block_entity), 
+            loaded: world_chunk.data.is_some(),
+            pos,
+        };
+
+        self.block_entities.push(world_block_entity);
+
+    }
+
+    /// Set the block entity at the given position. If a block entity was already at the
+    /// position, it is removed silently.
+    #[inline(always)]
+    pub fn set_block_entity(&mut self, pos: IVec3, block_entity: impl Into<Box<BlockEntity>>) {
+        self.set_block_entity_inner(pos, block_entity.into());
+    }
+
+    /// Internal function to mark the block entity at index as removed.
+    fn remove_block_entity_inner(&mut self, index: usize) {
+        let prev = self.block_entities[index].inner.replace(InnerStorage::Removed);
+        debug_assert!(!matches!(prev, InnerStorage::Removed), "block entity should not already be removed");
+    }
+
+    /// Remove a block entity from a position. Returning true if successful.
+    pub fn remove_block_entity(&mut self, pos: IVec3) -> bool {
+        let Some(index) = self.block_entities_pos_map.remove(&pos) else { return false };
+        self.remove_block_entity_inner(index);
+        true
     }
 
     /// Schedule a tick update to happen at the given position, for the given block id
@@ -652,23 +648,10 @@ impl World {
 
     /// Internal function to iterate world entities in a given chunk.
     fn iter_world_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = &WorldEntity> {
-
-        let (entities, orphan) = self.chunks.get(&(cx, cz))
-            .map(|c| (&c.entities, false))
-            .unwrap_or((&self.entities_orphan, true));
-
-        entities.iter()
-            .filter_map(move |&entity_index| {
-                let world_entity = &self.entities[entity_index];
-                // If we are iterating the orphan entities, check the chunk.
-                if orphan {
-                    if (world_entity.cx, world_entity.cz) != (cx, cz) {
-                        return None;
-                    }
-                }
-                Some(world_entity)
-            })
-        
+        self.chunks.get(&(cx, cz))
+            .into_iter() // Iterate the option, so if the chunk is absent, nothing return.
+            .flat_map(|world_chunk| world_chunk.entities.iter())
+            .map(move |&entity_index| &self.entities[entity_index])
     }
 
     /// Iterate over all entities of the given chunk. This is legal for non-existing 
@@ -690,7 +673,7 @@ impl World {
         (min_cx..=max_cx).flat_map(move |cx| (min_cz..=max_cz).map(move |cz| (cx, cz)))
             .flat_map(move |(cx, cz)| {
                 self.iter_world_entities_in(cx, cz).filter_map(move |entity| {
-                    if let (Some(entity), Some(entity_bb)) = (&entity.inner, entity.bb) {
+                    if let (InnerStorage::Ready(entity), Some(entity_bb)) = (&entity.inner, entity.bb) {
                         bb.intersects(entity_bb).then_some((&**entity, entity_bb))
                     } else {
                         None
@@ -701,6 +684,7 @@ impl World {
     }
     
     /// Tick the world, this ticks all entities.
+    /// TODO: Guard this from being called recursively from tick functions.
     pub fn tick(&mut self) {
 
         if self.time % 20 == 0 {
@@ -811,28 +795,31 @@ impl World {
         let mut pending_random_ticks = RANDOM_TICKS_PENDING.take();
         debug_assert!(pending_random_ticks.is_empty());
 
+        // Random tick only on loaded chunks.
         for (&(cx, cz), chunk) in &mut self.chunks {
+            if let Some(chunk_data) = &chunk.data {
 
-            // TODO: Lightning strikes.
-            // TODO: Random snowing.
+                // TODO: Lightning strikes.
+                // TODO: Random snowing.
 
-            let chunk_pos = IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32);
-            
-            // Minecraft run 80 random ticks per tick per chunk.
-            for _ in 0..80 {
+                let chunk_pos = IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32);
+                
+                // Minecraft run 80 random ticks per tick per chunk.
+                for _ in 0..80 {
 
-                self.random_ticks_seed = self.random_ticks_seed
-                    .wrapping_mul(3)
-                    .wrapping_add(1013904223);
+                    self.random_ticks_seed = self.random_ticks_seed
+                        .wrapping_mul(3)
+                        .wrapping_add(1013904223);
 
-                let rand = self.random_ticks_seed >> 2;
-                let pos = IVec3::new((rand >> 0) & 15, (rand >> 16) & 127, (rand >> 8) & 15);
+                    let rand = self.random_ticks_seed >> 2;
+                    let pos = IVec3::new((rand >> 0) & 15, (rand >> 16) & 127, (rand >> 8) & 15);
 
-                let (id, metadata) = chunk.data.get_block(pos);
-                pending_random_ticks.push((chunk_pos + pos, id, metadata));
+                    let (id, metadata) = chunk_data.get_block(pos);
+                    pending_random_ticks.push((chunk_pos + pos, id, metadata));
+
+                }
 
             }
-
         }
 
         for (pos, id, metadata) in pending_random_ticks.drain(..) {
@@ -846,89 +833,162 @@ impl World {
     /// Internal function to tick all entities.
     fn tick_entities(&mut self) {
 
+        let mut indices_to_remove = INDICES_TO_REMOVE.take();
+
         debug_assert_eq!(self.entities.len(), self.entities_id_map.len());
+        debug_assert!(indices_to_remove.is_empty());
 
         // Update every entity's bounding box prior to actually ticking.
         for world_entity in &mut self.entities {
-            // NOTE: Unwrapping because entities should not be updating here.
-            let entity = world_entity.inner.as_ref().unwrap();
-            let entity_base = entity.base();
-            world_entity.bb = entity_base.coherent.then_some(entity_base.bb);
+            // Ignore removed entities.
+            if let InnerStorage::Ready(entity) = &world_entity.inner {
+                let entity_base = entity.base();
+                world_entity.bb = entity_base.coherent.then_some(entity_base.bb);
+            }
         }
 
-        // NOTE: Update all entities, including ones that are added while ticking.
-        let mut i = 0;
-        while i < self.entities.len() {
+        // NOTE: Only update the entities that are present at the start of ticking.
+        for entity_index in 0..self.entities.len() {
 
             // We unwrap because all entities should be present except updated one.
-            let mut entity = self.entities[i].inner.take().unwrap();
+            let world_entity = &mut self.entities[entity_index];
+            let mut entity = match world_entity.inner {
+                InnerStorage::Removed => {
+                    // The entity has been removed, we definitely remove it here.
+                    indices_to_remove.push(entity_index);
+                    continue;
+                }
+                InnerStorage::Updated => panic!("entity was already being updated"),
+                InnerStorage::Ready(_) => {
+                    // Do not update the entity if its chunk is not loaded.
+                    if !world_entity.loaded {
+                        continue;
+                    }
+                    // If the entity is ready for update, set 'Updated' state.
+                    match world_entity.inner.replace(InnerStorage::Updated) {
+                        InnerStorage::Ready(data) => data,
+                        _ => unreachable!()
+                    }
+                }
+            };
+
+            // Store the previous chunk, used when comparing with new chunk.
+            let (prev_cx, prev_cz) = (world_entity.cx, world_entity.cz);
             entity.tick(&mut *self);
 
             // Before re-adding the entity, check dirty flags to send proper events.
             let entity_base = entity.base_mut();
             let mut new_chunk = None;
 
-            if entity_base.dead {
-                self.push_event(Event::EntityDead { id: entity_base.id });
-                self.remove_entity_raw(i);
-                // We skip the update part because the entity has been removed. 
-                // Most importantly, this avoid increment 'i' so we tick the swapped one.
-                continue;
-            } else {
-
-                // If the position is dirty, compute the expected chunk position and trigger
-                // an entity position event.
-                if std::mem::take(&mut entity_base.pos_dirty) {
-                    new_chunk = Some(calc_entity_chunk_pos(entity_base.pos));
-                    self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
-                }
-
-                // If the look is dirt, trigger an entity look event.
-                if std::mem::take(&mut entity_base.look_dirty) {
-                    self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
-                }
-
-                // If the look is dirt, trigger an entity look event.
-                if std::mem::take(&mut entity_base.vel_dirty) {
-                    self.push_event(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
-                }
-
+            // If the position is dirty, compute the expected chunk position and trigger
+            // an entity position event.
+            if std::mem::take(&mut entity_base.pos_dirty) {
+                new_chunk = Some(calc_entity_chunk_pos(entity_base.pos));
+                self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
             }
 
-            // After tick, we re-add the entity.
-            let world_entity = &mut self.entities[i];
-            debug_assert!(world_entity.inner.is_none(), "incoherent updating entity");
-            world_entity.inner = Some(entity);
+            // If the look is dirt, trigger an entity look event.
+            if std::mem::take(&mut entity_base.look_dirty) {
+                self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
+            }
+
+            // If the look is dirt, trigger an entity look event.
+            if std::mem::take(&mut entity_base.vel_dirty) {
+                self.push_event(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
+            }
+
+            // Entity is not dead so we re-insert its 
+            let world_entity = &mut self.entities[entity_index];
+            world_entity.loaded = true;
+            match world_entity.inner {
+                InnerStorage::Ready(_) => panic!("entity should not be ready"),
+                InnerStorage::Removed => {
+                    // Entity has been removed while ticking.
+                    indices_to_remove.push(entity_index);
+                    continue;
+                }
+                InnerStorage::Updated => {
+                    // Entity is still in updated state as expected.
+                    world_entity.inner = InnerStorage::Ready(entity);
+                }
+            }
 
             // Check if the entity moved to another chunk...
             if let Some((new_cx, new_cz)) = new_chunk {
-                if (world_entity.cx, world_entity.cz) != (new_cx, new_cz) {
+                if (prev_cx, prev_cz) != (new_cx, new_cz) {
 
-                    // Get the previous entities list, where the current entity should
-                    // be cached in order to remove it.
-                    let remove_success = self.chunks.get_mut(&(world_entity.cx, world_entity.cz))
-                        .map(|chunk| &mut chunk.entities)
-                        .unwrap_or(&mut self.entities_orphan)
-                        .remove(&i);
+                    let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
+                        .expect("entity previous chunk is missing")
+                        .entities
+                        .remove(&entity_index);
                     
-                    debug_assert!(remove_success, "entity index not found where it belongs");
+                    debug_assert!(remove_success, "entity index not found in previous chunk");
 
                     // Update the world entity to its new chunk and orphan state.
                     world_entity.cx = new_cx;
                     world_entity.cz = new_cz;
-                    if let Some(chunk) = self.chunks.get_mut(&(new_cx, new_cz)) {
-                        chunk.entities.insert(i);
-                    } else {
-                        self.entities_orphan.insert(i);
-                    }
+
+                    // Insert the entity in its new chunk.
+                    let new_world_chunk = self.chunks.entry((new_cx, new_cz)).or_default();
+                    new_world_chunk.entities.insert(entity_index);
+                    // Update the loaded flag of the entity depending on the new chunk
+                    // being loaded or not.
+                    world_entity.loaded = new_world_chunk.data.is_some();
 
                 }
             }
 
-            i += 1;
+        }
+
+        for index_to_remove in indices_to_remove.drain(..) {
+
+            let removed_entity = self.entities.swap_remove(index_to_remove);
+            
+            // Try to remove the entity from its chunk, if possible. Entity may no longer
+            // be present in its chunk because it 
+            if let Some(prev_world_chunk) = self.chunks.get_mut(&(removed_entity.cx, removed_entity.cz)) {
+                prev_world_chunk.entities.remove(&index_to_remove);
+            }
+            
+            debug_assert!(!self.entities_id_map.contains_key(&removed_entity.id), "removed entity should no longer be mapped");
+            
+            // Because we used swap remove, this may have moved the last entity (if
+            // existing) to the removed entity index. We need to update its index in 
+            // chunk or orphan entities.
+            if let Some(entity) = self.entities.get(index_to_remove) {
+                
+                let entities = &mut self.chunks.get_mut(&(entity.cx, entity.cz))
+                    .expect("entity was not in a chunk")
+                    .entities;
+            
+                // The swapped entity was at the end, so the new length.
+                let previous_index = self.entities.len();
+                
+                // Update the mapping from entity unique id to the new index.
+                let previous_map_index = self.entities_id_map.insert(entity.id, index_to_remove);
+                debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
+            
+                let remove_success = entities.remove(&previous_index);
+                debug_assert!(remove_success, "entity index not found where it belongs");
+                entities.insert(index_to_remove);
+                
+            }
+
+            self.push_event(Event::EntityDead { id: removed_entity.id });
+            
+        }
+
+        INDICES_TO_REMOVE.set(indices_to_remove);
+
+    }
+
+    fn tick_block_entities(&mut self) {
+
+        for block_entity_index in 0..self.block_entities.len() {
 
         }
 
+        // TODO:
     }
 
     /// Tick pending light updates.
@@ -1132,12 +1192,12 @@ pub enum Event {
     }
 }
 
-/// A chunk view contains all of the content within a chunk, block, light, height map,
+/// A snapshot contains all of the content within a chunk, block, light, height map,
 /// entities and block entities are all included. This structure can be considered as
 /// a "view" because the chunk data (around 80 KB) is referenced to with a [`Arc`], that
-/// allows either uniquely owning it, or sharing it with a world, which is practical when
+/// allows either uniquely owning it, or sharing it with a world, which is the case when
 /// saving a chunk.
-pub struct ChunkView {
+pub struct ChunkSnapshot {
     /// The X chunk coordinate.
     pub cx: i32,
     /// The Z chunk coordinate.
@@ -1147,9 +1207,12 @@ pub struct ChunkView {
     /// The entities in that chunk, note that entities are not guaranteed to have a 
     /// position that is within chunk boundaries.
     pub entities: Vec<Box<Entity>>,
+    /// Block entities in that chunk, all block entities are mapped to their absolute
+    /// coordinates in the world.
+    pub block_entities: HashMap<IVec3, Box<BlockEntity>>,
 }
 
-impl ChunkView {
+impl ChunkSnapshot {
 
     /// Create a new empty chunk view of the given coordinates.
     pub fn new(cx: i32, cz: i32) -> Self {
@@ -1158,6 +1221,7 @@ impl ChunkView {
             cz,
             chunk: Chunk::new(),
             entities: Vec::new(),
+            block_entities: HashMap::new(),
         }
     }
 
@@ -1165,9 +1229,12 @@ impl ChunkView {
 
 
 /// This internal structure is used to keep data associated to a chunk coordinate X/Z.
-/// It could store chunk data, entities and block entities when present. When entities
-/// or block entities are present in the world, they must also be present in a world 
-/// chunk, even if it doesn't contain actual chunk data..
+/// It could store chunk data, entities and block entities when present. If a world chunk
+/// does not contain data, it is considered **unloaded**. It is also impossible to get
+/// a snapshot of an unloaded chunk.
+/// 
+/// Entities and block entities in **unloaded** chunks are no longer updated as soon as
+/// they enter that unloaded chunk.
 #[derive(Default)]
 struct WorldChunk {
     /// Underlying chunk. This is important to understand why the data chunk is stored 
@@ -1187,13 +1254,14 @@ struct WorldChunk {
     data: Option<Arc<Chunk>>,
     /// Entities belonging to this chunk.
     entities: IndexSet<usize>,
+    /// Block entities belonging to this chunk.
+    block_entities: HashMap<IVec3, usize>,
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.
 struct WorldEntity {
-    /// Underlying entity, the none variant is rare and only happen once per tick when
-    /// the chunk is updated.
-    inner: Option<Box<Entity>>,
+    /// The entity storage.
+    inner: InnerStorage<Box<Entity>>,
     /// Unique entity id is duplicated here to allow us to access it event when entity
     /// is updating.
     id: u32,
@@ -1201,15 +1269,71 @@ struct WorldEntity {
     cx: i32,
     /// The last computed chunk position Z.
     cz: i32,
+    /// True when the chunk this entity is in is loaded with data.
+    loaded: bool,
     /// The bounding box of this entity prior to ticking, none is used if the entity
     /// bounding box isn't coherent, which is the default when the entity has just been
     /// spawned.
     bb: Option<BoundingBox>,
 }
 
-/// TODO:
+/// Internal type for storing a world block entity.
 struct WorldBlockEntity {
-    inner: Option<Box<BlockEntity>>,
+    /// The block entity storage.
+    inner: InnerStorage<Box<BlockEntity>>,
+    /// True when the chunk this block entity is in is loaded with data.
+    loaded: bool,
+    /// Position of that block entity.
+    pos: IVec3,
+}
+
+/// State of an entity or block entity storage.
+enum InnerStorage<T> {
+    /// The entity is present and ready to update.
+    Ready(T),
+    /// The entity storage is temporally owned by the tick function in order to update it.
+    Updated,
+    /// The entity has been marked for removal and will be removed.
+    Removed,
+}
+
+impl<T> InnerStorage<T> {
+
+    #[inline]
+    fn as_ref(&self) -> Option<&T> {
+        match self {
+            Self::Ready(data) => Some(data),
+            _ => None
+        }
+    }
+
+    #[inline]
+    fn as_deref(&self) -> Option<&T::Target>
+    where
+        T: Deref
+    {
+        match self {
+            Self::Ready(data) => Some(data.deref()),
+            _ => None
+        }
+    }
+
+    #[inline]
+    fn as_deref_mut(&mut self) -> Option<&mut T::Target>
+    where
+        T: DerefMut,
+    {
+        match self {
+            Self::Ready(data) => Some(data.deref_mut()),
+            _ => None
+        }
+    }
+
+    #[inline]
+    fn replace(&mut self, value: Self) -> Self {
+        std::mem::replace(self, value)
+    }
+
 }
 
 

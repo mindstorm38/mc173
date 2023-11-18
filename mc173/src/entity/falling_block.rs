@@ -15,7 +15,7 @@ impl FallingBlockEntity {
         self.tick_base(world, Size::new_centered(1.0, 1.0));
 
         if self.kind.block_id == 0 {
-            self.dead = true;
+            world.remove_entity(self.id);
             return;
         }
 
@@ -27,11 +27,11 @@ impl FallingBlockEntity {
 
         if self.on_ground {
             self.vel *= DVec3::new(0.7, -0.5, 0.7);
-            self.dead = true;
+            world.remove_entity(self.id);
             // TODO: Place block or drop item.
         } else if self.lifetime > 100 {
             // TODO: Drop item.
-            self.dead = true;
+            world.remove_entity(self.id);
         }
 
     }

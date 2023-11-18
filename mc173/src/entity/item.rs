@@ -67,7 +67,7 @@ impl ItemEntity {
     
         // Kill the item self after 5 minutes (5 * 60 * 20).
         if self.lifetime >= 6000 {
-            self.dead = true;
+            world.remove_entity(self.id);
         }
 
     }

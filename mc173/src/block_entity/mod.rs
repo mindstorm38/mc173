@@ -1,5 +1,7 @@
 //! This module contains definition and behaviors for block entities.
 
+use glam::IVec3;
+
 use crate::world::World;
 
 pub mod chest;
@@ -20,8 +22,8 @@ pub enum BlockEntity {
 
 impl BlockEntity {
 
-    /// Tick the block entity.
-    pub fn tick(&mut self, world: &mut World) {
+    /// Tick the block entity at its position in the world.
+    pub fn tick(&mut self, world: &mut World, pos: IVec3) {
         match self {
             BlockEntity::Chest(_) => {},
             BlockEntity::Furnace(_) => {},

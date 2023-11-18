@@ -24,7 +24,7 @@ impl<I> Base<I> {
 
         // Just kill the entity if far in the void.
         if self.pos.y < -64.0 {
-            self.dead = true;
+            world.remove_entity(self.id);
             return; // TODO: Early return in caller function.
         }
 
