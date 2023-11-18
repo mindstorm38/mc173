@@ -1,5 +1,7 @@
 //! This module contains definition and behaviors for block entities.
 
+use crate::world::World;
+
 pub mod chest;
 
 
@@ -14,4 +16,22 @@ pub enum BlockEntity {
     Piston(()),
     Sign(()),
     Jukebox(()),
+}
+
+impl BlockEntity {
+
+    /// Tick the block entity.
+    pub fn tick(&mut self, world: &mut World) {
+        match self {
+            BlockEntity::Chest(_) => {},
+            BlockEntity::Furnace(_) => {},
+            BlockEntity::Dispenser(_) => {},
+            BlockEntity::Spawner(_) => {},
+            BlockEntity::NoteBlock(_) => {},
+            BlockEntity::Piston(_) => {},
+            BlockEntity::Sign(_) => {},
+            BlockEntity::Jukebox(_) => {},
+        }
+    }
+
 }

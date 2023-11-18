@@ -852,12 +852,14 @@ impl ServerPlayer {
         println!("handle_break_block: {packet:?}");
 
         if packet.status == 0 {
+
+            // We ignore any interaction result for the left click (break block) to
+            // avoid opening an inventory when breaking a container.
+            // NOTE: Interact before 'get_block': relevant for redstone_ore lit.
+            world.interact_block(pos);
+
             // Start breaking a block, ignore if the position is invalid.
             if let Some((id, _)) = world.get_block(pos) {
-
-                // We ignore any interaction result for the left click (break block) to
-                // avoid opening an inventory when breaking a container.
-                world.interact_block(pos);
                 
                 let break_duration = world.get_break_duration(stack.id, id, in_water, on_ground);
                 if break_duration.is_infinite() {
@@ -873,6 +875,7 @@ impl ServerPlayer {
                 }
 
             }
+
         } else if packet.status == 2 {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
