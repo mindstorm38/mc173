@@ -1249,7 +1249,7 @@ impl ServerPlayer {
             kind = match slot {
                 0 => SlotKind::CraftingResult {
                     inv: &mut base.kind.kind.craft_inv,
-                    grid_first_slot: 1,
+                    grid_slots: &[1, 2, -1, 3, 4, -1, -1, -1, -1],
                 },
                 1..=4 => SlotKind::CraftingGrid { 
                     inv: &mut base.kind.kind.craft_inv, 
@@ -1287,7 +1287,7 @@ impl ServerPlayer {
                     kind = match slot {
                         0 => SlotKind::CraftingResult {
                             inv: &mut base.kind.kind.craft_inv,
-                            grid_first_slot: 1,
+                            grid_slots: &[1, 2, 3, 4, 5, 6, 7, 8, 9],
                         },
                         1..=9 => SlotKind::CraftingGrid { 
                             inv: &mut base.kind.kind.craft_inv, 
@@ -1752,7 +1752,7 @@ enum SlotKind<'w> {
     /// This slot is used for the result of a crafting recipe.
     CraftingResult {
         inv: &'w mut Inventory,
-        grid_first_slot: i16,
+        grid_slots: &'static [i16; 9],
     },
 }
 
@@ -1850,7 +1850,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
             }
             SlotKind::CraftingResult { 
                 ref mut inv,
-                grid_first_slot,
+                grid_slots,
             } => {
 
                 // NOTE: The 'can_drop' method always return false for this slot.
@@ -1862,9 +1862,11 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
 
                 let result_stack = self.player.crafting_tracker.recipe()
                     .unwrap_or(ItemStack::EMPTY);
-                
-                for (i, grid_stack) in inv.stacks().iter().copied().enumerate() {
-                    self.player.window_slot_changes.push((grid_first_slot + i as i16, grid_stack));
+
+                for (i, &grid_slot) in grid_slots.iter().enumerate() {
+                    if grid_slot >= 0 {
+                        self.player.window_slot_changes.push((grid_slot, inv.stack(i)));
+                    }
                 }
 
                 self.player.window_slot_changes.push((self.slot, result_stack));
