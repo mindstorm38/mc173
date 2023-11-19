@@ -9,6 +9,7 @@ pub mod block_entity;
 
 pub mod inventory;
 pub mod craft;
+pub mod smelt;
 pub mod path;
 
 pub mod chunk;

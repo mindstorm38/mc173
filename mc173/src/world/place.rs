@@ -2,9 +2,9 @@
 
 use glam::IVec3;
 
-use crate::block;
 use crate::block_entity::BlockEntity;
 use crate::util::Face;
+use crate::block;
 
 use super::World;
 
@@ -130,6 +130,7 @@ impl World {
 
         match id {
             block::CHEST => self.set_block_entity(pos, BlockEntity::Chest(Default::default())),
+            block::FURNACE => self.set_block_entity(pos, BlockEntity::Furnace(Default::default())),
             _ => {}
         }
 

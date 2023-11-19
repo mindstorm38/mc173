@@ -657,6 +657,10 @@ enum WindowKind {
     Chest {
         block_entities: Vec<IVec3>,
     },
+    /// The client-side has a furnace window onto the given block entity.
+    Furnace {
+        block_entity: IVec3,
+    }
 }
 
 /// State of a player breaking a block.
@@ -961,6 +965,9 @@ impl ServerPlayer {
                     Interaction::Chest { block_entities } => {
                         self.open_window(world, WindowKind::Chest { block_entities });
                     }
+                    Interaction::Furnace { block_entity } => {
+                        self.open_window(world, WindowKind::Furnace { block_entity });
+                    }
                     interaction => println!("interaction: {interaction:?}")
                 }
             } else {
@@ -1204,6 +1211,16 @@ impl ServerPlayer {
                 }));
 
             }
+            WindowKind::Furnace { block_entity } => {
+
+                self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
+                    window_id: id,
+                    inventory_type: 2,
+                    title: format!("Furnace"),
+                    slots_count: 3,
+                }));
+
+            }
         };
 
         self.window = Some(Window { 
@@ -1317,6 +1334,27 @@ impl ServerPlayer {
                             return None
                         };
                         kind = make_player_window_slot(base, slot - block_entities.len() as i16 * 27)?;
+                    }
+
+                }
+                WindowKind::Furnace { block_entity } => {
+
+                    if slot >= 0 && slot <= 2 {
+                        let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(block_entity) else {
+                            return None
+                        };
+                        kind = match slot {
+                            0 => SlotKind::Single { stack_ref: &mut furnace.input_stack },
+                            1 => SlotKind::Single { stack_ref: &mut furnace.fuel_stack },
+                            2 => SlotKind::Single { stack_ref: &mut furnace.output_stack },
+                            _ => unreachable!()
+                        };
+                    } else {
+                        // Currently only work for player entity.
+                        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
+                            return None
+                        };
+                        kind = make_player_window_slot(base, slot - 3)?
                     }
 
                 }
@@ -1732,6 +1770,10 @@ struct SlotHandle<'p, 'w> {
 /// Different kind of slots, these kind of slots are generic and are made to adapt to
 /// a variety of containers and interfaces.
 enum SlotKind<'w> {
+    /// Refer to a single stack.
+    Single {
+        stack_ref: &'w mut ItemStack,
+    },
     /// This slot is a regular storage slot in the given inventory and index into it.
     Storage {
         inv: &'w mut Inventory,
@@ -1773,6 +1815,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// Check if the given item stack can be dropped in the slot.
     fn can_drop(&self, stack: ItemStack) -> bool {
         match self.kind {
+            SlotKind::Single { .. } => true,
             SlotKind::Storage { .. } => true,
             SlotKind::Armor { index, .. } if index == 0 => matches!(stack.id, 
                 item::LEATHER_HELMET | 
@@ -1807,6 +1850,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// Get the stack in this slot.
     fn stack(&self) -> ItemStack {
         match self.kind {
+            SlotKind::Single { stack_ref: ref stack } => **stack,
             SlotKind::Storage { ref inv, index } |
             SlotKind::Armor { ref inv, index } |
             SlotKind::CraftingGrid { ref inv, index, .. } => {
@@ -1825,12 +1869,14 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// server player temporary vector.
     fn set_stack(&mut self, stack: ItemStack) {
         match self.kind {
+            SlotKind::Single { ref mut stack_ref } => {
+                **stack_ref = stack;
+                self.player.window_slot_changes.push((self.slot, stack));
+            }
             SlotKind::Storage { ref mut inv, index } |
             SlotKind::Armor { ref mut inv, index } => {
-                
                 inv.set_stack(index, stack);
                 self.player.window_slot_changes.push((self.slot, stack));
-
             }
             SlotKind::CraftingGrid { 
                 ref mut inv, 

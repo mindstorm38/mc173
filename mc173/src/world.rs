@@ -717,7 +717,7 @@ impl World {
 
         self.tick_blocks();
         self.tick_entities();
-        // TODO: tick block entities.
+        self.tick_block_entities();
 
         self.tick_light();
         
