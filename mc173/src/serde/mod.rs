@@ -69,8 +69,8 @@ impl ChunkSource for RegionChunkSource {
             panic!("incoherent chunk coordinates");
         }
 
-        let mut view = ChunkSnapshot::new(cx, cz);
-        let chunk = Arc::get_mut(&mut view.chunk).unwrap();
+        let mut snapshot = ChunkSnapshot::new(cx, cz);
+        let chunk = Arc::get_mut(&mut snapshot.chunk).unwrap();
 
         let block = level.get_byte_array("Blocks").unwrap();
         chunk.block.copy_from_slice(block);
@@ -83,7 +83,7 @@ impl ChunkSource for RegionChunkSource {
         let height_map = level.get_byte_array("HeightMap").unwrap();
         chunk.heigh_map.copy_from_slice(height_map);
 
-        todo!()
+        Ok(snapshot)
 
     }
 

@@ -223,8 +223,8 @@ impl<S: ChunkSource> ChunkSourcePool<S> {
 
     /// Request a chunk to be saved from a view. This function returns true if the request
     /// has been successfully enqueued.
-    pub fn request_chunk_save(&self, view: ChunkSnapshot) -> bool {
-        match self.command_sender.try_send(WorkerCommand::Save { view }) {
+    pub fn request_chunk_save(&self, snapshot: ChunkSnapshot) -> bool {
+        match self.command_sender.try_send(WorkerCommand::Save { view: snapshot }) {
             Ok(_) => true,
             Err(TrySendError::Full(_)) => false,
             Err(TrySendError::Disconnected(_)) => panic!("worker thread should not disconnect"),
@@ -247,7 +247,7 @@ impl<S: ChunkSource> ChunkSourcePool<S> {
 
 /// Internal enumeration of results to commands sent to workers.
 pub enum ChunkSourceEvent<S: ChunkSource> {
-    /// A chunk has been loaded, here is the chunk view or an error.
+    /// A chunk has been loaded, here is the chunk snapshot or an error.
     Load(Result<ChunkSnapshot, ChunkSourceError<S::LoadError>>),
     /// A chunk has been saved, here is the chunk coordinates or an error.
     Save(Result<(i32, i32), ChunkSourceError<S::SaveError>>),

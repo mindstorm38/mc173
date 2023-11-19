@@ -14,11 +14,10 @@ use flate2::Compression;
 use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
+use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
-use mc173::serde::region::RegionDir;
 use mc173::world::{World, Dimension, Event, Weather};
 use mc173::world::interact::Interaction;
-use mc173::source::ChunkSourcePool;
 use mc173::block_entity::BlockEntity;
 use mc173::serde::RegionChunkSource;
 use mc173::item::{self, ItemStack};
@@ -299,7 +298,7 @@ struct ServerWorld {
     /// The inner world data structure.
     world: World,
     /// The chunk source used to load and save the world's chunk.
-    chunk_source: ChunkSourcePool,
+    chunk_source: ChunkSourcePool<RegionChunkSource>,
     /// Entity tracker, each is associated to the entity id.
     trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
@@ -319,8 +318,7 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        let region_dir = RegionDir::new(r"C:\Users\theor\AppData\Roaming\.minecraft-b1.7.3\saves\New World\region");
-        let region_source = RegionChunkSource::new(region_dir);
+        let region_source = RegionChunkSource::new(r"/home/theo/.minecraft-beta/saves/New World/region");
 
         Self {
             name: name.into(),
@@ -343,8 +341,16 @@ impl ServerWorld {
 
         // Poll all chunks to load in the world.
         while let Some(proto_chunk) = self.chunk_source.poll_event() {
-            println!("[SOURCE] Inserting chunk {}/{}", proto_chunk.cx, proto_chunk.cz);
-            proto_chunk.insert_into(&mut self.world);
+            match proto_chunk {
+                ChunkSourceEvent::Load(Ok(snapshot)) => {
+                    println!("[SOURCE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
+                    self.world.insert_chunk_snapshot(snapshot);
+                }
+                ChunkSourceEvent::Load(Err(err)) => {
+                    println!("[SOURCE] Error while loading chunk: {err:?}");
+                }
+                _ => {}
+            }
         }
 
         self.world.tick();
@@ -365,8 +371,8 @@ impl ServerWorld {
             match event {
                 Event::EntitySpawn { id } =>
                     self.handle_entity_spawn(id),
-                Event::EntityDead { id } => 
-                    self.handle_entity_dead(id),
+                Event::EntityRemove { id } => 
+                    self.handle_entity_remove(id),
                 Event::EntityPosition { id, pos } => 
                     self.handle_entity_position(id, pos),
                 Event::EntityLook { id, look } =>
@@ -421,8 +427,9 @@ impl ServerWorld {
             });
         }
 
-        for cx in -1..=2 {
-            for cz in -1..=2 {
+        // FIXME: Temporary code.
+        for cx in -4..4 {
+            for cz in -4..4 {
                 assert!(self.chunk_source.request_chunk_load(cx, cz));
             }
         }
@@ -460,7 +467,7 @@ impl ServerWorld {
         let mut player = self.players.swap_remove(player_index);
         
         // Kill the entity associated to the player.
-        self.world.get_entity_mut(player.entity_id).unwrap().base_mut().dead = true;
+        self.world.remove_entity(player.entity_id);
 
         // If player has not lost connection but it's just leaving the world, we just
         // send it untrack packets.
@@ -492,7 +499,7 @@ impl ServerWorld {
     }
 
     /// Handle an entity kill world event.
-    fn handle_entity_dead(&mut self, id: u32) {
+    fn handle_entity_remove(&mut self, id: u32) {
         let tracker = self.trackers.remove(&id).expect("incoherent event entity");
         tracker.untrack_players(&mut self.players);
     }
@@ -701,6 +708,8 @@ impl ServerPlayer {
                 self.handle_window_click(world, packet),
             InPacket::WindowClose(packet) =>
                 self.handle_window_close(world, packet),
+            InPacket::Animation(packet) =>
+                self.handle_animation(world, packet),
             _ => println!("[{:?}] Packet: {packet:?}", self.client)
         }
 
@@ -848,8 +857,6 @@ impl ServerPlayer {
         let main_inv = &mut base.kind.kind.main_inv;
         let hand_slot = base.kind.kind.hand_slot as usize;
         let mut stack = main_inv.stack(hand_slot);
-
-        println!("handle_break_block: {packet:?}");
 
         if packet.status == 0 {
 
@@ -1149,6 +1156,10 @@ impl ServerPlayer {
 
         self.window = None;
 
+    }
+
+    fn handle_animation(&mut self, _world: &mut World, _packet: proto::AnimationPacket) {
+        // TODO:
     }
 
     /// Open the given window kind on client-side by sending appropriate packet. A new

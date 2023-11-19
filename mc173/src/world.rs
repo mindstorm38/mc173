@@ -6,6 +6,7 @@ use std::iter::FusedIterator;
 use std::cmp::Ordering;
 use std::cell::Cell;
 use std::sync::Arc;
+use std::mem;
 
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
@@ -175,7 +176,7 @@ impl World {
     /// the [`push_event`] method. Swapping out the events is the only way of reading
     /// them afterward.
     pub fn swap_events(&mut self, events: Option<Vec<Event>>) -> Option<Vec<Event>> {
-        std::mem::replace(&mut self.events, events)
+        mem::replace(&mut self.events, events)
     }
 
     /// Return true if this world has an internal events queue that enables usage of the
@@ -291,11 +292,22 @@ impl World {
     //     })
     // }
 
-    /// Insert a chunk view into this world at its position with all entities and block
-    /// entities attached to it.
-    pub fn insert_chunk_view(&mut self, view: ChunkSnapshot) {
-        // let world_chunk = self.ensure_world_chunk(view.cx, view.cz);
-        todo!() // TODO:
+    /// Insert a chunk snapshot into this world at its position with all entities and 
+    /// block entities attached to it.
+    pub fn insert_chunk_snapshot(&mut self, snapshot: ChunkSnapshot) {
+        
+        self.set_chunk(snapshot.cx, snapshot.cz, snapshot.chunk);
+        
+        for entity in snapshot.entities {
+            debug_assert_eq!(calc_entity_chunk_pos(entity.base().pos), (snapshot.cx, snapshot.cz), "incoherent entity in chunk snapshot");
+            self.spawn_entity_inner(entity);
+        }
+
+        for (pos, block_entity) in snapshot.block_entities {
+            debug_assert_eq!(calc_chunk_pos_unchecked(pos), (snapshot.cx, snapshot.cz), "incoherent block entity in chunk snapshot");
+            self.set_block_entity_inner(pos, block_entity);
+        }
+
     }
 
     /// Get a reference to a chunk, if existing.
@@ -319,7 +331,7 @@ impl World {
     /// The world allows entities to update outside of actual chunks, such entities are
     /// known as orphan ones. If such entities are currently present at this chunk's
     /// coordinates, they will be moved to this new chunk.
-    pub fn insert_chunk(&mut self, cx: i32, cz: i32, chunk: Arc<Chunk>) {
+    pub fn set_chunk(&mut self, cx: i32, cz: i32, chunk: Arc<Chunk>) {
         let world_chunk = self.chunks.entry((cx, cz)).or_default();
         let was_unloaded = world_chunk.data.replace(chunk).is_none();
         if was_unloaded {
@@ -556,6 +568,7 @@ impl World {
         let Some(index) = self.entities_id_map.remove(&id) else { return false };
         let prev = self.entities[index].inner.replace(InnerStorage::Removed);
         debug_assert!(!matches!(prev, InnerStorage::Removed), "entity should not already be removed");
+        self.push_event(Event::EntityRemove { id });
         true
     }
 
@@ -834,8 +847,6 @@ impl World {
     fn tick_entities(&mut self) {
 
         let mut indices_to_remove = INDICES_TO_REMOVE.take();
-
-        debug_assert_eq!(self.entities.len(), self.entities_id_map.len());
         debug_assert!(indices_to_remove.is_empty());
 
         // Update every entity's bounding box prior to actually ticking.
@@ -876,27 +887,6 @@ impl World {
             let (prev_cx, prev_cz) = (world_entity.cx, world_entity.cz);
             entity.tick(&mut *self);
 
-            // Before re-adding the entity, check dirty flags to send proper events.
-            let entity_base = entity.base_mut();
-            let mut new_chunk = None;
-
-            // If the position is dirty, compute the expected chunk position and trigger
-            // an entity position event.
-            if std::mem::take(&mut entity_base.pos_dirty) {
-                new_chunk = Some(calc_entity_chunk_pos(entity_base.pos));
-                self.push_event(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
-            }
-
-            // If the look is dirt, trigger an entity look event.
-            if std::mem::take(&mut entity_base.look_dirty) {
-                self.push_event(Event::EntityLook { id: entity_base.id, look: entity_base.look });
-            }
-
-            // If the look is dirt, trigger an entity look event.
-            if std::mem::take(&mut entity_base.vel_dirty) {
-                self.push_event(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
-            }
-
             // Entity is not dead so we re-insert its 
             let world_entity = &mut self.entities[entity_index];
             world_entity.loaded = true;
@@ -907,11 +897,33 @@ impl World {
                     indices_to_remove.push(entity_index);
                     continue;
                 }
-                InnerStorage::Updated => {
-                    // Entity is still in updated state as expected.
-                    world_entity.inner = InnerStorage::Ready(entity);
+                InnerStorage::Updated => {}
+            }
+
+            // Before re-adding the entity, check dirty flags to send proper events.
+            let entity_base = entity.base_mut();
+
+            // Take all dirty flags.
+            let pos_dirty = mem::take(&mut entity_base.pos_dirty);
+            let look_dirty = mem::take(&mut entity_base.look_dirty);
+            let vel_dirty = mem::take(&mut entity_base.vel_dirty);
+            
+            let new_chunk = pos_dirty.then_some(calc_entity_chunk_pos(entity_base.pos));
+
+            if let Some(events) = &mut self.events {
+                if pos_dirty {
+                    events.push(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
+                }
+                if look_dirty {
+                    events.push(Event::EntityLook { id: entity_base.id, look: entity_base.look });
+                }
+                if vel_dirty {
+                    events.push(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
                 }
             }
+
+            // Entity is still in updated state as expected.
+            world_entity.inner = InnerStorage::Ready(entity);
 
             // Check if the entity moved to another chunk...
             if let Some((new_cx, new_cz)) = new_chunk {
@@ -940,7 +952,11 @@ impl World {
 
         }
 
-        for index_to_remove in indices_to_remove.drain(..) {
+        // It's really important to understand that indices to remove have been pushed
+        // from lower index to higher (because of iteration order). So we need to drain
+        // in reverse in order to remove the last indices first, because of the swap we
+        // are guaranteed that the swapped entity will not be in the indices to remove.
+        for index_to_remove in indices_to_remove.drain(..).rev() {
 
             let removed_entity = self.entities.swap_remove(index_to_remove);
             
@@ -950,14 +966,16 @@ impl World {
                 prev_world_chunk.entities.remove(&index_to_remove);
             }
             
+            // The only way to remove an entity is using the `remove_entity` method that
+            // also remove the mapping from id to entity index.
             debug_assert!(!self.entities_id_map.contains_key(&removed_entity.id), "removed entity should no longer be mapped");
             
             // Because we used swap remove, this may have moved the last entity (if
             // existing) to the removed entity index. We need to update its index in 
             // chunk or orphan entities.
-            if let Some(entity) = self.entities.get(index_to_remove) {
+            if let Some(swapped_entity) = self.entities.get(index_to_remove) {
                 
-                let entities = &mut self.chunks.get_mut(&(entity.cx, entity.cz))
+                let entities = &mut self.chunks.get_mut(&(swapped_entity.cx, swapped_entity.cz))
                     .expect("entity was not in a chunk")
                     .entities;
             
@@ -965,7 +983,7 @@ impl World {
                 let previous_index = self.entities.len();
                 
                 // Update the mapping from entity unique id to the new index.
-                let previous_map_index = self.entities_id_map.insert(entity.id, index_to_remove);
+                let previous_map_index = self.entities_id_map.insert(swapped_entity.id, index_to_remove);
                 debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
             
                 let remove_success = entities.remove(&previous_index);
@@ -973,8 +991,6 @@ impl World {
                 entities.insert(index_to_remove);
                 
             }
-
-            self.push_event(Event::EntityDead { id: removed_entity.id });
             
         }
 
@@ -984,11 +1000,17 @@ impl World {
 
     fn tick_block_entities(&mut self) {
 
-        for block_entity_index in 0..self.block_entities.len() {
+        // let mut indices_to_remove = INDICES_TO_REMOVE.take();
+        // debug_assert!(indices_to_remove.is_empty());
 
-        }
+        // for block_entity_index in 0..self.block_entities.len() {
+
+        //     let world_block_entity = &mut self.entities[block_entity_index];
+
+        // }
 
         // TODO:
+
     }
 
     /// Tick pending light updates.
@@ -1116,7 +1138,7 @@ pub enum Event {
         id: u32,
     },
     /// An entity has been killed from the world.
-    EntityDead {
+    EntityRemove {
         /// The unique id of the killed entity.
         id: u32,
     },
@@ -1197,6 +1219,7 @@ pub enum Event {
 /// a "view" because the chunk data (around 80 KB) is referenced to with a [`Arc`], that
 /// allows either uniquely owning it, or sharing it with a world, which is the case when
 /// saving a chunk.
+#[derive(Clone)]
 pub struct ChunkSnapshot {
     /// The X chunk coordinate.
     pub cx: i32,
@@ -1299,6 +1322,7 @@ enum InnerStorage<T> {
 
 impl<T> InnerStorage<T> {
 
+    /// If the inner storage is ready for update, return some shared reference to it.
     #[inline]
     fn as_ref(&self) -> Option<&T> {
         match self {
@@ -1306,7 +1330,8 @@ impl<T> InnerStorage<T> {
             _ => None
         }
     }
-
+    
+    /// If the inner storage data is ready and is [`Deref`], its target is returned.
     #[inline]
     fn as_deref(&self) -> Option<&T::Target>
     where
@@ -1318,6 +1343,7 @@ impl<T> InnerStorage<T> {
         }
     }
 
+    /// If the inner storage data is ready and is [`DerefMut`], its target is returned.
     #[inline]
     fn as_deref_mut(&mut self) -> Option<&mut T::Target>
     where
@@ -1329,13 +1355,13 @@ impl<T> InnerStorage<T> {
         }
     }
 
+    /// Replace that storage with another one, returning the previous one.
     #[inline]
     fn replace(&mut self, value: Self) -> Self {
-        std::mem::replace(self, value)
+        mem::replace(self, value)
     }
 
 }
-
 
 /// A block tick position, this is always linked to a [`ScheduledTick`] being added to
 /// the tree map, this structure is also stored appart in order to check that two ticks
