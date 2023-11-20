@@ -55,30 +55,31 @@ impl World {
         }
     }
 
-    pub(super) fn notify_add_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8) {
-        match id {
-            block::WATER_MOVING => self.schedule_tick(pos, id, 5),
-            block::LAVA_MOVING => self.schedule_tick(pos, id, 30),
+    pub(super) fn notify_change_unchecked(&mut self, pos: IVec3, 
+        from_id: u8, from_metadata: u8,
+        to_id: u8, to_metadata: u8
+    ) {
+
+        match from_id {
+            block::WATER_MOVING => self.schedule_tick(pos, from_id, 5),
+            block::LAVA_MOVING => self.schedule_tick(pos, from_id, 30),
             block::REDSTONE => self.notify_redstone(pos),
             block::REPEATER |
-            block::REPEATER_LIT => self.notify_repeater(pos, id, metadata),
+            block::REPEATER_LIT => self.notify_repeater(pos, from_id, from_metadata),
             block::REDSTONE_TORCH |
-            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, id),
+            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, from_id),
             block::CACTUS => self.notify_cactus(pos),  // To break when it grows.
             _ => {}
         }
-    }
 
-    pub(super) fn notify_remove_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8) {
-       
-        match id {
+        match to_id {
             block::BUTTON => {
-                if let Some(face) = block::button::get_face(metadata) {
+                if let Some(face) = block::button::get_face(to_metadata) {
                     self.notify_blocks_around(pos + face.delta(), block::BUTTON);
                 }
             }
             block::LEVER => {
-                if let Some((face, _)) = block::lever::get_face(metadata) {
+                if let Some((face, _)) = block::lever::get_face(to_metadata) {
                     self.notify_blocks_around(pos + face.delta(), block::LEVER);
                 }
             }

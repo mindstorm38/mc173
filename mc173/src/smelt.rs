@@ -1,18 +1,36 @@
 //! Item smelting management.
 
-use crate::{block, item};
 use crate::item::ItemStack;
+use crate::block::Material;
+use crate::{block, item};
 
 
-/// Find a smelting recipe output from given input stack. The input stack size if ignored
-/// and output stack size if how much to be produced for one input item.
-pub fn find_smelting_recipe(input: ItemStack) -> Option<ItemStack> {
+/// Find a smelting recipe output from given input item/damage.
+pub fn find_smelting_output(id: u16, damage: u16) -> Option<ItemStack> {
     for recipe in RECIPES {
-        if (recipe.input.id, recipe.input.damage) == (input.id, input.damage) {
+        if (recipe.input.id, recipe.input.damage) == (id, damage) {
             return Some(recipe.output);
         }
     }
     None
+}
+
+/// Get burn time of the given item id, returning 0 if the given item id is not a fuel.
+pub fn get_burn_ticks(id: u16) -> u16 {
+    if let Ok(id) = u8::try_from(id) {
+        match id {
+            block::SAPLING => 100,
+            _ if block::from_id(id).material == Material::Wood => 300,
+            _ => 0,
+        }
+    } else {
+        match id {
+            item::COAL => 1600,
+            item::LAVA_BUCKET => 20000,
+            item::STICK => 100,
+            _ => 0,
+        }
+    }
 }
 
 const RECIPES: &'static [Recipe] = &[

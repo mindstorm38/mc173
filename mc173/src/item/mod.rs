@@ -260,6 +260,14 @@ impl ItemStack {
         }
     }
 
+    /// Modify this item stack and make it empty after returning the contained item stack,
+    /// only if not already empty.
+    pub fn take_non_empty(&mut self) -> Option<ItemStack> {
+        let ret = self.to_non_empty();
+        *self = Self::EMPTY;
+        ret
+    }
+
     /// Increment damage to this item, if max damage is reached for that item, the stack
     /// size will be decremented (saturating at 0).
     pub fn inc_damage(mut self, amount: u16) -> ItemStack {
@@ -269,14 +277,6 @@ impl ItemStack {
             self.damage = 0;
         }
         self
-    }
-
-    /// Modify this item stack and make it empty after returning the contained item stack,
-    /// only if not already empty.
-    pub fn take_non_empty(&mut self) -> Option<ItemStack> {
-        let ret = self.to_non_empty();
-        *self = Self::EMPTY;
-        ret
     }
 
 }

@@ -237,22 +237,6 @@ impl World {
         }
     }
 
-    // /// Internal function to get a world chunk at the given chunk coordinates.
-    // fn get_world_chunk(&self, cx: i32, cz: i32) -> Option<&WorldChunk> {
-    //     self.chunks.get(&(cx, cz))
-    // }
-
-    // /// Internal function to get a mutable reference to a world chunk.
-    // fn get_world_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut WorldChunk> {
-    //     self.chunks.get_mut(&(cx, cz))
-    // }
-
-    // /// Internal function to ensure that a world chunk at the given chunk coordinates 
-    // /// exists, and return the mutable reference to it.
-    // fn ensure_world_chunk(&mut self, cx: i32, cz: i32) -> &mut WorldChunk {
-    //     self.chunks.entry((cx, cz)).or_default()
-    // }
-
     /// Create a snapshot of a chunk's content, this only works if chunk data is existing.
     /// This operation can be costly depending on the number of entities in the chunk, but
     /// is free regarding the block and light data because it use shared reference.
@@ -274,23 +258,6 @@ impl World {
                 .collect(),
         })
     }
-
-    // /// Remove a chunk and get the chunk snapshot of all of its past content. All entities
-    // /// that were in the chunk are removed alongside it.
-    // pub fn remove_chunk_snapshot(&mut self, cx: i32, cz: i32) -> Option<ChunkSnapshot> {
-    //     let world_chunk = self.chunks.remove(&(cx, cz))?;
-
-    //     let world_chunk = self.get_world_chunk_mut(cx, cz)?;
-    //     let chunk = world_chunk.data.take()?;
-    //     Some(ChunkSnapshot {
-    //         cx,
-    //         cz, 
-    //         entities: world_chunk.entities.drain(..)
-    //             .filter_map(|index| self.entities[index].inner.take())
-    //             .collect(),
-    //         chunk,
-    //     })
-    // }
 
     /// Insert a chunk snapshot into this world at its position with all entities and 
     /// block entities attached to it.
@@ -447,8 +414,7 @@ impl World {
     /// of that removal and addition.
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
-        self.notify_remove_unchecked(pos, prev_id, prev_metadata);
-        self.notify_add_unchecked(pos, id, metadata);
+        self.notify_change_unchecked(pos, prev_id, prev_metadata, id, metadata);
         Some((prev_id, prev_metadata))
     }
 
@@ -608,6 +574,7 @@ impl World {
         };
 
         self.block_entities.push(world_block_entity);
+        self.push_event(Event::BlockEntitySet { pos });
 
     }
 
@@ -620,8 +587,11 @@ impl World {
 
     /// Internal function to mark the block entity at index as removed.
     fn remove_block_entity_inner(&mut self, index: usize) {
-        let prev = self.block_entities[index].inner.replace(InnerStorage::Removed);
+        let world_block_entity = &mut self.block_entities[index];
+        let prev = world_block_entity.inner.replace(InnerStorage::Removed);
         debug_assert!(!matches!(prev, InnerStorage::Removed), "block entity should not already be removed");
+        let pos = world_block_entity.pos;
+        self.push_event(Event::BlockEntityRemove { pos });
     }
 
     /// Remove a block entity from a position. Returning true if successful.
@@ -1180,6 +1150,16 @@ pub enum Event {
         index: usize,
         /// The item stack at the given index.
         item: ItemStack,
+    },
+    /// A block entity has been set at this position.
+    BlockEntitySet {
+        /// The position of the new block entity.
+        pos: IVec3,
+    },
+    /// A block entity has been remove from this position.
+    BlockEntityRemove {
+        /// The position of the remove block entity.
+        pos: IVec3,
     },
     /// A block has been changed in the world.
     BlockChange {

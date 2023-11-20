@@ -630,6 +630,10 @@ pub struct WindowItemsPacket {
 #[derive(Debug, Clone)]
 pub struct WindowProgressBarPacket {
     pub window_id: u8,
+    /// When used for furnace:
+    /// - 0: cook time
+    /// - 1: burn time
+    /// - 2: max burn time
     pub bar_id: u16,
     pub value: i16,
 }

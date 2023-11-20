@@ -34,7 +34,7 @@ impl World {
             block::REPEATER |
             block::REPEATER_LIT => self.interact_repeater(pos, id, metadata),
             block::REDSTONE_ORE => self.interact_redstone_ore(pos),
-            block::CRAFTING_TABLE => return Interaction::CraftingTable,
+            block::CRAFTING_TABLE => return Interaction::CraftingTable { pos },
             block::CHEST => return self.interact_chest(pos),
             block::FURNACE => return self.interact_furnace(pos),
             block::DISPENSER => return self.interact_dispenser(pos),
@@ -118,7 +118,7 @@ impl World {
             }
         }
 
-        let mut block_entities = vec![pos];
+        let mut all_pos = vec![pos];
 
         // NOTE: Same order as Notchian server for parity, we also insert first or last
         // depending on the neighbor chest being on neg or pos face, like Notchian client.
@@ -126,20 +126,20 @@ impl World {
             let face_pos = pos + face.delta();
             if let Some(BlockEntity::Chest(_)) = self.get_block_entity(face_pos) {
                 if face.is_neg() {
-                    block_entities.insert(0, face_pos);
+                    all_pos.insert(0, face_pos);
                 } else {
-                    block_entities.push(face_pos);
+                    all_pos.push(face_pos);
                 }
             }
         }
 
-        Interaction::Chest { block_entities }
+        Interaction::Chest { pos: all_pos }
 
     }
 
     fn interact_furnace(&mut self, pos: IVec3) -> Interaction {
         if let Some(BlockEntity::Furnace(_)) = self.get_block_entity(pos) {
-            Interaction::Furnace { block_entity: pos }
+            Interaction::Furnace { pos }
         } else {
             Interaction::None
         }
@@ -147,7 +147,7 @@ impl World {
 
     fn interact_dispenser(&mut self, pos: IVec3) -> Interaction {
         if let Some(BlockEntity::Dispenser(_)) = self.get_block_entity(pos) {
-            Interaction::Dispenser { block_entity: pos }
+            Interaction::Dispenser { pos }
         } else {
             Interaction::None
         }
@@ -165,27 +165,30 @@ pub enum Interaction {
     Handled,
     /// A crafting table has been interacted, the front-end should interpret this and 
     /// open the crafting table window.
-    CraftingTable,
+    CraftingTable {
+        /// Position of the crafting table being interacted.
+        pos: IVec3,
+    },
     /// A chest has been interacted, the front-end should interpret this and open the
     /// chest window.
     Chest {
         /// Positions of the chest block entities to connect to, from top layer in the
         /// window to bottom one. They have been checked to exists before.
-        block_entities: Vec<IVec3>,
+        pos: Vec<IVec3>,
     },
     /// A furnace has been interacted, the front-end should interpret this and open the
     /// furnace window.
     Furnace {
         /// Position of the furnace block entity to connect to, it has been checked to
         /// exists.
-        block_entity: IVec3,
+        pos: IVec3,
     },
     /// A dispenser has been interacted, the front-end should interpret this and open
     /// the dispenser window.
     Dispenser {
         /// Position of the dispenser block entity to connect to, it has been checked to
         /// exists.
-        block_entity: IVec3,
+        pos: IVec3,
     },
 }
 

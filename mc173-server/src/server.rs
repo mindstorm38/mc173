@@ -318,7 +318,7 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        let region_source = RegionChunkSource::new(r"/home/theo/.minecraft-beta/saves/New World/region");
+        let region_source = RegionChunkSource::new(r"C:\Users\theor\AppData\Roaming\.minecraft-b1.7.3\saves\New World\region");
 
         Self {
             name: name.into(),
@@ -383,6 +383,9 @@ impl ServerWorld {
                     self.handle_entity_pickup(id, target_id),
                 Event::EntityInventoryItem { id, index, item } =>
                     self.handle_entity_inventory_item(id, index, item),
+                Event::BlockEntitySet { .. } => {}
+                Event::BlockEntityRemove { pos } =>
+                    self.handle_block_entity_remove(pos),
                 Event::BlockChange { pos, new_id: new_block, new_metadata, .. } => 
                     self.handle_block_change(pos, new_block, new_metadata),
                 Event::BlockSound { pos, id, metadata } =>
@@ -551,6 +554,28 @@ impl ServerWorld {
 
     }
 
+    /// Handle a block entity remove event.
+    fn handle_block_entity_remove(&mut self, prev_pos: IVec3) {
+        // Close the inventory of all entities that had a window opened for this block.
+        for player in &mut self.players {
+            if let Some(window) = &player.window {
+
+                let contains = match window.kind {
+                    WindowKind::CraftingTable { .. } => false,  // TODO: Close crafting table if crafting table is broken.
+                    WindowKind::Furnace { pos } => 
+                        pos == prev_pos,
+                    WindowKind::Chest { ref pos } => 
+                        pos.iter().any(|&pos| pos == prev_pos),
+                };
+
+                if contains {
+                    player.close_window(&mut self.world, true);
+                }
+
+            }
+        }
+    }
+
     /// Handle a block change world event.
     fn handle_block_change(&mut self, pos: IVec3, block: u8, metadata: u8) {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
@@ -651,15 +676,17 @@ struct Window {
 
 /// Describe a kind of opened window on the client side.
 enum WindowKind {
-    /// The client-side has a crafting table window opened.
-    CraftingTable,
+    /// The client-side has a crafting table window opened on the given block pos.
+    CraftingTable {
+        pos: IVec3,
+    },
     /// The client-side has a chest window opened referencing the listed block entities.
     Chest {
-        block_entities: Vec<IVec3>,
+        pos: Vec<IVec3>,
     },
     /// The client-side has a furnace window onto the given block entity.
     Furnace {
-        block_entity: IVec3,
+        pos: IVec3,
     }
 }
 
@@ -959,14 +986,14 @@ impl ServerPlayer {
                         // No interaction, use the item at that block.
                         new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
                     }
-                    Interaction::CraftingTable => {
-                        self.open_window(world, WindowKind::CraftingTable);
+                    Interaction::CraftingTable { pos } => {
+                        self.open_window(world, WindowKind::CraftingTable { pos });
                     }
-                    Interaction::Chest { block_entities } => {
-                        self.open_window(world, WindowKind::Chest { block_entities });
+                    Interaction::Chest { pos } => {
+                        self.open_window(world, WindowKind::Chest { pos });
                     }
-                    Interaction::Furnace { block_entity } => {
-                        self.open_window(world, WindowKind::Furnace { block_entity });
+                    Interaction::Furnace { pos } => {
+                        self.open_window(world, WindowKind::Furnace { pos });
                     }
                     interaction => println!("interaction: {interaction:?}")
                 }
@@ -1138,35 +1165,11 @@ impl ServerPlayer {
 
     /// Handle a window close packet, it just forget the current window.
     fn handle_window_close(&mut self, world: &mut World, _packet: proto::WindowClosePacket) {
-
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
-        
-        // For any closed inventory, we drop the cursor stack and crafting matrix.
-        let mut drop_stacks = Vec::new();
-        drop_stacks.extend(base.kind.kind.cursor_stack.take_non_empty());
-        for stack in base.kind.kind.craft_inv.stacks_mut() {
-            drop_stacks.extend(stack.take_non_empty());
-        }
-
-        for drop_stack in drop_stacks {
-            self.drop_item(world, drop_stack, false);
-        }
-
-        // Force clear the 2x2 inventory matrix.
-        for slot in 1..=4 {
-            self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
-                window_id: 0,
-                slot,
-                stack: None,
-            }));
-        }
-
-        self.window = None;
-
+        self.close_window(world, false);
     }
 
     fn handle_animation(&mut self, _world: &mut World, _packet: proto::AnimationPacket) {
-        // TODO:
+        // TODO: Send animation to other players.
     }
 
     /// Open the given window kind on client-side by sending appropriate packet. A new
@@ -1178,7 +1181,7 @@ impl ServerPlayer {
         self.window_count += 1;
         
         match kind {
-            WindowKind::CraftingTable => {
+            WindowKind::CraftingTable { .. } => {
                 self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
                     window_id: id,
                     inventory_type: 1,
@@ -1186,19 +1189,19 @@ impl ServerPlayer {
                     slots_count: 9,
                 }));
             }
-            WindowKind::Chest { ref block_entities } => {
+            WindowKind::Chest { ref pos } => {
 
                 self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
                     window_id: id,
                     inventory_type: 0,
-                    title: if block_entities.len() <= 1 { "Chest" } else { "Large Chest" }.to_string(),
-                    slots_count: (block_entities.len() * 27) as u8,  // TODO: Checked cast
+                    title: if pos.len() <= 1 { "Chest" } else { "Large Chest" }.to_string(),
+                    slots_count: (pos.len() * 27) as u8,  // TODO: Checked cast
                 }));
 
                 let mut stacks = Vec::new();
 
-                for &block_entity_pos in block_entities {
-                    if let Some(BlockEntity::Chest(chest)) = world.get_block_entity(block_entity_pos) {
+                for &pos in pos {
+                    if let Some(BlockEntity::Chest(chest)) = world.get_block_entity(pos) {
                         stacks.extend(chest.inv.stacks().iter().map(|stack| stack.to_non_empty()));
                     } else {
                         stacks.extend(std::iter::repeat(None).take(27));
@@ -1211,7 +1214,7 @@ impl ServerPlayer {
                 }));
 
             }
-            WindowKind::Furnace { block_entity } => {
+            WindowKind::Furnace { pos } => {
 
                 self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
                     window_id: id,
@@ -1219,6 +1222,39 @@ impl ServerPlayer {
                     title: format!("Furnace"),
                     slots_count: 3,
                 }));
+                
+                if let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity(pos) {
+                    
+                    let stacks = vec![
+                        furnace.input_stack.to_non_empty(),
+                        furnace.fuel_stack.to_non_empty(),
+                        furnace.output_stack.to_non_empty()
+                    ];
+
+                    self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                        window_id: id,
+                        bar_id: 0,
+                        value: furnace.smelt_ticks as i16,
+                    }));
+
+                    self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                        window_id: id,
+                        bar_id: 1,
+                        value: furnace.burn_remaining_ticks as i16,
+                    }));
+
+                    self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                        window_id: id,
+                        bar_id: 2,
+                        value: furnace.burn_max_ticks as i16,
+                    }));
+    
+                    self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
+                        window_id: id,
+                        stacks,
+                    }));
+
+                }
 
             }
         };
@@ -1227,6 +1263,43 @@ impl ServerPlayer {
             id,
             kind,
         });
+
+    }
+
+    /// Close the current window opened by the player. If the forced argument is given 
+    /// true, a window close packet is sent to the client.
+    fn close_window(&mut self, world: &mut World, forced: bool) {
+
+        let Some(window) = self.window.take() else { return };
+        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
+
+        // For any closed inventory, we drop the cursor stack and crafting matrix.
+        let mut drop_stacks = Vec::new();
+        drop_stacks.extend(base.kind.kind.cursor_stack.take_non_empty());
+        for stack in base.kind.kind.craft_inv.stacks_mut() {
+            drop_stacks.extend(stack.take_non_empty());
+        }
+
+        for drop_stack in drop_stacks {
+            self.drop_item(world, drop_stack, false);
+        }
+
+        // Force clear the 2x2 inventory matrix.
+        if window.id == 0 {
+            for slot in 1..=4 {
+                self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
+                    window_id: 0,
+                    slot,
+                    stack: None,
+                }));
+            }
+        }
+
+        if forced {
+            self.send(OutPacket::WindowClose(proto::WindowClosePacket {
+                window_id: window.id,
+            }));
+        }
 
     }
 
@@ -1294,7 +1367,7 @@ impl ServerPlayer {
             }
 
             match window.kind {
-                WindowKind::CraftingTable => {
+                WindowKind::CraftingTable { .. } => {
 
                     // Currently only work for player entity.
                     let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
@@ -1315,10 +1388,10 @@ impl ServerPlayer {
                     };
 
                 }
-                WindowKind::Chest { ref block_entities } => {
+                WindowKind::Chest { ref pos } => {
 
                     let block_entity_index = slot as usize / 27;
-                    if let Some(&block_entity_pos) = block_entities.get(block_entity_index) {
+                    if let Some(&block_entity_pos) = pos.get(block_entity_index) {
                         // Get the chest tile entity corresponding to the clicked slot,
                         // if not found we just ignore.
                         let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(block_entity_pos) else {
@@ -1333,14 +1406,14 @@ impl ServerPlayer {
                         let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
                             return None
                         };
-                        kind = make_player_window_slot(base, slot - block_entities.len() as i16 * 27)?;
+                        kind = make_player_window_slot(base, slot - pos.len() as i16 * 27)?;
                     }
 
                 }
-                WindowKind::Furnace { block_entity } => {
+                WindowKind::Furnace { pos } => {
 
                     if slot >= 0 && slot <= 2 {
-                        let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(block_entity) else {
+                        let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else {
                             return None
                         };
                         kind = match slot {
