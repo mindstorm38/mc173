@@ -61,18 +61,6 @@ impl World {
     ) {
 
         match from_id {
-            block::WATER_MOVING => self.schedule_tick(pos, from_id, 5),
-            block::LAVA_MOVING => self.schedule_tick(pos, from_id, 30),
-            block::REDSTONE => self.notify_redstone(pos),
-            block::REPEATER |
-            block::REPEATER_LIT => self.notify_repeater(pos, from_id, from_metadata),
-            block::REDSTONE_TORCH |
-            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, from_id),
-            block::CACTUS => self.notify_cactus(pos),  // To break when it grows.
-            _ => {}
-        }
-
-        match to_id {
             block::BUTTON => {
                 if let Some(face) = block::button::get_face(to_metadata) {
                     self.notify_blocks_around(pos + face.delta(), block::BUTTON);
@@ -83,10 +71,30 @@ impl World {
                     self.notify_blocks_around(pos + face.delta(), block::LEVER);
                 }
             }
+            // Remove the chest block entity.
+            block::CHEST => { 
+                self.remove_block_entity(pos);
+            }
+            // Remove the furnace block entity.
+            block::FURNACE |
+            block::FURNACE_LIT if to_id != block::FURNACE_LIT && to_id != block::FURNACE => {
+                self.remove_block_entity(pos);
+            }
             _ => {}
         }
 
-        self.remove_block_entity(pos);
+        match to_id {
+            block::WATER_MOVING => self.schedule_tick(pos, from_id, 5),
+            block::LAVA_MOVING => self.schedule_tick(pos, from_id, 30),
+            block::REDSTONE => self.notify_redstone(pos),
+            block::REPEATER |
+            block::REPEATER_LIT => self.notify_repeater(pos, from_id, from_metadata),
+            block::REDSTONE_TORCH |
+            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, from_id),
+            // Break the cactus when it grows.
+            block::CACTUS => self.notify_cactus(pos),
+            _ => {}
+        }
 
     }
 

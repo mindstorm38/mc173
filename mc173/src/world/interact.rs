@@ -36,7 +36,8 @@ impl World {
             block::REDSTONE_ORE => self.interact_redstone_ore(pos),
             block::CRAFTING_TABLE => return Interaction::CraftingTable { pos },
             block::CHEST => return self.interact_chest(pos),
-            block::FURNACE => return self.interact_furnace(pos),
+            block::FURNACE |
+            block::FURNACE_LIT => return self.interact_furnace(pos),
             block::DISPENSER => return self.interact_dispenser(pos),
             _ => return Interaction::None
         }.into()

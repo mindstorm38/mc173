@@ -1417,9 +1417,9 @@ impl ServerPlayer {
                             return None
                         };
                         kind = match slot {
-                            0 => SlotKind::Single { stack_ref: &mut furnace.input_stack },
-                            1 => SlotKind::Single { stack_ref: &mut furnace.fuel_stack },
-                            2 => SlotKind::Single { stack_ref: &mut furnace.output_stack },
+                            0 => SlotKind::Single { stack_ref: &mut furnace.input_stack, can_drop: true },
+                            1 => SlotKind::Single { stack_ref: &mut furnace.fuel_stack, can_drop: true },
+                            2 => SlotKind::Single { stack_ref: &mut furnace.output_stack, can_drop: false },
                             _ => unreachable!()
                         };
                     } else {
@@ -1846,6 +1846,7 @@ enum SlotKind<'w> {
     /// Refer to a single stack.
     Single {
         stack_ref: &'w mut ItemStack,
+        can_drop: bool,
     },
     /// This slot is a regular storage slot in the given inventory and index into it.
     Storage {
@@ -1888,7 +1889,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// Check if the given item stack can be dropped in the slot.
     fn can_drop(&self, stack: ItemStack) -> bool {
         match self.kind {
-            SlotKind::Single { .. } => true,
+            SlotKind::Single { can_drop, .. } => can_drop,
             SlotKind::Storage { .. } => true,
             SlotKind::Armor { index, .. } if index == 0 => matches!(stack.id, 
                 item::LEATHER_HELMET | 
@@ -1923,7 +1924,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// Get the stack in this slot.
     fn stack(&self) -> ItemStack {
         match self.kind {
-            SlotKind::Single { stack_ref: ref stack } => **stack,
+            SlotKind::Single { ref stack_ref, .. } => **stack_ref,
             SlotKind::Storage { ref inv, index } |
             SlotKind::Armor { ref inv, index } |
             SlotKind::CraftingGrid { ref inv, index, .. } => {
@@ -1942,7 +1943,7 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// server player temporary vector.
     fn set_stack(&mut self, stack: ItemStack) {
         match self.kind {
-            SlotKind::Single { ref mut stack_ref } => {
+            SlotKind::Single { ref mut stack_ref, .. } => {
                 **stack_ref = stack;
                 self.player.window_slot_changes.push((self.slot, stack));
             }

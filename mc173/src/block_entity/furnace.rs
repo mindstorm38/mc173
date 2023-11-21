@@ -41,13 +41,15 @@ impl FurnaceBlockEntity {
 
         let input_id = self.input_stack.id;
         let input_damage = self.input_stack.damage;
-        let output_stack = smelt::find_smelting_output(input_id, input_damage)?;
+        let mut output_stack = smelt::find_smelting_output(input_id, input_damage)?;
 
         if !self.output_stack.is_empty() {
             if (self.output_stack.id, self.output_stack.damage) != (output_stack.id, output_stack.damage) {
                 return None;
             } else if self.output_stack.size + output_stack.size > item::from_id(output_stack.id).max_stack_size {
                 return None;
+            } else {
+                output_stack.size += self.output_stack.size;
             }
         }
 
@@ -59,6 +61,7 @@ impl FurnaceBlockEntity {
     pub fn tick(&mut self, world: &mut World, pos: IVec3) {
 
         // If the input stack have changed since last update, get the new recipe.
+        // TODO: Also update of output stack have changed.
         if self.input_stack != self.last_input_stack {
             self.active_output_stack = self.find_new_output_stack();
             self.last_input_stack = self.input_stack;
@@ -105,14 +108,15 @@ impl FurnaceBlockEntity {
         }
 
         if initial_burning != (self.burn_remaining_ticks != 0) {
+            let (_id, metadata) = world.get_block(pos).expect("should not be ticking if not loaded");
             if initial_burning {
                 // No longer burning.
-                world.set_block_notify(pos, block::FURNACE, 0);
+                world.set_block_notify(pos, block::FURNACE, metadata);
             } else {
                 // Now burning.
-                world.set_block_notify(pos, block::FURNACE_LIT, 0);
+                world.set_block_notify(pos, block::FURNACE_LIT, metadata);
             }
-        } 
+        }
 
     }
 
