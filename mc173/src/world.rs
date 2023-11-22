@@ -12,7 +12,9 @@ use std::mem;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
-use crate::chunk::{Chunk, calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos, CHUNK_HEIGHT, CHUNK_WIDTH};
+use crate::chunk::{Chunk, 
+    calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos,
+    CHUNK_HEIGHT, CHUNK_WIDTH};
 use crate::util::{JavaRandom, BoundingBox, Face};
 use crate::block_entity::BlockEntity;
 use crate::item::ItemStack;
@@ -233,7 +235,7 @@ impl World {
     /// be pushed into the events queue.
     pub fn set_weather(&mut self, weather: Weather) {
         if self.weather != weather {
-            self.push_event(Event::WeatherChange { prev: self.weather, new: weather });
+            self.push_event(Event::Weather { prev: self.weather, new: weather });
             self.weather = weather;
         }
     }
@@ -397,12 +399,14 @@ impl World {
                 credit: 15,
             });
 
-            self.push_event(Event::BlockChange {
-                pos,
-                prev_id, 
-                prev_metadata, 
-                new_id: id,
-                new_metadata: metadata,
+            self.push_event(Event::Block { 
+                pos, 
+                inner: BlockEvent::Set { 
+                    prev_id, 
+                    prev_metadata, 
+                    new_id: id, 
+                    new_metadata: metadata,
+                } 
             });
 
         }
@@ -495,7 +499,7 @@ impl World {
         self.entities.push(entity_comp);
         self.entities_id_map.insert(id, entity_index);
 
-        self.push_event(Event::EntitySpawn { id });
+        self.push_event(Event::Entity { id, inner: EntityEvent::Spawn });
         id
 
     }
@@ -546,7 +550,7 @@ impl World {
 
         debug_assert!(removed_success, "entity missing from its chunk");
 
-        self.push_event(Event::EntityRemove { id });
+        self.push_event(Event::Entity { id, inner: EntityEvent::Remove });
         true
 
     }
@@ -587,7 +591,7 @@ impl World {
         };
 
         self.block_entities.push(block_entity_comp);
-        self.push_event(Event::BlockEntitySet { pos });
+        self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Set });
 
     }
 
@@ -615,7 +619,7 @@ impl World {
 
         debug_assert!(remove_success, "block entity missing from its chunk");
 
-        self.push_event(Event::BlockEntityRemove { pos });
+        self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Remove });
     
     }
 
@@ -909,13 +913,13 @@ impl World {
 
             if let Some(events) = &mut self.events {
                 if pos_dirty {
-                    events.push(Event::EntityPosition { id: entity_base.id, pos: entity_base.pos });
+                    events.push(Event::Entity { id: entity_base.id, inner: EntityEvent::Position { pos: entity_base.pos } });
                 }
                 if look_dirty {
-                    events.push(Event::EntityLook { id: entity_base.id, look: entity_base.look });
+                    events.push(Event::Entity { id: entity_base.id, inner: EntityEvent::Look { look: entity_base.look } });
                 }
                 if vel_dirty {
-                    events.push(Event::EntityVelocity { id: entity_base.id, vel: entity_base.vel });
+                    events.push(Event::Entity { id: entity_base.id, inner: EntityEvent::Velocity { vel: entity_base.vel } });
                 }
             }
 
@@ -1180,71 +1184,47 @@ pub struct Light {
 }
 
 /// An event that happened in the world.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// A new entity has been spawned.
-    EntitySpawn {
-        /// The unique id of the spawned entity.
-        id: u32,
+    /// An event with a block.
+    Block {
+        /// The position of the block.
+        pos: IVec3,
+        /// Inner block event.
+        inner: BlockEvent,
     },
-    /// An entity has been killed from the world.
-    EntityRemove {
-        /// The unique id of the killed entity.
-        id: u32,
-    },
-    /// An entity has moved.
-    EntityPosition {
+    /// An event with an entity given its id.
+    Entity {
         /// The unique id of the entity.
         id: u32,
-        /// Absolute position of the entity.
-        pos: DVec3,
-    },
-    /// An entity changed its look angles.
-    EntityLook {
-        /// The unique id of the entity.
-        id: u32,
-        /// The entity look.
-        look: Vec2,
-    },
-    /// An entity changed its velocity.
-    EntityVelocity {
-        /// The unique id of the entity.
-        id: u32,
-        /// The entity velocity.
-        vel: DVec3
-    },
-    /// An entity has collected another entity on ground, this is usually an item or 
-    /// arrow entity picked up by a player entity.
-    EntityPickup {
-        /// The entity that collected an item.
-        id: u32,
-        /// The target entity that was collected.
-        target_id: u32,
-    },
-    /// An entity had an item change in its inventory. This is usually a player getting
-    /// new items in its inventory.
-    EntityInventoryItem {
-        /// Entity id.
-        id: u32,
-        /// Index of the slot where the item changed.
-        index: usize,
-        /// The item stack at the given index.
-        item: ItemStack,
+        /// Inner entity event.
+        inner: EntityEvent,
     },
     /// A block entity has been set at this position.
-    BlockEntitySet {
-        /// The position of the new block entity.
+    BlockEntity {
+        /// The block entity position.
         pos: IVec3,
+        /// Inner block entity event.
+        inner: BlockEntityEvent,
     },
-    /// A block entity has been remove from this position.
-    BlockEntityRemove {
-        /// The position of the remove block entity.
-        pos: IVec3,
+    /// The world's spawn point has been changed.
+    SpawnPosition {
+        /// The new spawn point position.
+        pos: DVec3,
     },
+    /// The weather in the world has changed.
+    Weather {
+        /// Previous weather in the world.
+        prev: Weather,
+        /// New weather in the world.
+        new: Weather,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockEvent {
     /// A block has been changed in the world.
-    BlockChange {
-        /// The block position.
-        pos: IVec3,
+    Set {
         /// Previous block id.
         prev_id: u8,
         /// Previous block metadata.
@@ -1255,23 +1235,81 @@ pub enum Event {
         new_metadata: u8,
     },
     /// Play the block activation sound at given position and id/metadata.
-    BlockSound {
-        /// Position of the block to player sound.
-        pos: IVec3,
+    Sound {
         /// Current id of the block.
         id: u8,
         /// Current metadata of the block.
         metadata: u8,
-    },
-    /// The world's spawn point has been changed.
-    SpawnPosition {
-        /// The new spawn point position.
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntityEvent {
+    /// The entity has been spawned.
+    Spawn,
+    /// The entity has been removed.
+    Remove,
+    /// The entity changed its position.
+    Position {
         pos: DVec3,
     },
-    WeatherChange {
-        prev: Weather,
-        new: Weather,
+    /// The entity changed its look.
+    Look {
+        look: Vec2,
+    },
+    /// The entity changed its velocity.
+    Velocity {
+        vel: DVec3,
+    },
+    /// The entity has picked up another entity, such as arrow or item. Note that the
+    /// target entity is not removed by this event, it's only a hint that this happened
+    /// just before the entity may be removed.
+    Pickup {
+        /// The id of the picked up entity.
+        target_id: u32,
+    },
+    /// The internal storage of an entity has changed (mostly used for players).
+    Storage {
+        /// Index of the slot where the item changed.
+        index: usize,
+        /// The item stack at the given index.
+        stack: ItemStack,
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockEntityEvent {
+    /// The block entity has been set at its position.
+    Set,
+    /// The block entity has been removed at its position.
+    Remove,
+    /// A basic storage block entity such as chest or dispenser had a change in its
+    /// inventory at the given index.
+    Storage {
+        /// The index of the item stack within the block entity storage.
+        index: usize,
+        /// The next item stack at this index.
+        stack: ItemStack,
+    },
+    /// The furnace input stack has changed.
+    FurnaceInput {
+        stack: ItemStack,
+    },
+    /// The furnace output stack has changed.
+    FurnaceOutput {
+        stack: ItemStack,
+    },
+    /// The furnace fuel stack has changed.
+    FurnaceFuel {
+        stack: ItemStack,
+    },
+    FurnaceSmeltTime {
+        time: u16,
+    },
+    FurnaceBurnTime {
+        max_time: u16,
+        remaining_time: u16,
+    },
 }
 
 /// A snapshot contains all of the content within a chunk, block, light, height map,
@@ -1370,13 +1408,15 @@ struct BlockEntityComponent {
     pos: IVec3,
 }
 
-/// State of an entity or block entity storage.
+/// State of a component storage.
 enum ComponentStorage<T> {
-    /// The entity is present and ready to update.
+    /// The component is present and ready to update.
     Ready(T),
-    /// The entity storage is temporally owned by the tick function in order to update it.
+    /// The component is temporally owned by the tick function in order to update it.
     Updated,
-    /// The entity has been marked for removal and will be removed.
+    /// The component has been marked for removal and will be removed on new tick, the
+    /// component should already be removed from the chunk component cache and from its
+    /// world mapping ([entity id => index] or [block entity pos => index]).
     Removed,
 }
 

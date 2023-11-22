@@ -2,7 +2,7 @@
 
 use glam::DVec3;
 
-use crate::world::{World, Event};
+use crate::world::{World, Event, EntityEvent};
 
 use super::{PlayerEntity, Size, Entity};
 
@@ -27,8 +27,8 @@ impl PlayerEntity {
             if let Entity::Item(base) = entity {
                 if base.kind.frozen_ticks == 0 {
                     // Add the pickup item to the main inventory.
-                    let picked_item = base.kind.stack;
-                    let consumed_size = main_inv.add_stack(picked_item);
+                    let picked_stack = base.kind.stack;
+                    let consumed_size = main_inv.add_stack(picked_stack);
                     if consumed_size != 0 {
                         consumed_items.push((base.id, consumed_size));
                     }
@@ -39,9 +39,9 @@ impl PlayerEntity {
         for (entity_id, consumed_size) in consumed_items {
 
             // Push a pickup event.
-            world.push_event(Event::EntityPickup {
+            world.push_event(Event::Entity {
                 id: self.data.id,
-                target_id: entity_id,
+                inner: EntityEvent::Pickup { target_id: entity_id },
             });
 
             // Consume the item entity.
@@ -53,11 +53,13 @@ impl PlayerEntity {
 
         }
 
-        for (index, item) in main_inv.changes() {
-            world.push_event(Event::EntityInventoryItem {
+        for (index, stack) in main_inv.changes() {
+            world.push_event(Event::Entity {
                 id: self.data.id,
-                index,
-                item,
+                inner: EntityEvent::Storage {
+                    index,
+                    stack,
+                }
             });
         }
 

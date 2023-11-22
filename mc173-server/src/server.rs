@@ -14,9 +14,9 @@ use flate2::Compression;
 use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
+use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent};
 use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
-use mc173::world::{World, Dimension, Event, Weather};
 use mc173::world::interact::Interaction;
 use mc173::block_entity::BlockEntity;
 use mc173::serde::RegionChunkSource;
@@ -369,30 +369,49 @@ impl ServerWorld {
         let mut events = self.world.swap_events(None).expect("events should be enabled");
         for event in events.drain(..) {
             match event {
-                Event::EntitySpawn { id } =>
-                    self.handle_entity_spawn(id),
-                Event::EntityRemove { id } => 
-                    self.handle_entity_remove(id),
-                Event::EntityPosition { id, pos } => 
-                    self.handle_entity_position(id, pos),
-                Event::EntityLook { id, look } =>
-                    self.handle_entity_look(id, look),
-                Event::EntityVelocity { id, vel } =>
-                    self.handle_entity_velocity(id, vel),
-                Event::EntityPickup { id, target_id } =>
-                    self.handle_entity_pickup(id, target_id),
-                Event::EntityInventoryItem { id, index, item } =>
-                    self.handle_entity_inventory_item(id, index, item),
-                Event::BlockEntitySet { .. } => {}
-                Event::BlockEntityRemove { pos } =>
-                    self.handle_block_entity_remove(pos),
-                Event::BlockChange { pos, new_id: new_block, new_metadata, .. } => 
-                    self.handle_block_change(pos, new_block, new_metadata),
-                Event::BlockSound { pos, id, metadata } =>
-                    self.handle_block_sound(pos, id, metadata),
+                Event::Block { pos, inner } => match inner {
+                    BlockEvent::Set { prev_id, prev_metadata, new_id, new_metadata } =>
+                        self.handle_block_change(pos, new_id, new_metadata),
+                    BlockEvent::Sound { id, metadata } =>
+                        self.handle_block_sound(pos, id, metadata),
+                }
+                Event::Entity { id, inner } => match inner {
+                    EntityEvent::Spawn => 
+                        self.handle_entity_spawn(id),
+                    EntityEvent::Remove => 
+                        self.handle_entity_remove(id),
+                    EntityEvent::Position { pos } => 
+                        self.handle_entity_position(id, pos),
+                    EntityEvent::Look { look } => 
+                        self.handle_entity_look(id, look),
+                    EntityEvent::Velocity { vel } => 
+                        self.handle_entity_velocity(id, vel),
+                    EntityEvent::Pickup { target_id } => 
+                        self.handle_entity_pickup(id, target_id),
+                    EntityEvent::Storage { index, stack } => 
+                        self.handle_entity_storage(id, index, stack),
+                }
+                Event::BlockEntity { pos, inner } => match inner {
+                    BlockEntityEvent::Set =>
+                        self.handle_block_entity_set(pos),
+                    BlockEntityEvent::Remove =>
+                        self.handle_block_entity_remove(pos),
+                    BlockEntityEvent::Storage { index, stack } =>
+                        self.handle_block_entity_storage(pos, index, stack),
+                    BlockEntityEvent::FurnaceInput { stack } =>
+                        self.handle_furnace_storage(pos, stack, FurnaceSlot::Input),
+                    BlockEntityEvent::FurnaceOutput { stack } =>
+                        self.handle_furnace_storage(pos, stack, FurnaceSlot::Output),
+                    BlockEntityEvent::FurnaceFuel { stack } =>
+                        self.handle_furnace_storage(pos, stack, FurnaceSlot::Fuel),
+                    BlockEntityEvent::FurnaceSmeltTime { time } => 
+                        self.handle_furnace_progress(pos, FurnaceProgress::Smelt { time }),
+                    BlockEntityEvent::FurnaceBurnTime { max_time, remaining_time } =>
+                        self.handle_furnace_progress(pos, FurnaceProgress::Burn { max_time, remaining_time }),
+                }
                 Event::SpawnPosition { pos } =>
                     self.handle_spawn_position(pos),
-                Event::WeatherChange { new, .. } =>
+                Event::Weather { new, .. } =>
                     self.handle_weather_change(new),
             }
             // println!("[WORLD] Event: {event:?}");
@@ -491,6 +510,37 @@ impl ServerWorld {
 
     }
 
+    /// Handle a block change world event.
+    fn handle_block_change(&mut self, pos: IVec3, block: u8, metadata: u8) {
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::BlockChange(proto::BlockChangePacket {
+                    x: pos.x,
+                    y: pos.y as i8,
+                    z: pos.z,
+                    block,
+                    metadata,
+                }));
+            }
+        }
+    }
+
+    fn handle_block_sound(&mut self, pos: IVec3, _block: u8, _metadata: u8) {
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
+                    effect_id: 1003,
+                    x: pos.x,
+                    y: pos.y as i8,
+                    z: pos.z,
+                    effect_data: 0,
+                }));
+            }
+        }
+    }
+
     /// Handle an entity spawn world event.
     fn handle_entity_spawn(&mut self, id: u32) {
         let entity = self.world.get_entity(id).expect("incoherent event entity");
@@ -537,8 +587,9 @@ impl ServerWorld {
     /// Handle an entity inventory item world event. We support only this for player 
     /// entities, therefore the index must be in range `0..36`, and the first 9 slots
     /// are the hotbar, the rest is the inventory from top row to bottom row.
-    fn handle_entity_inventory_item(&mut self, id: u32, index: usize, item: ItemStack) {
+    fn handle_entity_storage(&mut self, id: u32, index: usize, stack: ItemStack) {
 
+        // Currently only works for players.
         let Some(player) = self.players.iter().find(move |p| p.entity_id == id) else { return };
 
         let slot = match index {
@@ -549,13 +600,19 @@ impl ServerWorld {
         player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
             window_id: 0,
             slot: slot as i16,
-            stack: item.to_non_empty(),
+            stack: stack.to_non_empty(),
         }));
 
     }
 
+    /// HAndle a block entity set event.
+    fn handle_block_entity_set(&mut self, _pos: IVec3) {
+
+    }
+
     /// Handle a block entity remove event.
-    fn handle_block_entity_remove(&mut self, prev_pos: IVec3) {
+    fn handle_block_entity_remove(&mut self, target_pos: IVec3) {
+        
         // Close the inventory of all entities that had a window opened for this block.
         for player in &mut self.players {
             if let Some(window) = &player.window {
@@ -563,9 +620,9 @@ impl ServerWorld {
                 let contains = match window.kind {
                     WindowKind::CraftingTable { .. } => false,  // TODO: Close crafting table if crafting table is broken.
                     WindowKind::Furnace { pos } => 
-                        pos == prev_pos,
+                        pos == target_pos,
                     WindowKind::Chest { ref pos } => 
-                        pos.iter().any(|&pos| pos == prev_pos),
+                        pos.iter().any(|&pos| pos == target_pos),
                 };
 
                 if contains {
@@ -574,37 +631,89 @@ impl ServerWorld {
 
             }
         }
+
     }
 
-    /// Handle a block change world event.
-    fn handle_block_change(&mut self, pos: IVec3, block: u8, metadata: u8) {
-        let (cx, cz) = calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
-            if player.tracked_chunks.contains(&(cx, cz)) {
-                player.send(OutPacket::BlockChange(proto::BlockChangePacket {
-                    x: pos.x,
-                    y: pos.y as i8,
-                    z: pos.z,
-                    block,
-                    metadata,
-                }));
+    /// Handle a storage event for a block entity.
+    fn handle_block_entity_storage(&mut self, target_pos: IVec3, index: usize, stack: ItemStack) {
+
+        for player in &mut self.players {
+            if let Some(window) = &player.window {
+
+                match window.kind {
+                    WindowKind::Chest { ref pos } => {
+                        if let Some(row) = pos.iter().position(|&pos| pos == target_pos) {
+                            player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                                window_id: window.id,
+                                slot: (row * 27 + index) as i16,
+                                stack: stack.to_non_empty(),
+                            }));
+                        }
+                    }
+                    _ => {}  // Not handled.
+                }
+
             }
         }
+
     }
 
-    fn handle_block_sound(&mut self, pos: IVec3, _block: u8, _metadata: u8) {
-        let (cx, cz) = calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
-            if player.tracked_chunks.contains(&(cx, cz)) {
-                player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
-                    effect_id: 1003,
-                    x: pos.x,
-                    y: pos.y as i8,
-                    z: pos.z,
-                    effect_data: 0,
-                }));
+    /// Handle a storage event for a furnace block entity. 
+    fn handle_furnace_storage(&mut self, target_pos: IVec3, stack: ItemStack, slot: FurnaceSlot) {
+
+        for player in &mut self.players {
+            if let Some(window) = &player.window {
+                if let WindowKind::Furnace { pos } = window.kind {
+                    if pos == target_pos {
+                        player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                            window_id: window.id,
+                            slot: slot as i16,
+                            stack: stack.to_non_empty(),
+                        }));
+                    }
+                }
             }
         }
+
+    }
+
+    fn handle_furnace_progress(&mut self, target_pos: IVec3, progress: FurnaceProgress) {
+
+        for player in &mut self.players {
+            if let Some(window) = &player.window {
+                if let WindowKind::Furnace { pos } = window.kind {
+                    if pos == target_pos {
+
+                        match progress {
+                            FurnaceProgress::Smelt { time } => {
+                                player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                                    window_id: window.id,
+                                    bar_id: 0,
+                                    value: time as i16,
+                                }));
+                            }
+                            FurnaceProgress::Burn { max_time, remaining_time } => {
+
+                                player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                                    window_id: window.id,
+                                    bar_id: 2,
+                                    value: max_time as i16,
+                                }));
+        
+                                player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                                    window_id: window.id,
+                                    bar_id: 1,
+                                    value: remaining_time as i16,
+                                }));
+
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+
     }
 
     /// Handle a dynamic update of the spawn position.
@@ -1995,4 +2104,24 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
         }
     }
 
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i16)]
+enum FurnaceSlot {
+    Input = 0,
+    Fuel = 1,
+    Output = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FurnaceProgress {
+    Smelt {
+        time: u16
+    },
+    Burn {
+        max_time: u16,
+        remaining_time: u16,
+    }
 }

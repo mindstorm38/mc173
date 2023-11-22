@@ -8,7 +8,7 @@ use glam::IVec3;
 use crate::util::{Face, FaceSet};
 use crate::block;
 
-use super::{World, Event};
+use super::{World, Event, BlockEvent};
 
 
 impl World {
@@ -194,7 +194,10 @@ impl World {
                 if open != powered {
                     block::trapdoor::set_open(&mut metadata, powered);
                     self.set_block_notify(pos, block::TRAPDOOR, metadata);
-                    self.push_event(Event::BlockSound { pos, id: block::TRAPDOOR, metadata });
+                    self.push_event(Event::Block { 
+                        pos, 
+                        inner: BlockEvent::Sound { id: block::TRAPDOOR, metadata },
+                    });
                 }
             }
         }
@@ -269,7 +272,10 @@ impl World {
                         self.notify_block(pos + face.delta() + IVec3::Y, id);
                     }
 
-                    self.push_event(Event::BlockSound { pos, id, metadata });
+                    self.push_event(Event::Block { 
+                        pos, 
+                        inner: BlockEvent::Sound { id, metadata },
+                    });
 
                 }
                 

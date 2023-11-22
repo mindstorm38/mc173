@@ -3,7 +3,7 @@
 use glam::IVec3;
 
 use crate::item::{self, ItemStack};
-use crate::world::World;
+use crate::world::{World, Event, BlockEntityEvent};
 use crate::{smelt, block};
 
 
@@ -21,8 +21,10 @@ pub struct FurnaceBlockEntity {
     pub burn_remaining_ticks: u16,
     /// Current ticks count since the current item has been added.
     pub smelt_ticks: u16,
-    /// Last input stack, used to compare to new one and updated the current recipe.
+    /// Last input stack, used to compare to new one and update the current recipe.
     last_input_stack: ItemStack,
+    /// Last output stack, used to compare to new one and update the current recipe.
+    last_output_stack: ItemStack,
     /// If some recipe has been found for the current input stack, this contains the
     /// future output stack that will be assigned to output stack.
     active_output_stack: Option<ItemStack>,
@@ -62,33 +64,52 @@ impl FurnaceBlockEntity {
 
         // If the input stack have changed since last update, get the new recipe.
         // TODO: Also update of output stack have changed.
-        if self.input_stack != self.last_input_stack {
+        if self.input_stack != self.last_input_stack || self.output_stack != self.last_output_stack {
             self.active_output_stack = self.find_new_output_stack();
             self.last_input_stack = self.input_stack;
+            self.last_output_stack = self.output_stack;
         }
+
+        let mut smelt_modified = false;
+        let mut fuel_modified = false;
 
         let initial_burning = self.burn_remaining_ticks != 0;
         if initial_burning {
             self.burn_remaining_ticks -= 1;
+            fuel_modified = true;
         }
 
         if let Some(active_output_stack) = &self.active_output_stack {
 
             if self.burn_remaining_ticks == 0 && !self.fuel_stack.is_empty() {
+                
                 self.burn_max_ticks = smelt::get_burn_ticks(self.fuel_stack.id);
                 self.burn_remaining_ticks = self.burn_max_ticks;
+                
                 if self.burn_max_ticks != 0 {
+
                     self.fuel_stack.size -= 1;
+                    fuel_modified = true;
+                    
+                    world.push_event(Event::BlockEntity { 
+                        pos, 
+                        inner: BlockEntityEvent::FurnaceFuel { stack: self.fuel_stack }
+                    });
+
                 }
+
             }
 
             if self.burn_remaining_ticks == 0 {
-                self.smelt_ticks = 0;
-                // TODO: Event
+                if self.smelt_ticks != 0 {
+                    self.smelt_ticks = 0;
+                    smelt_modified = true;
+                }
             } else {
 
                 self.smelt_ticks += 1;
                 if self.smelt_ticks == 200 {
+
                     self.smelt_ticks = 0;
                     // This should not underflow because if input stack is empty, not
                     // active output stack can be set.
@@ -96,15 +117,40 @@ impl FurnaceBlockEntity {
                     // output stack on the next tick.
                     self.input_stack.size -= 1;
                     self.output_stack = *active_output_stack;
+                    
+                    world.push_event(Event::BlockEntity { 
+                        pos, 
+                        inner: BlockEntityEvent::FurnaceInput { stack: self.input_stack }
+                    });
+                    
+                    world.push_event(Event::BlockEntity { 
+                        pos, 
+                        inner: BlockEntityEvent::FurnaceOutput { stack: self.output_stack }
+                    });
+
                 }
 
-                // TODO: Event
+                smelt_modified = true;
 
             }
             
-        } else {
+        } else if self.smelt_ticks != 0 {
             self.smelt_ticks = 0;
-            // TODO: Event
+            smelt_modified = true;
+        }
+
+        if smelt_modified {
+            world.push_event(Event::BlockEntity { 
+                pos, 
+                inner: BlockEntityEvent::FurnaceSmeltTime { time: self.smelt_ticks } 
+            });
+        }
+
+        if fuel_modified {
+            world.push_event(Event::BlockEntity { 
+                pos, 
+                inner: BlockEntityEvent::FurnaceBurnTime { max_time: self.burn_max_ticks, remaining_time: self.burn_remaining_ticks }, 
+            });
         }
 
         if initial_burning != (self.burn_remaining_ticks != 0) {
