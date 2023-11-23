@@ -739,18 +739,22 @@ impl ServerWorld {
 
 /// A server player is an actual 
 struct ServerPlayer {
-    /// A packet server handle.
+    /// The network handle for the network server.
     net: Network,
-    /// The network client the player is managed by.
+    /// The network client used to send packets through the network to that player.
     client: NetworkClient,
-    /// The entity id linked to this player.
-    entity_id: u32,
-    /// Its username.
+    /// The entity id this player is controlling.
+    entity_id: u32, 
+    /// The username of that player.
     username: String,
     /// Last position sent by the client.
     pos: DVec3,
     /// Last look sent by the client.
     look: Vec2,
+    /// The main inventory of the player with 36 slots, the first 9 are for the hotbar.
+    main_inv: Inventory,
+    
+    armor_inv: Inventory,
     /// Set of chunks that are already sent to the player.
     tracked_chunks: HashSet<(i32, i32)>,
     /// Set of tracked entities by this player, all entity ids in this set are considered
