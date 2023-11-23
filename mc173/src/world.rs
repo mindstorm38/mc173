@@ -669,9 +669,10 @@ impl World {
     /// Iterate over all entities of the given chunk. This is legal for non-existing 
     /// chunks, in such case this will search for orphan entities.
     /// *This function can't return the current updated entity.*
-    pub fn iter_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = &Entity> {
+    pub fn iter_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &Entity)> {
         self.iter_entity_components_in(cx, cz).filter_map(|entity_comp| {
-            entity_comp.inner.as_deref()
+            let id = entity_comp.id;
+            entity_comp.inner.as_deref().map(|entity| (id, entity))
         })
     }
 
