@@ -189,6 +189,7 @@ impl Server {
         entity.kind.kind.username = packet.username.clone();
         entity.pos = offline_player.pos;
         entity.look = offline_player.look;
+        entity.persistent = false;
         let entity_id = world.world.spawn_entity(Entity::Player(entity));
 
         // Confirm the login by sending same packet in response.
@@ -370,7 +371,7 @@ impl ServerWorld {
         for event in events.drain(..) {
             match event {
                 Event::Block { pos, inner } => match inner {
-                    BlockEvent::Set { prev_id, prev_metadata, new_id, new_metadata } =>
+                    BlockEvent::Set { new_id, new_metadata, .. } =>
                         self.handle_block_change(pos, new_id, new_metadata),
                     BlockEvent::Sound { id, metadata } =>
                         self.handle_block_sound(pos, id, metadata),
@@ -441,9 +442,9 @@ impl ServerWorld {
     fn handle_init(&mut self) {
 
         // Ensure that every entity has a tracker.
-        for entity in self.world.iter_entities() {
-            self.trackers.entry(entity.base().id).or_insert_with(|| {
-                let tracker = EntityTracker::new(entity);
+        for (id, entity) in self.world.iter_entities() {
+            self.trackers.entry(id).or_insert_with(|| {
+                let tracker = EntityTracker::new(id, entity);
                 tracker.update_tracking_players(&mut self.players, &self.world);
                 tracker
             });
@@ -545,7 +546,7 @@ impl ServerWorld {
     fn handle_entity_spawn(&mut self, id: u32) {
         let entity = self.world.get_entity(id).expect("incoherent event entity");
         self.trackers.entry(id).or_insert_with(|| {
-            let tracker = EntityTracker::new(entity);
+            let tracker = EntityTracker::new(id, entity);
             tracker.update_tracking_players(&mut self.players, &self.world);
             tracker
         });
@@ -751,10 +752,6 @@ struct ServerPlayer {
     pos: DVec3,
     /// Last look sent by the client.
     look: Vec2,
-    /// The main inventory of the player with 36 slots, the first 9 are for the hotbar.
-    main_inv: Inventory,
-    
-    armor_inv: Inventory,
     /// Set of chunks that are already sent to the player.
     tracked_chunks: HashSet<(i32, i32)>,
     /// Set of tracked entities by this player, all entity ids in this set are considered
@@ -1643,7 +1640,7 @@ impl ServerPlayer {
 #[derive(Debug)]
 struct EntityTracker {
     /// The entity id.
-    entity_id: u32,
+    id: u32,
     /// Maximum tracking distance for this type of entity.
     distance: u16,
     /// Update interval for this type of entity.
@@ -1674,7 +1671,7 @@ struct EntityVelocityTracker {
 
 impl EntityTracker {
 
-    fn new(entity: &Entity) -> Self {
+    fn new(id: u32, entity: &Entity) -> Self {
 
         let (distance, interval, velocity) = match entity {
             Entity::Player(_) => (512, 2, false),
@@ -1695,9 +1692,8 @@ impl EntityTracker {
         };
 
         let entity_base = entity.base();
-
         let mut tracker = Self {
-            entity_id: entity_base.id,
+            id,
             distance,
             interval,
             forced_countdown_ticks: 0,
@@ -1764,7 +1760,7 @@ impl EntityTracker {
 
             if send_pos && send_look {
                 move_packet = Some(OutPacket::EntityMoveAndLook(proto::EntityMoveAndLookPacket {
-                    entity_id: self.entity_id,
+                    entity_id: self.id,
                     dx,
                     dy,
                     dz,
@@ -1773,14 +1769,14 @@ impl EntityTracker {
                 }))
             } else if send_pos {
                 move_packet = Some(OutPacket::EntityMove(proto::EntityMovePacket {
-                    entity_id: self.entity_id,
+                    entity_id: self.id,
                     dx,
                     dy,
                     dz,
                 }))
             } else if send_look {
                 move_packet = Some(OutPacket::EntityLook(proto::EntityLookPacket {
-                    entity_id: self.entity_id,
+                    entity_id: self.id,
                     yaw: self.look.0,
                     pitch: self.look.1,
                 }))
@@ -1789,7 +1785,7 @@ impl EntityTracker {
         } else {
             self.forced_countdown_ticks = 0;
             move_packet = Some(OutPacket::EntityPositionAndLook(proto::EntityPositionAndLookPacket {
-                entity_id: self.entity_id,
+                entity_id: self.id,
                 x: self.pos.0,
                 y: self.pos.1,
                 z: self.pos.2,
@@ -1815,9 +1811,9 @@ impl EntityTracker {
             // If any axis velocity change by 0.0125 (100 when encoded *8000).
             if dvx.abs() > 100 || dvy.abs() > 100 || dvz.abs() > 100 {
                 for player in players {
-                    if player.tracked_entities.contains(&self.entity_id) {
+                    if player.tracked_entities.contains(&self.id) {
                         player.send(OutPacket::EntityVelocity(proto::EntityVelocityPacket {
-                            entity_id: self.entity_id,
+                            entity_id: self.id,
                             vx: tracker.vel.0,
                             vy: tracker.vel.1,
                             vz: tracker.vel.2,
@@ -1830,7 +1826,7 @@ impl EntityTracker {
 
         if let Some(packet) = move_packet {
             for player in players {
-                if player.tracked_entities.contains(&self.entity_id) {
+                if player.tracked_entities.contains(&self.id) {
                     player.send(packet.clone());
                 }
             }
@@ -1850,16 +1846,16 @@ impl EntityTracker {
     fn update_tracking_player(&self, player: &mut ServerPlayer, world: &World) {
         
         // A player cannot track its own entity.
-        if player.entity_id == self.entity_id {
+        if player.entity_id == self.id {
             return;
         }
 
         let delta = player.pos - IVec3::new(self.pos.0, self.pos.1, self.pos.2).as_dvec3() / 32.0;
         if delta.x.abs() <= self.distance as f64 && delta.z.abs() <= self.distance as f64 {
-            if player.tracked_entities.insert(self.entity_id) {
+            if player.tracked_entities.insert(self.id) {
                 self.spawn_player_entity(player, world);
             }
-        } else if player.tracked_entities.remove(&self.entity_id) {
+        } else if player.tracked_entities.remove(&self.id) {
             self.kill_player_entity(player);
         }
 
@@ -1867,7 +1863,7 @@ impl EntityTracker {
 
     /// Force untrack this entity to this player if the player is already tracking it.
     fn untrack_player(&self, player: &mut ServerPlayer) {
-        if player.tracked_entities.remove(&self.entity_id) {
+        if player.tracked_entities.remove(&self.id) {
             self.kill_player_entity(player);
         }
     }
@@ -1884,7 +1880,7 @@ impl EntityTracker {
     fn spawn_player_entity(&self, player: &ServerPlayer, world: &World) {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
-        let Some(entity) = world.get_entity(self.entity_id) else { return };
+        let Some(entity) = world.get_entity(self.id) else { return };
 
         let x = self.sent_pos.0;
         let y = self.sent_pos.1;
@@ -1895,7 +1891,7 @@ impl EntityTracker {
         match entity {
             Entity::Player(base) => {
                 player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
-                    entity_id: base.id,
+                    entity_id: self.id,
                     username: base.kind.kind.username.clone(),
                     x, 
                     y, 
@@ -1908,7 +1904,7 @@ impl EntityTracker {
             Entity::Item(base) => {
                 let vel = base.vel.mul(128.0).as_ivec3();
                 player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
-                    entity_id: base.id, 
+                    entity_id: self.id, 
                     stack: base.kind.stack, 
                     x, 
                     y, 
@@ -1920,7 +1916,7 @@ impl EntityTracker {
             }
             Entity::Pig(base) => {
                 player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
-                    entity_id: base.id,
+                    entity_id: self.id,
                     kind: 90,
                     x, 
                     y, 
@@ -1938,7 +1934,7 @@ impl EntityTracker {
     /// Kill the entity on the player side.
     fn kill_player_entity(&self, player: &ServerPlayer) {
         player.send(OutPacket::EntityKill(proto::EntityKillPacket { 
-            entity_id: self.entity_id
+            entity_id: self.id
         }));
     }
 

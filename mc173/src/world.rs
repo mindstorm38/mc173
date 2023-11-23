@@ -479,8 +479,6 @@ impl World {
         self.entities_count = self.entities_count.checked_add(1)
             .expect("entity count overflow");
 
-        entity_base.id = id;
-        
         let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
 
         // NOTE: Entities should always be stored in a world chunk.
@@ -654,10 +652,10 @@ impl World {
     }
 
     /// Iterate over all entities in the world.
-    pub fn iter_entities(&self) -> impl Iterator<Item = &Entity> {
+    pub fn iter_entities(&self) -> impl Iterator<Item = (u32, &Entity)> {
         self.entities.iter()
-            .filter_map(|e| e.inner.as_ref())
-            .map(|e| &**e)
+            .filter_map(|entity_comp| entity_comp.inner.as_ref().map(|entity| (entity_comp.id, entity)))
+            .map(|(id, entity)| (id, &**entity))
     }
 
     /// Internal function to iterate world entities in a given chunk.
@@ -679,7 +677,7 @@ impl World {
 
     /// Iterate over all entities colliding with the given bounding box.
     /// *This function can't return the current updated entity.*
-    pub fn iter_entities_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (&Entity, BoundingBox)> {
+    pub fn iter_entities_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (u32, &Entity, BoundingBox)> {
 
         let (min_cx, min_cz) = calc_entity_chunk_pos(bb.min - 2.0);
         let (max_cx, max_cz) = calc_entity_chunk_pos(bb.max + 2.0);
@@ -687,8 +685,9 @@ impl World {
         (min_cx..=max_cx).flat_map(move |cx| (min_cz..=max_cz).map(move |cz| (cx, cz)))
             .flat_map(move |(cx, cz)| {
                 self.iter_entity_components_in(cx, cz).filter_map(move |entity| {
+                    let id = entity.id;
                     if let (ComponentStorage::Ready(entity), Some(entity_bb)) = (&entity.inner, entity.bb) {
-                        bb.intersects(entity_bb).then_some((&**entity, entity_bb))
+                        bb.intersects(entity_bb).then_some((id, &**entity, entity_bb))
                     } else {
                         None
                     }
@@ -884,9 +883,11 @@ impl World {
                 }
             };
 
+            let id = entity_comp.id;
+
             // Store the previous chunk, used when comparing with new chunk.
             let (prev_cx, prev_cz) = (entity_comp.cx, entity_comp.cz);
-            entity.tick(&mut *self);
+            entity.tick(&mut *self, id);
 
             // Entity is not dead so we re-insert its 
             let entity_comp = &mut self.entities[entity_index];
@@ -913,13 +914,13 @@ impl World {
 
             if let Some(events) = &mut self.events {
                 if pos_dirty {
-                    events.push(Event::Entity { id: entity_base.id, inner: EntityEvent::Position { pos: entity_base.pos } });
+                    events.push(Event::Entity { id, inner: EntityEvent::Position { pos: entity_base.pos } });
                 }
                 if look_dirty {
-                    events.push(Event::Entity { id: entity_base.id, inner: EntityEvent::Look { look: entity_base.look } });
+                    events.push(Event::Entity { id, inner: EntityEvent::Look { look: entity_base.look } });
                 }
                 if vel_dirty {
-                    events.push(Event::Entity { id: entity_base.id, inner: EntityEvent::Velocity { vel: entity_base.vel } });
+                    events.push(Event::Entity { id, inner: EntityEvent::Velocity { vel: entity_base.vel } });
                 }
             }
 

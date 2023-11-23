@@ -11,9 +11,9 @@ use super::{ItemEntity, Size};
 impl ItemEntity {
 
     /// Tick the item entity.
-    pub fn tick_item(&mut self, world: &mut World) {
+    pub fn tick_item(&mut self, world: &mut World, id: u32) {
 
-        self.tick_base(world, Size::new_centered(0.25, 0.25));
+        self.tick_base(world, id, Size::new_centered(0.25, 0.25));
         
         if self.kind.frozen_ticks > 0 {
             self.kind.frozen_ticks -= 1;
@@ -67,7 +67,7 @@ impl ItemEntity {
     
         // Kill the item self after 5 minutes (5 * 60 * 20).
         if self.lifetime >= 6000 {
-            world.remove_entity(self.id);
+            world.remove_entity(id);
         }
 
     }

@@ -14,7 +14,7 @@ use super::{Base, Size, Entity};
 impl<I> Base<I> {
 
     /// Base function for updating the entity.
-    pub fn tick_base(&mut self, world: &mut World, size: Size) {
+    pub fn tick_base(&mut self, world: &mut World, id: u32, size: Size) {
 
         // If size is none, update it and the bounding box.
         if !self.coherent {
@@ -24,7 +24,7 @@ impl<I> Base<I> {
 
         // Just kill the entity if far in the void.
         if self.pos.y < -64.0 {
-            world.remove_entity(self.id);
+            world.remove_entity(id);
             return; // TODO: Early return in caller function.
         }
 
@@ -75,7 +75,7 @@ impl<I> Base<I> {
             let colliding_bb = self.bb.expand(delta);
             let colliding_bbs: Vec<_> = world.iter_blocks_boxes_colliding(colliding_bb)
                 .chain(world.iter_entities_colliding(colliding_bb)
-                    .filter_map(|(entity, entity_bb)| {
+                    .filter_map(|(_entity_id, entity, entity_bb)| {
                         // Only the boat entity acts like a hard bounding box.
                         if let Entity::Boat(_) = entity {
                             Some(entity_bb)

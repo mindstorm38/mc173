@@ -96,9 +96,10 @@ pub struct Base<I> {
 
 #[derive(Debug, Clone, Default)]
 pub struct BaseData {
-    /// The internal entity id, it is unique to this entity within its world. It can be
-    /// used to uniquely refer to this entity when and where needed.
-    pub id: u32,
+    /// Tell if this entity is persistent or not. A persistent entity is saved with its
+    /// chunk, but non-persistent entities are no saved. For example, all player entities
+    /// are typically non-persistent because these are not real entities.
+    pub persistent: bool,
     /// Tell if the position of this entity and its bounding box are coherent, if false
     /// (the default value), this will recompute the bounding box from the center position
     /// and the size given to `tick_base` method.
@@ -452,35 +453,35 @@ pub enum PaintingArt {
 impl Entity {
 
     /// Tick the entity.
-    pub fn tick(&mut self, world: &mut World) {
+    pub fn tick(&mut self, world: &mut World, id: u32) {
         match self {
-            Entity::Item(base) => base.tick_item(world),
-            Entity::Painting(base) => base.tick_base(world, Size::new(0.5, 0.5)),
-            Entity::Boat(base) => base.tick_base(world, Size::new_centered(1.5, 0.6)),
-            Entity::Minecart(base) => base.tick_base(world, Size::new_centered(0.98, 0.7)),
-            Entity::Fish(base) => base.tick_base(world, Size::default()),
-            Entity::LightningBolt(base) => base.tick_base(world, Size::default()),
-            Entity::FallingBlock(base) => base.tick_falling_block(world),
-            Entity::Tnt(base) => base.tick_base(world, Size::new_centered(0.98, 0.98)),
-            Entity::Arrow(base) => base.tick_base(world, Size::new(0.5, 0.5)),
-            Entity::Egg(base) => base.tick_base(world, Size::new(0.25, 0.25)),
-            Entity::Fireball(base) => base.tick_base(world, Size::new(1.0, 1.0)),
-            Entity::Snowball(base) => base.tick_base(world, Size::new(0.25, 0.25)),
-            Entity::Player(base) => base.tick_player(world),
-            Entity::Ghast(base) => base.tick_base(world, Size::new(4.0, 4.0)),
-            Entity::Slime(base) => base.tick_base(world, Size::new(0.6, 0.6)),  // NOTE: Small slime size.
-            Entity::Pig(base) => base.tick_pig(world),
-            Entity::Chicken(base) => base.tick_base(world, Size::new(0.3, 0.4)),
-            Entity::Cow(base) => base.tick_base(world, Size::new(0.9, 1.3)),
-            Entity::Sheep(base) => base.tick_base(world, Size::new(0.9, 1.3)),
-            Entity::Squid(base) => base.tick_base(world, Size::new(0.95, 0.95)),
-            Entity::Wolf(base) => base.tick_base(world, Size::new(0.8, 0.8)),
-            Entity::Creeper(base) => base.tick_base(world, Size::new(0.6, 1.8)),
-            Entity::Giant(base) => base.tick_base(world, Size::new(3.6, 10.8)),
-            Entity::PigZombie(base) => base.tick_base(world, Size::new(0.6, 1.8)),
-            Entity::Skeleton(base) => base.tick_base(world, Size::new(0.6, 1.8)),
-            Entity::Spider(base) => base.tick_base(world, Size::new(1.4, 0.9)),
-            Entity::Zombie(base) => base.tick_base(world, Size::new(0.6, 1.8)),
+            Entity::Item(base) => base.tick_item(world, id),
+            Entity::Painting(base) => base.tick_base(world, id, Size::new(0.5, 0.5)),
+            Entity::Boat(base) => base.tick_base(world, id, Size::new_centered(1.5, 0.6)),
+            Entity::Minecart(base) => base.tick_base(world, id, Size::new_centered(0.98, 0.7)),
+            Entity::Fish(base) => base.tick_base(world, id, Size::default()),
+            Entity::LightningBolt(base) => base.tick_base(world, id, Size::default()),
+            Entity::FallingBlock(base) => base.tick_falling_block(world, id),
+            Entity::Tnt(base) => base.tick_base(world, id, Size::new_centered(0.98, 0.98)),
+            Entity::Arrow(base) => base.tick_base(world, id, Size::new(0.5, 0.5)),
+            Entity::Egg(base) => base.tick_base(world, id, Size::new(0.25, 0.25)),
+            Entity::Fireball(base) => base.tick_base(world, id, Size::new(1.0, 1.0)),
+            Entity::Snowball(base) => base.tick_base(world, id, Size::new(0.25, 0.25)),
+            Entity::Player(base) => base.tick_player(world, id),
+            Entity::Ghast(base) => base.tick_base(world, id, Size::new(4.0, 4.0)),
+            Entity::Slime(base) => base.tick_base(world, id, Size::new(0.6, 0.6)),  // NOTE: Small slime size.
+            Entity::Pig(base) => base.tick_pig(world, id),
+            Entity::Chicken(base) => base.tick_base(world, id, Size::new(0.3, 0.4)),
+            Entity::Cow(base) => base.tick_base(world, id, Size::new(0.9, 1.3)),
+            Entity::Sheep(base) => base.tick_base(world, id, Size::new(0.9, 1.3)),
+            Entity::Squid(base) => base.tick_base(world, id, Size::new(0.95, 0.95)),
+            Entity::Wolf(base) => base.tick_base(world, id, Size::new(0.8, 0.8)),
+            Entity::Creeper(base) => base.tick_base(world, id, Size::new(0.6, 1.8)),
+            Entity::Giant(base) => base.tick_base(world, id, Size::new(3.6, 10.8)),
+            Entity::PigZombie(base) => base.tick_base(world, id, Size::new(0.6, 1.8)),
+            Entity::Skeleton(base) => base.tick_base(world, id, Size::new(0.6, 1.8)),
+            Entity::Spider(base) => base.tick_base(world, id, Size::new(1.4, 0.9)),
+            Entity::Zombie(base) => base.tick_base(world, id, Size::new(0.6, 1.8)),
         }
     }
 

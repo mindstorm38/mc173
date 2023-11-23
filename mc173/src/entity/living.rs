@@ -14,12 +14,12 @@ use super::{Base, Living, Size, Path};
 impl<I> Base<Living<I>> {
 
     /// Tick a living entity.
-    pub fn tick_living<F>(&mut self, world: &mut World, size: Size, ia: F)
+    pub fn tick_living<F>(&mut self, world: &mut World, id: u32, size: Size, ia: F)
     where
         F: FnOnce(&mut Self, &mut World),
     {
 
-        self.tick_base(world, size);
+        self.tick_base(world, id, size);
 
         ia(self, world);
 
