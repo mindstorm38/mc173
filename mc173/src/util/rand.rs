@@ -48,7 +48,8 @@ fn gen_seed() -> i64 {
 /// utility methods better suited for rust.
 #[derive(Debug, Clone)]
 pub struct JavaRandom {
-    seed: Wrapping<i64>
+    seed: Wrapping<i64>,
+    next_gaussian: Option<f64>,
 }
 
 impl Default for JavaRandom {
@@ -61,7 +62,7 @@ impl JavaRandom {
 
     #[inline]
     pub fn new(seed: i64) -> JavaRandom {
-        JavaRandom { seed: initial_scramble(seed) }
+        JavaRandom { seed: initial_scramble(seed), next_gaussian: None }
     }
 
     #[inline]
@@ -71,7 +72,7 @@ impl JavaRandom {
 
     #[inline]
     pub fn new_blank() -> JavaRandom {
-        JavaRandom { seed: Wrapping(0) }
+        JavaRandom { seed: Wrapping(0), next_gaussian: None }
     }
 
     #[inline]
@@ -137,6 +138,23 @@ impl JavaRandom {
         let low = self.next(27) as i64;
         (high.wrapping_add(low) as f64) / DOUBLE_DIV
     }
+
+    /// Get the next pseudo-random double-precision Gaussian random number.
+    pub fn next_gaussian(&mut self) -> f64 {
+        if let Some(next_gaussian) = self.next_gaussian.take() {
+            next_gaussian
+        } else {
+            loop {
+                let v1 = self.next_double() * 2.0 - 1.0;
+                let v2 = self.next_double() * 2.0 - 1.0;
+                let s = v1 * v1 + v2 * v2;
+                if s < 1.0 && s != 0.0 {
+                    let multiplier = (-2.0 * s.ln() / s).sqrt();
+                    break v1 * multiplier;
+                }
+            }
+        }
+    }
     
     /// Get the next pseudo-random single-precision float vector, x, y and z.
     /// **This is not part of the standard Java class.**
@@ -155,6 +173,17 @@ impl JavaRandom {
             x: self.next_double(), 
             y: self.next_double(),
             z: self.next_double(),
+        }
+    }
+
+    /// Get the next pseudo-random double-precision double vector, x, y and z, 
+    /// with Gaussian distribution.
+    /// **This is not part of the standard Java class.**
+    pub fn next_gaussian_dvec3(&mut self) -> DVec3 {
+        DVec3 {
+            x: self.next_gaussian(), 
+            y: self.next_gaussian(),
+            z: self.next_gaussian(),
         }
     }
 

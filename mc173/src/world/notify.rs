@@ -35,6 +35,7 @@ impl World {
             block::REPEATER_LIT => self.notify_repeater(pos, id, metadata),
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, id),
+            block::DISPENSER => self.notify_dispenser(pos, origin_id),
             block::WATER_MOVING |
             block::LAVA_MOVING => self.notify_fluid(pos, id, metadata),
             block::WATER_STILL |
@@ -180,6 +181,15 @@ impl World {
     /// Notification of a redstone repeater block.
     fn notify_redstone_torch(&mut self, pos: IVec3, id: u8) {
         self.schedule_tick(pos, id, 2);
+    }
+
+    fn notify_dispenser(&mut self, pos: IVec3, origin_id: u8) {
+        if is_redstone_block(origin_id) {
+            // TODO: Also check above? See associated tick function.
+            if self.has_passive_power(pos) {
+                self.schedule_tick(pos, block::DISPENSER, 4);
+            }
+        }
     }
 
     /// Notification of a trapdoor, breaking it if no longer on its wall, or updating its 

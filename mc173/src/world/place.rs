@@ -117,7 +117,7 @@ impl World {
             block::PUMPKIN_LIT => self.place_faced(pos, face, id, metadata, block::pumpkin::set_face),
             block::FURNACE | 
             block::FURNACE_LIT |
-            block::DISPENSER => self.place_faced(pos, face, id, metadata, block::common::set_horizontal_face),
+            block::DISPENSER => self.place_faced(pos, face, id, metadata, block::dispenser::set_face),
             block::TORCH |
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.place_faced(pos, face, id, metadata, block::torch::set_face),

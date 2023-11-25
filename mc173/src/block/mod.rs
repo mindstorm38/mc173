@@ -6,7 +6,7 @@ use crate::item::Item;
 pub mod material;
 
 // Block specific functions for their metadata.
-pub mod common;
+pub mod dispenser;
 pub mod trapdoor;
 pub mod repeater;
 pub mod pumpkin;

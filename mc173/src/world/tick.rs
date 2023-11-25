@@ -1,11 +1,13 @@
 //! Block ticking functions.
 
-use glam::IVec3;
+use glam::{IVec3, DVec3};
 
-use crate::block;
+use crate::entity::{Entity, ItemEntity};
+use crate::block_entity::BlockEntity;
 use crate::util::{Face, FaceSet};
+use crate::{block, item};
 
-use super::{World, Dimension};
+use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage};
 
 
 impl World {
@@ -20,6 +22,7 @@ impl World {
             // PARITY: Notchian client have random tick on redstone torch?
             block::REDSTONE_TORCH if !random => self.tick_redstone_torch(pos, metadata, false),
             block::REDSTONE_TORCH_LIT if !random => self.tick_redstone_torch(pos, metadata, true),
+            block::DISPENSER if !random => self.tick_dispenser(pos, metadata),
             block::WATER_MOVING => self.tick_fluid_moving(pos, block::WATER_MOVING, metadata),
             block::LAVA_MOVING => self.tick_fluid_moving(pos, block::LAVA_MOVING, metadata),
             // NOTE: Sugar canes and cactus have the same logic, we just give the block.
@@ -96,6 +99,64 @@ impl World {
             if !powered {
                 self.set_block_notify(pos, block::REDSTONE_TORCH_LIT, metadata);
             }
+        }
+
+    }
+
+    fn tick_dispenser(&mut self, pos: IVec3, metadata: u8) {
+
+        let Some(face) = block::dispenser::get_face(metadata) else { return };
+
+        // TODO: Also check for power above? (likely quasi connectivity?)
+
+        if !self.has_passive_power(pos) {
+            return;
+        }
+
+        let Some(BlockEntity::Dispenser(dispenser)) = self.get_block_entity_mut(pos) else { return };
+
+        if let Some(index) = dispenser.pick_random_index() {
+
+            let mut stack = dispenser.inv[index];
+            let dispense_stack = stack.with_size(1);
+            stack.size -= 1;
+            stack = stack.to_non_empty().unwrap_or_default();
+            dispenser.inv[index] = stack;
+
+            self.push_event(Event::BlockEntity { 
+                pos, 
+                inner: BlockEntityEvent::Storage { 
+                    storage: BlockEntityStorage::Standard(index as u8),
+                    stack,
+                },
+            });
+
+            let origin_pos = pos.as_dvec3() + face.delta().as_dvec3() * 0.6 + 0.5;
+
+            if dispense_stack.id == item::ARROW {
+                println!("[WARN] TODO: Shot arrow");
+            } else if dispense_stack.id == item::EGG {
+                println!("[WARN] TODO: Shot egg");
+            } else if dispense_stack.id == item::SNOWBALL {
+                println!("[WARN] TODO: Shot snowball");
+            } else {
+
+                let mut item_base = ItemEntity::default();
+                item_base.kind.stack = dispense_stack;
+                item_base.pos = origin_pos - DVec3::Y * 0.3;
+
+                let rand_vel = self.rand.next_double() * 0.1 + 0.2;
+                item_base.vel = face.delta().as_dvec3() * rand_vel;
+                item_base.vel += self.rand.next_gaussian_dvec3() * 0.0075 * 6.0;
+
+                self.spawn_entity(Entity::Item(item_base));
+
+                // TODO: Play effect 1000 (click with pitch 1.0)
+
+            }
+
+        } else {
+            // TODO: Play effect 1001 (click with pitch 1.2) in world.
         }
 
     }
