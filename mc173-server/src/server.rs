@@ -747,6 +747,8 @@ struct ServerPlayer {
     tracked_entities: HashSet<u32>,
     /// The main player inventory including the hotbar in the first 9 slots.
     main_inv: Box<[ItemStack; 36]>,
+    /// The armor player inventory.
+    armor_inv: Box<[ItemStack; 4]>,
     /// The item stacks for the 3x3 crafting grid. Also support the 2x2 as top left slots.
     craft_inv: Box<[ItemStack; 9]>,
     /// The item stack in the cursor of the client's using a window.
@@ -822,6 +824,7 @@ impl ServerPlayer {
             tracked_chunks: HashSet::new(),
             tracked_entities: HashSet::new(),
             main_inv: Box::new([ItemStack::EMPTY; 36]),
+            armor_inv: Box::new([ItemStack::EMPTY; 4]),
             craft_inv: Box::new([ItemStack::EMPTY; 9]),
             cursor_stack: ItemStack::EMPTY,
             hand_slot: 0,
@@ -1541,10 +1544,19 @@ impl ServerPlayer {
                             modified: false,
                         },
                     },
-                    5..=8 => {
-                        // TODO: ARMOR
-                        return None;
-                    }
+                    5..=8 => SlotHandle { 
+                        kind: SlotKind::Standard { 
+                            stack: &mut self.armor_inv[slot as usize - 5], 
+                            access: match slot {
+                                5 => SlotAccess::ArmorHelmet,
+                                6 => SlotAccess::ArmorChestplate,
+                                7 => SlotAccess::ArmorLeggings,
+                                8 => SlotAccess::ArmorBoots,
+                                _ => unreachable!(),
+                            }, max_size: 1,
+                        }, 
+                        notify: SlotNotify::None,
+                    },
                     _ => self.make_player_window_slot_handle(slot, 9)?
                 }
             }
