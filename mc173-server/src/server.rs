@@ -15,7 +15,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::inventory::InventoryHandle;
-use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent, BlockEntityStorage};
+use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
 use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::interact::Interaction;
@@ -385,10 +385,8 @@ impl ServerWorld {
                         self.handle_block_entity_remove(pos),
                     BlockEntityEvent::Storage { storage, stack } =>
                         self.handle_block_entity_storage(pos, storage, stack),
-                    BlockEntityEvent::FurnaceSmeltTime { time } => 
-                        self.handle_furnace_progress(pos, FurnaceProgress::Smelt { time }),
-                    BlockEntityEvent::FurnaceBurnTime { max_time, remaining_time } =>
-                        self.handle_furnace_progress(pos, FurnaceProgress::Burn { max_time, remaining_time }),
+                    BlockEntityEvent::Progress { progress, value } =>
+                        self.handle_block_entity_progress(pos, progress, value),
                 }
                 Event::SpawnPosition { pos } =>
                     self.handle_spawn_position(pos),
@@ -682,53 +680,23 @@ impl ServerWorld {
 
     }
 
-    /// Handle a storage event for a furnace block entity. 
-    fn handle_furnace_storage(&mut self, target_pos: IVec3, stack: ItemStack, slot: FurnaceSlot) {
+    fn handle_block_entity_progress(&mut self, target_pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
         for player in &mut self.players {
             if let WindowKind::Furnace { pos } = player.window.kind {
                 if pos == target_pos {
-                    player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+
+                    let bar_id = match progress {
+                        BlockEntityProgress::FurnaceSmeltTime => 0,
+                        BlockEntityProgress::FurnaceBurnRemainingTime => 1,
+                        BlockEntityProgress::FurnaceBurnMaxTime => 2,
+                    };
+
+                    player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
                         window_id: player.window.id,
-                        slot: slot as i16,
-                        stack: stack.to_non_empty(),
+                        bar_id,
+                        value: value as i16,
                     }));
-                }
-            }
-        }
-
-    }
-
-    fn handle_furnace_progress(&mut self, target_pos: IVec3, progress: FurnaceProgress) {
-
-        for player in &mut self.players {
-            if let WindowKind::Furnace { pos } = player.window.kind {
-                if pos == target_pos {
-
-                    match progress {
-                        FurnaceProgress::Smelt { time } => {
-                            player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                                window_id: player.window.id,
-                                bar_id: 0,
-                                value: time as i16,
-                            }));
-                        }
-                        FurnaceProgress::Burn { max_time, remaining_time } => {
-
-                            player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                                window_id: player.window.id,
-                                bar_id: 2,
-                                value: max_time as i16,
-                            }));
-    
-                            player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                                window_id: player.window.id,
-                                bar_id: 1,
-                                value: remaining_time as i16,
-                            }));
-
-                        }
-                    }
 
                 }
             }
@@ -925,10 +893,6 @@ impl ServerPlayer {
 
     /// Handle a chat command, parsed from a chat message packet starting with '/'.
     fn handle_chat_command(&mut self, world: &mut World, parts: &[&str]) -> Result<(), String> {
-
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
-            return Err(format!("§cCould not retrieve player entity!"));
-        };
 
         match *parts {
             ["/give", item_raw, _] |
@@ -2058,7 +2022,7 @@ impl EntityTracker {
                     vz: vel.z as i8,
                 }));
             }
-            Entity::Pig(base) => {
+            Entity::Pig(_base) => {
                 player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
                     entity_id: self.id,
                     kind: 90,
@@ -2244,24 +2208,4 @@ impl<'a> SlotHandle<'a> {
 
     }
 
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i16)]
-enum FurnaceSlot {
-    Input = 0,
-    Fuel = 1,
-    Output = 2,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FurnaceProgress {
-    Smelt {
-        time: u16
-    },
-    Burn {
-        max_time: u16,
-        remaining_time: u16,
-    }
 }

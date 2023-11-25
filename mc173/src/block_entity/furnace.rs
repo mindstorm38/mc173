@@ -3,7 +3,7 @@
 use glam::IVec3;
 
 use crate::item::{self, ItemStack};
-use crate::world::{World, Event, BlockEntityEvent, BlockEntityStorage};
+use crate::world::{World, Event, BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
 use crate::{smelt, block};
 
 
@@ -82,7 +82,7 @@ impl FurnaceBlockEntity {
         if let Some(active_output_stack) = &self.active_output_stack {
 
             if self.burn_remaining_ticks == 0 && !self.fuel_stack.is_empty() {
-                
+
                 self.burn_max_ticks = smelt::get_burn_ticks(self.fuel_stack.id);
                 self.burn_remaining_ticks = self.burn_max_ticks;
                 
@@ -97,6 +97,14 @@ impl FurnaceBlockEntity {
                             storage: BlockEntityStorage::FurnaceFuel,
                             stack: self.fuel_stack,
                         },
+                    });
+
+                    world.push_event(Event::BlockEntity { 
+                        pos, 
+                        inner: BlockEntityEvent::Progress { 
+                            progress: BlockEntityProgress::FurnaceBurnMaxTime, 
+                            value: self.burn_max_ticks,
+                        }, 
                     });
 
                 }
@@ -151,14 +159,20 @@ impl FurnaceBlockEntity {
         if smelt_modified {
             world.push_event(Event::BlockEntity { 
                 pos, 
-                inner: BlockEntityEvent::FurnaceSmeltTime { time: self.smelt_ticks } 
+                inner: BlockEntityEvent::Progress { 
+                    progress: BlockEntityProgress::FurnaceSmeltTime, 
+                    value: self.smelt_ticks,
+                }, 
             });
         }
 
         if fuel_modified {
             world.push_event(Event::BlockEntity { 
                 pos, 
-                inner: BlockEntityEvent::FurnaceBurnTime { max_time: self.burn_max_ticks, remaining_time: self.burn_remaining_ticks }, 
+                inner: BlockEntityEvent::Progress { 
+                    progress: BlockEntityProgress::FurnaceBurnRemainingTime, 
+                    value: self.burn_remaining_ticks,
+                }, 
             });
         }
 

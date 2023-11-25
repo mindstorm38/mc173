@@ -1278,20 +1278,19 @@ pub enum BlockEntityEvent {
     Set,
     /// The block entity has been removed at its position.
     Remove,
-    /// A basic storage block entity such as chest or dispenser had a change in its
-    /// inventory at the given index.
+    /// A block entity have seen some of its stored item stack changed.
     Storage {
         /// The storage targeted by this event.
         storage: BlockEntityStorage,
         /// The next item stack at this index.
         stack: ItemStack,
     },
-    FurnaceSmeltTime {
-        time: u16,
-    },
-    FurnaceBurnTime {
-        max_time: u16,
-        remaining_time: u16,
+    /// A block entity has made some progress.
+    Progress {
+        /// The kind of progress targeted by this event.
+        progress: BlockEntityProgress,
+        /// Progress value.
+        value: u16,
     },
 }
 
@@ -1303,6 +1302,14 @@ pub enum BlockEntityStorage {
     FurnaceInput,
     FurnaceOutput,
     FurnaceFuel,
+}
+
+/// Represent the progress update for a block entity.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockEntityProgress {
+    FurnaceSmeltTime,
+    FurnaceBurnMaxTime,
+    FurnaceBurnRemainingTime,
 }
 
 /// A snapshot contains all of the content within a chunk, block, light, height map,
