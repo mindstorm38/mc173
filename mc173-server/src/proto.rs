@@ -587,8 +587,15 @@ pub struct LightningBoltPacket {
 #[derive(Debug, Clone)]
 pub struct WindowOpenPacket {
     pub window_id: u8,
+    /// Inventory type:
+    /// - 0: Chest
+    /// - 1: Crafting table
+    /// - 2: Furnace
+    /// - 3: Dispenser
     pub inventory_type: u8,
+    /// The title is only actually used with chest window.
     pub title: String,
+    /// The slots count in the window, only used with chest window.
     pub slots_count: u8,
 }
 

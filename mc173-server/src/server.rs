@@ -623,7 +623,8 @@ impl ServerWorld {
         for player in &mut self.players {
 
             let contains = match player.window.kind {
-                WindowKind::Furnace { pos } => 
+                WindowKind::Furnace { pos } |
+                WindowKind::Dispenser { pos } => 
                     pos == target_pos,
                 WindowKind::Chest { ref pos } => 
                     pos.iter().any(|&pos| pos == target_pos),
@@ -672,6 +673,19 @@ impl ServerWorld {
                             stack: stack.to_non_empty(),
                         }));
 
+                    }
+                }
+                WindowKind::Dispenser { pos } => {
+                    if pos == target_pos {
+                        if let BlockEntityStorage::Standard(index) = storage {
+
+                            player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                                window_id: player.window.id,
+                                slot: index as i16,
+                                stack: stack.to_non_empty(),
+                            }));
+
+                        }
                     }
                 }
                 _ => {}  // Not handled.
@@ -797,6 +811,10 @@ enum WindowKind {
     },
     /// The client-side has a furnace window onto the given block entity.
     Furnace {
+        pos: IVec3,
+    },
+    /// The client-side has a dispenser window onto the given block entity.
+    Dispenser {
         pos: IVec3,
     }
 }
@@ -1124,7 +1142,10 @@ impl ServerPlayer {
                     Interaction::Furnace { pos } => {
                         self.open_window(world, WindowKind::Furnace { pos });
                     }
-                    interaction => println!("interaction: {interaction:?}")
+                    Interaction::Dispenser { pos } => {
+                        self.open_window(world, WindowKind::Dispenser { pos });
+                    }
+                    Interaction::Handled => {}
                 }
             } else {
                 new_hand_stack = item::using::use_raw(world, self.entity_id, hand_stack);
@@ -1424,6 +1445,23 @@ impl ServerPlayer {
                 }
 
             }
+            WindowKind::Dispenser { pos } => {
+
+                self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
+                    window_id,
+                    inventory_type: 3,
+                    title: format!("Dispenser"),
+                    slots_count: 9,
+                }));
+
+                if let Some(BlockEntity::Dispenser(dispenser)) = world.get_block_entity(pos) {
+                    self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
+                        window_id,
+                        stacks: dispenser.inv.iter().map(|stack| stack.to_non_empty()).collect()
+                    }));
+                }
+
+            }
         };
 
         self.window.id = window_id;
@@ -1619,7 +1657,7 @@ impl ServerPlayer {
             }
             WindowKind::Furnace { pos } => {
 
-                if slot >= 0 && slot <= 2 {
+                if slot <= 2 {
 
                     let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else {
                         return None
@@ -1647,6 +1685,32 @@ impl ServerPlayer {
 
                 } else {
                     self.make_player_window_slot_handle(slot, 3)?
+                }
+
+            }
+            WindowKind::Dispenser { pos } => {
+
+                if slot < 9 {
+
+                    let Some(BlockEntity::Dispenser(dispenser)) = world.get_block_entity_mut(pos) else {
+                        return None
+                    };
+
+                    SlotHandle {
+                        kind: SlotKind::Standard { 
+                            stack: &mut dispenser.inv[slot as usize], 
+                            access: SlotAccess::PickupDrop,
+                            max_size: 64,
+                        },
+                        notify: SlotNotify::BlockEntityStorageEvent { 
+                            pos, 
+                            storage: BlockEntityStorage::Standard(slot as u8), 
+                            stack: None,
+                        },
+                    }
+
+                } else {
+                    self.make_player_window_slot_handle(slot, 9)?
                 }
 
             }

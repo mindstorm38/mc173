@@ -131,6 +131,7 @@ impl World {
         match id {
             block::CHEST => self.set_block_entity(pos, BlockEntity::Chest(Default::default())),
             block::FURNACE => self.set_block_entity(pos, BlockEntity::Furnace(Default::default())),
+            block::DISPENSER => self.set_block_entity(pos, BlockEntity::Dispenser(Default::default())),
             _ => {}
         }
 

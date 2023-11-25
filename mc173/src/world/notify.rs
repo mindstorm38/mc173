@@ -71,8 +71,9 @@ impl World {
                     self.notify_blocks_around(pos + face.delta(), block::LEVER);
                 }
             }
-            // Remove the chest block entity.
-            block::CHEST => { 
+            // Remove the chest/dispenser block entity.
+            block::CHEST |
+            block::DISPENSER => { 
                 self.remove_block_entity(pos);
             }
             // Remove the furnace block entity.
