@@ -48,7 +48,7 @@ on them. The priority of each feature is defined by its order in the list.
         - [x] Long block breaking
         - [x] Instant block breaking
         - [x] Block breaking duration check
-    - [ ] Players inventory is stored server-side
+    - [x] Players inventory is stored server-side
     - [ ] Players can be linked to any entity type
     - [ ] Worlds serialization
         - [ ] Non-persistent player entities
@@ -58,7 +58,8 @@ on them. The priority of each feature is defined by its order in the list.
         - [x] Player inventory crafting grid
         - [x] Crafting table
         - [x] Chest
-        - [ ] Furnace
+        - [x] Furnace
+        - [x] Dispenser
         - [ ] Shift-click on items
     - [ ] Entity tracking
         - [ ] Client-side spawn (partial) 
