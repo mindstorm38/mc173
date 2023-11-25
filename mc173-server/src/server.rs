@@ -1175,9 +1175,10 @@ impl ServerPlayer {
             };
 
             slot_stack = slot_handle.get_stack();
+            let slot_access = slot_handle.get_access();
 
             if slot_stack.is_empty() {
-                if !cursor_stack.is_empty() && slot_handle.can_drop(cursor_stack) {
+                if !cursor_stack.is_empty() && slot_access.can_drop(cursor_stack) {
                     
                     let drop_size = if packet.right_click { 1 } else { cursor_stack.size };
                     let drop_size = drop_size.min(slot_handle.max_stack_size());
@@ -1193,7 +1194,7 @@ impl ServerPlayer {
                 // NOTE: Splitting is equivalent of taking and then drop (half), we check 
                 // if the slot would accept that drop by checking validity.
                 cursor_stack = slot_stack;
-                if packet.right_click && slot_handle.can_drop(cursor_stack) {
+                if packet.right_click && slot_access.can_drop(cursor_stack) {
                     cursor_stack.size = (cursor_stack.size + 1) / 2;
                 }
 
@@ -1205,7 +1206,7 @@ impl ServerPlayer {
                     slot_handle.set_stack(new_slot_stack);
                 }
 
-            } else if slot_handle.can_drop(cursor_stack) {
+            } else if slot_access.can_drop(cursor_stack) {
 
                 // Here the slot and the cursor are not empty, we check if we can
                 // drop some item if compatible, or swap if not.
@@ -1235,17 +1236,21 @@ impl ServerPlayer {
                     }
                 }
 
-            } else {
+            } else if let SlotAccess::Pickup(min_size) = slot_access {
 
                 // This last case is when the slot and the cursor are not empty, but we
                 // can't drop the cursor into the slot, in such case we try to pick item.
 
                 if (slot_stack.id, slot_stack.damage) == (cursor_stack.id, cursor_stack.damage) {
                     let cursor_item = item::from_id(cursor_stack.id);
-                    if slot_stack.size + cursor_stack.size <= cursor_item.max_stack_size {
-                        cursor_stack.size += slot_stack.size;
-                        // NOTE: We can only drop EMPTY stack if drop is forbidden.
-                        slot_handle.set_stack(ItemStack::EMPTY);
+                    if cursor_stack.size < cursor_item.max_stack_size {
+                        let available_size = cursor_item.max_stack_size - cursor_stack.size;
+                        if available_size >= min_size {
+                            let pick_size = slot_stack.size.min(available_size);
+                            cursor_stack.size += pick_size;
+                            let new_slot_stack = slot_stack.with_size(slot_stack.size - pick_size);
+                            slot_handle.set_stack(new_slot_stack.to_non_empty().unwrap_or_default());
+                        }
                     }
                 }
 
@@ -2140,38 +2145,6 @@ impl<'a> SlotHandle<'a> {
         }
     }
 
-    /// Check if the given item stack can be dropped in the slot.
-    fn can_drop(&self, stack: ItemStack) -> bool {
-        match self.get_access() {
-            SlotAccess::PickupDrop => true,
-            SlotAccess::Pickup(_) => false,
-            SlotAccess::ArmorHelmet => matches!(stack.id, 
-                item::LEATHER_HELMET | 
-                item::GOLD_HELMET | 
-                item::CHAIN_HELMET | 
-                item::IRON_HELMET | 
-                item::DIAMOND_HELMET) || stack.id == block::PUMPKIN as u16,
-            SlotAccess::ArmorChestplate => matches!(stack.id, 
-                item::LEATHER_CHESTPLATE | 
-                item::GOLD_CHESTPLATE | 
-                item::CHAIN_CHESTPLATE | 
-                item::IRON_CHESTPLATE | 
-                item::DIAMOND_CHESTPLATE),
-            SlotAccess::ArmorLeggings => matches!(stack.id, 
-                item::LEATHER_LEGGINGS | 
-                item::GOLD_LEGGINGS | 
-                item::CHAIN_LEGGINGS | 
-                item::IRON_LEGGINGS | 
-                item::DIAMOND_LEGGINGS),
-            SlotAccess::ArmorBoots => matches!(stack.id, 
-                item::LEATHER_BOOTS | 
-                item::GOLD_BOOTS | 
-                item::CHAIN_BOOTS | 
-                item::IRON_BOOTS | 
-                item::DIAMOND_BOOTS),
-        }
-    }
-
     /// Get the stack in this slot.
     fn get_stack(&mut self) -> ItemStack {
         match &self.kind {
@@ -2206,6 +2179,41 @@ impl<'a> SlotHandle<'a> {
             SlotNotify::BlockEntityStorageEvent { stack, .. } => *stack = Some(new_stack),
         }
 
+    }
+
+}
+
+impl SlotAccess {
+
+    fn can_drop(self, stack: ItemStack) -> bool {
+        match self {
+            SlotAccess::PickupDrop => true,
+            SlotAccess::Pickup(_) => false,
+            SlotAccess::ArmorHelmet => matches!(stack.id, 
+                item::LEATHER_HELMET | 
+                item::GOLD_HELMET | 
+                item::CHAIN_HELMET | 
+                item::IRON_HELMET | 
+                item::DIAMOND_HELMET) || stack.id == block::PUMPKIN as u16,
+            SlotAccess::ArmorChestplate => matches!(stack.id, 
+                item::LEATHER_CHESTPLATE | 
+                item::GOLD_CHESTPLATE | 
+                item::CHAIN_CHESTPLATE | 
+                item::IRON_CHESTPLATE | 
+                item::DIAMOND_CHESTPLATE),
+            SlotAccess::ArmorLeggings => matches!(stack.id, 
+                item::LEATHER_LEGGINGS | 
+                item::GOLD_LEGGINGS | 
+                item::CHAIN_LEGGINGS | 
+                item::IRON_LEGGINGS | 
+                item::DIAMOND_LEGGINGS),
+            SlotAccess::ArmorBoots => matches!(stack.id, 
+                item::LEATHER_BOOTS | 
+                item::GOLD_BOOTS | 
+                item::CHAIN_BOOTS | 
+                item::IRON_BOOTS | 
+                item::DIAMOND_BOOTS),
+        }
     }
 
 }
