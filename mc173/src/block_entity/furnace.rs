@@ -3,7 +3,7 @@
 use glam::IVec3;
 
 use crate::item::{self, ItemStack};
-use crate::world::{World, Event, BlockEntityEvent};
+use crate::world::{World, Event, BlockEntityEvent, BlockEntityStorage};
 use crate::{smelt, block};
 
 
@@ -93,7 +93,10 @@ impl FurnaceBlockEntity {
                     
                     world.push_event(Event::BlockEntity { 
                         pos, 
-                        inner: BlockEntityEvent::FurnaceFuel { stack: self.fuel_stack }
+                        inner: BlockEntityEvent::Storage { 
+                            storage: BlockEntityStorage::FurnaceFuel,
+                            stack: self.fuel_stack,
+                        },
                     });
 
                 }
@@ -120,12 +123,18 @@ impl FurnaceBlockEntity {
                     
                     world.push_event(Event::BlockEntity { 
                         pos, 
-                        inner: BlockEntityEvent::FurnaceInput { stack: self.input_stack }
+                        inner: BlockEntityEvent::Storage { 
+                            storage: BlockEntityStorage::FurnaceInput,
+                            stack: self.input_stack,
+                        },
                     });
                     
                     world.push_event(Event::BlockEntity { 
                         pos, 
-                        inner: BlockEntityEvent::FurnaceOutput { stack: self.output_stack }
+                        inner: BlockEntityEvent::Storage { 
+                            storage: BlockEntityStorage::FurnaceOutput,
+                            stack: self.output_stack,
+                        },
                     });
 
                 }

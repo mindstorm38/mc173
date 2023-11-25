@@ -4,7 +4,6 @@ use derive_more::{Deref, DerefMut};
 use glam::{DVec3, Vec2, IVec3};
 
 use crate::util::{JavaRandom, BoundingBox};
-use crate::inventory::Inventory;
 use crate::item::ItemStack;
 use crate::world::World;
 
@@ -271,32 +270,13 @@ pub struct Player {
     pub username: String,
     /// True when the player is sleeping.
     pub sleeping: bool,
-    /// Main inventory, with 36 slots.
-    /// TODO: Maybe move this to the server crate, because players are not saved like 
-    /// other entities, we could instead just use a more versatile buffer inventory to
-    /// pick items on ground and just transfer items to the server player on events.
-    pub main_inv: Inventory,
-    /// Armor inventory, with 4 slots.
-    pub armor_inv: Inventory,
-    /// The crafting matrix inventory with 9 slots, also used for the 4 slots matrix.
-    pub craft_inv: Inventory,
-    /// Current item stack being hold by the player's window cursor, placed here in order
-    /// to drop it when the player dies.
-    pub cursor_stack: ItemStack,
-    /// Index of the slot selected in the hotbar.
-    pub hand_slot: u8,
 }
 
 impl Default for Player {
     fn default() -> Self {
         Self { 
             username: Default::default(), 
-            sleeping: false, 
-            main_inv: Inventory::new(36),
-            armor_inv: Inventory::new(4), 
-            craft_inv: Inventory::new(9),
-            cursor_stack: ItemStack::EMPTY, 
-            hand_slot: 0,
+            sleeping: false,
         }
     }
 }

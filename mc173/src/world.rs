@@ -401,11 +401,11 @@ impl World {
 
             self.push_event(Event::Block { 
                 pos, 
-                inner: BlockEvent::Set { 
+                inner: BlockEvent::Set {
+                    id, 
+                    metadata,
                     prev_id, 
                     prev_metadata, 
-                    new_id: id, 
-                    new_metadata: metadata,
                 } 
             });
 
@@ -1227,14 +1227,14 @@ pub enum Event {
 pub enum BlockEvent {
     /// A block has been changed in the world.
     Set {
+        /// The new block id.
+        id: u8,
+        /// The new block metadata.
+        metadata: u8,
         /// Previous block id.
         prev_id: u8,
         /// Previous block metadata.
         prev_metadata: u8,
-        /// The new block id.
-        new_id: u8,
-        /// The new block metadata.
-        new_metadata: u8,
     },
     /// Play the block activation sound at given position and id/metadata.
     Sound {
@@ -1270,13 +1270,6 @@ pub enum EntityEvent {
         /// The id of the picked up entity.
         target_id: u32,
     },
-    /// The internal storage of an entity has changed (mostly used for players).
-    Storage {
-        /// Index of the slot where the item changed.
-        index: usize,
-        /// The item stack at the given index.
-        stack: ItemStack,
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1288,21 +1281,9 @@ pub enum BlockEntityEvent {
     /// A basic storage block entity such as chest or dispenser had a change in its
     /// inventory at the given index.
     Storage {
-        /// The index of the item stack within the block entity storage.
-        index: usize,
+        /// The storage targeted by this event.
+        storage: BlockEntityStorage,
         /// The next item stack at this index.
-        stack: ItemStack,
-    },
-    /// The furnace input stack has changed.
-    FurnaceInput {
-        stack: ItemStack,
-    },
-    /// The furnace output stack has changed.
-    FurnaceOutput {
-        stack: ItemStack,
-    },
-    /// The furnace fuel stack has changed.
-    FurnaceFuel {
         stack: ItemStack,
     },
     FurnaceSmeltTime {
@@ -1312,6 +1293,16 @@ pub enum BlockEntityEvent {
         max_time: u16,
         remaining_time: u16,
     },
+}
+
+/// Represent the storage slot for a block entity.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockEntityStorage {
+    /// The storage slot is referencing a classic linear inventory at given index.
+    Standard(u8),
+    FurnaceInput,
+    FurnaceOutput,
+    FurnaceFuel,
 }
 
 /// A snapshot contains all of the content within a chunk, block, light, height map,

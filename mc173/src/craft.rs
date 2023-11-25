@@ -1,38 +1,34 @@
 //! Item crafting management.
 
 use crate::item::{self, ItemStack};
-use crate::inventory::Inventory;
 use crate::block;
 
 
 /// This structure keeps track of the current crafting recipe selected and allows lazy
-/// update of the crafting recipe.
+/// update of the crafting recipe. A crafting recipe is based on a 3x3 item grid.
 #[derive(Debug, Default)]
-pub struct CraftingTracker {
+pub struct CraftTracker {
     /// The index and result item of the current selected recipe
     current_recipe: Option<(usize, ItemStack)>,
 }
 
-impl CraftingTracker {
+impl CraftTracker {
 
-    /// Update this tracker to track a new grid of items.
-    pub fn update(&mut self, inv: &Inventory, width: u8, height: u8) {
-        
-        let stacks_count = width as usize * height as usize;
-        assert_eq!(stacks_count, inv.size(), "incoherent inventory size");
+    /// Update this tracker to track a new 3x3 grid of items.
+    pub fn update(&mut self, grid: &[ItemStack; 9]) {
 
         self.current_recipe = None;
 
         // Do not search if all slots are empty.
-        if inv.stacks().iter().copied().all(ItemStack::is_empty) {
+        if grid.iter().copied().all(ItemStack::is_empty) {
             return;
         }
 
         for (recipe_index, recipe) in RECIPES.iter().enumerate() {
             
             let item = match recipe {
-                Recipe::Shaped(shaped) => shaped.check(inv, width as usize, height as usize),
-                Recipe::Shapeless(shapeless) => shapeless.check(inv),
+                Recipe::Shaped(shaped) => shaped.check(grid),
+                Recipe::Shapeless(shapeless) => shapeless.check(grid),
             };
 
             if let Some(item) = item {
@@ -48,7 +44,7 @@ impl CraftingTracker {
     /// this inventory should be coherent with the one that selected this recipe through
     /// the `update` method. You need to call the `update` method again in order to update
     /// the tracker for the new inventory.
-    pub fn consume(&self, inv: &mut Inventory) {
+    pub fn consume(&self, grid: &mut [ItemStack; 9]) {
 
         if self.current_recipe.is_none() {
             return;
@@ -56,12 +52,11 @@ impl CraftingTracker {
 
         // We just decrement all stack's size in the grid, because stack size is ignored
         // in current patterns.
-        for index in 0..inv.size() {
-            let stack = inv.stack(index);
+        for stack in grid.iter_mut() {
             if stack.is_empty() || stack.size == 1 {
-                inv.set_stack(index, ItemStack::EMPTY);
+                *stack = ItemStack::EMPTY;
             } else {
-                inv.set_stack(index, stack.with_size(stack.size - 1));
+                *stack = stack.with_size(stack.size - 1);
             }
         }
 
@@ -421,7 +416,7 @@ impl ShapedRecipe {
 
     /// Check if this shaped recipe can be crafted with the given inventory of the given 
     /// size and items.
-    fn check(&self, inv: &Inventory, inv_width: usize, inv_height: usize) -> Option<ItemStack> {
+    fn check(&self, grid: &[ItemStack; 9]) -> Option<ItemStack> {
 
         // Compute recipe size based on pattern length and width.
         // NOTE: We compute the height in which the pattern fit.
@@ -430,20 +425,20 @@ impl ShapedRecipe {
 
         // Recipe size cannot fit in the given inventory shape: discard immediately.
         // NOTE: This also avoids arithmetics underflow just below.
-        if recipe_width > inv_width || recipe_height > inv_height {
+        if recipe_width > 3 || recipe_height > 3 {
             return None;
         }
 
         // For each possible starting point in the inventory, check.
-        for start_x in 0..=(inv_width - recipe_width) {
-            'out: for start_y in 0..=(inv_height - recipe_height) {
+        for start_x in 0..=(3 - recipe_width) {
+            'out: for start_y in 0..=(3 - recipe_height) {
 
                 let mut normal_valid = true;
                 let mut flip_valid = true;
 
-                for dx in 0..inv_width {
-                    for dy in 0..inv_height {
-                        let stack = inv.stack(dx + dy * inv_width);
+                for dx in 0..3 {
+                    for dy in 0..3 {
+                        let stack = grid[dx + dy * 3];
                         if dx < start_x || dx >= start_x + recipe_width || dy < start_y || dy >= start_y + recipe_height {
                             // We are outside the checked region, slot should be empty.
                             if !stack.is_empty() {
@@ -494,16 +489,16 @@ impl ShapedRecipe {
 impl ShapelessRecipe {
 
     /// Check if this shapeless recipe can be crafted with the given inventory items.
-    fn check(&self, inv: &Inventory) -> Option<ItemStack> {
+    fn check(&self, inv: &[ItemStack; 9]) -> Option<ItemStack> {
         
         // Too few stacks for the current pattern: discard immediately.
-        if inv.size() < self.pattern.len() {
+        if inv.len() < self.pattern.len() {
             return None;
         }
 
         let mut pat_matched = 0u32;
 
-        'inv: for stack in inv.stacks().iter().copied() {
+        'inv: for stack in inv.iter().copied() {
             if !stack.is_empty() {
                 for (i, pat_stack) in self.pattern.iter().copied().enumerate() {
                     if pat_matched & (1 << i) ==  0 {

@@ -1,18 +1,10 @@
 //! Chest block entity.
 
-use crate::inventory::Inventory;
+use crate::item::ItemStack;
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ChestBlockEntity {
     /// The inventory of the chest.
-    pub inv: Inventory,
-}
-
-impl Default for ChestBlockEntity {
-    fn default() -> Self {
-        Self {
-            inv: Inventory::new(27),
-        }
-    }
+    pub inv: Box<[ItemStack; 27]>,
 }

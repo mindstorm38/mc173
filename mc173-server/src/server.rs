@@ -14,15 +14,15 @@ use flate2::Compression;
 use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
-use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent};
+use mc173::inventory::InventoryHandle;
+use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent, BlockEntityStorage};
 use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::interact::Interaction;
 use mc173::block_entity::BlockEntity;
 use mc173::serde::RegionChunkSource;
 use mc173::item::{self, ItemStack};
-use mc173::craft::CraftingTracker;
-use mc173::inventory::Inventory;
+use mc173::craft::CraftTracker;
 use mc173::util::Face;
 use mc173::block;
 
@@ -190,6 +190,7 @@ impl Server {
         entity.pos = offline_player.pos;
         entity.look = offline_player.look;
         entity.persistent = false;
+        entity.can_pickup = true;
         let entity_id = world.world.spawn_entity(Entity::Player(entity));
 
         // Confirm the login by sending same packet in response.
@@ -227,21 +228,8 @@ impl Server {
         }
 
         // Finally insert the player tracker.
-        let player_index = world.handle_player_join(ServerPlayer {
-            net: self.net.clone(),
-            client,
-            entity_id,
-            username: packet.username,
-            pos: offline_player.pos,
-            look: offline_player.look,
-            tracked_chunks: HashSet::new(),
-            tracked_entities: HashSet::new(),
-            window_count: 0,
-            window: None,
-            window_slot_changes: Vec::new(),
-            crafting_tracker: CraftingTracker::default(),
-            breaking_block: None,
-        });
+        let server_player = ServerPlayer::new(&self.net, client, entity_id, packet.username, &offline_player);
+        let player_index = world.handle_player_join(server_player);
 
         // Replace the previous state with a playing state containing the world and 
         // player indices, used to get to the player instance.
@@ -319,7 +307,7 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        let region_source = RegionChunkSource::new(r"C:\Users\theor\AppData\Roaming\.minecraft-b1.7.3\saves\New World\region");
+        let region_source = RegionChunkSource::new(r"/home/theo/.minecraft-beta/saves/New World/region");
 
         Self {
             name: name.into(),
@@ -371,8 +359,8 @@ impl ServerWorld {
         for event in events.drain(..) {
             match event {
                 Event::Block { pos, inner } => match inner {
-                    BlockEvent::Set { new_id, new_metadata, .. } =>
-                        self.handle_block_change(pos, new_id, new_metadata),
+                    BlockEvent::Set { id, metadata, prev_id, prev_metadata } =>
+                        self.handle_block_set(pos, id, metadata, prev_id, prev_metadata),
                     BlockEvent::Sound { id, metadata } =>
                         self.handle_block_sound(pos, id, metadata),
                 }
@@ -389,22 +377,14 @@ impl ServerWorld {
                         self.handle_entity_velocity(id, vel),
                     EntityEvent::Pickup { target_id } => 
                         self.handle_entity_pickup(id, target_id),
-                    EntityEvent::Storage { index, stack } => 
-                        self.handle_entity_storage(id, index, stack),
                 }
                 Event::BlockEntity { pos, inner } => match inner {
                     BlockEntityEvent::Set =>
                         self.handle_block_entity_set(pos),
                     BlockEntityEvent::Remove =>
                         self.handle_block_entity_remove(pos),
-                    BlockEntityEvent::Storage { index, stack } =>
-                        self.handle_block_entity_storage(pos, index, stack),
-                    BlockEntityEvent::FurnaceInput { stack } =>
-                        self.handle_furnace_storage(pos, stack, FurnaceSlot::Input),
-                    BlockEntityEvent::FurnaceOutput { stack } =>
-                        self.handle_furnace_storage(pos, stack, FurnaceSlot::Output),
-                    BlockEntityEvent::FurnaceFuel { stack } =>
-                        self.handle_furnace_storage(pos, stack, FurnaceSlot::Fuel),
+                    BlockEntityEvent::Storage { storage, stack } =>
+                        self.handle_block_entity_storage(pos, storage, stack),
                     BlockEntityEvent::FurnaceSmeltTime { time } => 
                         self.handle_furnace_progress(pos, FurnaceProgress::Smelt { time }),
                     BlockEntityEvent::FurnaceBurnTime { max_time, remaining_time } =>
@@ -512,19 +492,36 @@ impl ServerWorld {
     }
 
     /// Handle a block change world event.
-    fn handle_block_change(&mut self, pos: IVec3, block: u8, metadata: u8) {
+    fn handle_block_set(&mut self, pos: IVec3, id: u8, metadata: u8, prev_id: u8, _prev_metadata: u8) {
+        
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
+        let break_crafting_table = id != prev_id && prev_id == block::CRAFTING_TABLE;
+
+        for player in &mut self.players {
+            
+            // Send the block change event to all players that have the chunk loaded.
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::BlockChange(proto::BlockChangePacket {
                     x: pos.x,
                     y: pos.y as i8,
                     z: pos.z,
-                    block,
+                    block: id,
                     metadata,
                 }));
             }
+
+            // If the block was a crafting table, if any player has a crafting table
+            // window referencing this block then we force close it.
+            if break_crafting_table {
+                if let WindowKind::CraftingTable { pos: check_pos } = player.window.kind {
+                    if check_pos == pos {
+                        player.close_window(&mut self.world, None, true);
+                    }
+                }
+            }
+
         }
+
     }
 
     fn handle_block_sound(&mut self, pos: IVec3, _block: u8, _metadata: u8) {
@@ -575,6 +572,36 @@ impl ServerWorld {
 
     /// Handle an entity pickup world event.
     fn handle_entity_pickup(&mut self, id: u32, target_id: u32) {
+
+        let Some(target_entity) = self.world.get_entity_mut(target_id) else { return };
+        let Some(player) = self.players.iter_mut().find(|p| p.entity_id == id) else {
+            // This works only on entities handled by players.
+            return
+        };
+
+        let mut inv = InventoryHandle::new(&mut player.main_inv[..]);
+
+        let remove_target = match target_entity {
+            Entity::Item(base) => {
+                base.kind.stack.size -= inv.add(base.kind.stack);
+                base.kind.stack.size == 0
+            }
+            Entity::Arrow(_) => {
+                inv.add(ItemStack::new_single(item::ARROW, 0)) != 0
+            }
+            // Other entities cannot be picked up.
+            _ => return,
+        };
+
+        // Update the associated slots in the player inventory.
+        for index in inv.iter_changes() {
+            player.send_main_inv_item(index);
+        }
+
+        if remove_target {
+            self.world.remove_entity(target_id);
+        }
+
         for player in &self.players {
             if player.tracked_entities.contains(&target_id) {
                 player.send(OutPacket::EntityPickup(proto::EntityPickupPacket {
@@ -583,26 +610,6 @@ impl ServerWorld {
                 }));
             }
         }
-    }
-
-    /// Handle an entity inventory item world event. We support only this for player 
-    /// entities, therefore the index must be in range `0..36`, and the first 9 slots
-    /// are the hotbar, the rest is the inventory from top row to bottom row.
-    fn handle_entity_storage(&mut self, id: u32, index: usize, stack: ItemStack) {
-
-        // Currently only works for players.
-        let Some(player) = self.players.iter().find(move |p| p.entity_id == id) else { return };
-
-        let slot = match index {
-            0..=8 => 36 + index,
-            _ => index,
-        };
-
-        player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-            window_id: 0,
-            slot: slot as i16,
-            stack: stack.to_non_empty(),
-        }));
 
     }
 
@@ -616,44 +623,60 @@ impl ServerWorld {
         
         // Close the inventory of all entities that had a window opened for this block.
         for player in &mut self.players {
-            if let Some(window) = &player.window {
 
-                let contains = match window.kind {
-                    WindowKind::CraftingTable { .. } => false,  // TODO: Close crafting table if crafting table is broken.
-                    WindowKind::Furnace { pos } => 
-                        pos == target_pos,
-                    WindowKind::Chest { ref pos } => 
-                        pos.iter().any(|&pos| pos == target_pos),
-                };
+            let contains = match player.window.kind {
+                WindowKind::Furnace { pos } => 
+                    pos == target_pos,
+                WindowKind::Chest { ref pos } => 
+                    pos.iter().any(|&pos| pos == target_pos),
+                _ => false
+            };
 
-                if contains {
-                    player.close_window(&mut self.world, true);
-                }
-
+            if contains {
+                player.close_window(&mut self.world, None, true);
             }
+
         }
 
     }
 
     /// Handle a storage event for a block entity.
-    fn handle_block_entity_storage(&mut self, target_pos: IVec3, index: usize, stack: ItemStack) {
+    fn handle_block_entity_storage(&mut self, target_pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
 
         for player in &mut self.players {
-            if let Some(window) = &player.window {
+            match player.window.kind {
+                WindowKind::Chest { ref pos } => {
+                    if let Some(row) = pos.iter().position(|&pos| pos == target_pos) {
 
-                match window.kind {
-                    WindowKind::Chest { ref pos } => {
-                        if let Some(row) = pos.iter().position(|&pos| pos == target_pos) {
+                        if let BlockEntityStorage::Standard(index) = storage {
                             player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-                                window_id: window.id,
-                                slot: (row * 27 + index) as i16,
+                                window_id: player.window.id,
+                                slot: row as i16 * 27 + index as i16,
                                 stack: stack.to_non_empty(),
                             }));
                         }
+                        
                     }
-                    _ => {}  // Not handled.
                 }
+                WindowKind::Furnace { pos } => {
+                    if pos == target_pos {
 
+                        let slot = match storage {
+                            BlockEntityStorage::FurnaceInput => 0,
+                            BlockEntityStorage::FurnaceFuel => 1,
+                            BlockEntityStorage::FurnaceOutput => 2,
+                            _ => continue,
+                        };
+
+                        player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                            window_id: player.window.id,
+                            slot,
+                            stack: stack.to_non_empty(),
+                        }));
+
+                    }
+                }
+                _ => {}  // Not handled.
             }
         }
 
@@ -663,15 +686,13 @@ impl ServerWorld {
     fn handle_furnace_storage(&mut self, target_pos: IVec3, stack: ItemStack, slot: FurnaceSlot) {
 
         for player in &mut self.players {
-            if let Some(window) = &player.window {
-                if let WindowKind::Furnace { pos } = window.kind {
-                    if pos == target_pos {
-                        player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-                            window_id: window.id,
-                            slot: slot as i16,
-                            stack: stack.to_non_empty(),
-                        }));
-                    }
+            if let WindowKind::Furnace { pos } = player.window.kind {
+                if pos == target_pos {
+                    player.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                        window_id: player.window.id,
+                        slot: slot as i16,
+                        stack: stack.to_non_empty(),
+                    }));
                 }
             }
         }
@@ -681,36 +702,34 @@ impl ServerWorld {
     fn handle_furnace_progress(&mut self, target_pos: IVec3, progress: FurnaceProgress) {
 
         for player in &mut self.players {
-            if let Some(window) = &player.window {
-                if let WindowKind::Furnace { pos } = window.kind {
-                    if pos == target_pos {
+            if let WindowKind::Furnace { pos } = player.window.kind {
+                if pos == target_pos {
 
-                        match progress {
-                            FurnaceProgress::Smelt { time } => {
-                                player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                                    window_id: window.id,
-                                    bar_id: 0,
-                                    value: time as i16,
-                                }));
-                            }
-                            FurnaceProgress::Burn { max_time, remaining_time } => {
-
-                                player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                                    window_id: window.id,
-                                    bar_id: 2,
-                                    value: max_time as i16,
-                                }));
-        
-                                player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                                    window_id: window.id,
-                                    bar_id: 1,
-                                    value: remaining_time as i16,
-                                }));
-
-                            }
+                    match progress {
+                        FurnaceProgress::Smelt { time } => {
+                            player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                                window_id: player.window.id,
+                                bar_id: 0,
+                                value: time as i16,
+                            }));
                         }
+                        FurnaceProgress::Burn { max_time, remaining_time } => {
 
+                            player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                                window_id: player.window.id,
+                                bar_id: 2,
+                                value: max_time as i16,
+                            }));
+    
+                            player.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
+                                window_id: player.window.id,
+                                bar_id: 1,
+                                value: remaining_time as i16,
+                            }));
+
+                        }
                     }
+
                 }
             }
         }
@@ -758,6 +777,14 @@ struct ServerPlayer {
     /// known and rendered by the client, when the entity will disappear, a kill packet
     /// should be sent.
     tracked_entities: HashSet<u32>,
+    /// The main player inventory including the hotbar in the first 9 slots.
+    main_inv: Box<[ItemStack; 36]>,
+    /// The item stacks for the 3x3 crafting grid. Also support the 2x2 as top left slots.
+    craft_inv: Box<[ItemStack; 9]>,
+    /// The item stack in the cursor of the client's using a window.
+    cursor_stack: ItemStack,
+    /// The slot current selected for the hand. Must be in range 0..9.
+    hand_slot: u8,
     /// The total number of windows that have been opened by this player, this is also 
     /// used to generate a unique window id. This id should never be zero because it is
     /// reserved for the player inventory.
@@ -765,18 +792,16 @@ struct ServerPlayer {
     /// The current window opened on the client side. Note that the player inventory is
     /// not registered here while opened because we can't know when it is. However we 
     /// know that its window id is always 0.
-    window: Option<Window>,
-    /// A temporary list of item changes in the current window, each item is associated 
-    /// to its slot number.
-    window_slot_changes: Vec<(i16, ItemStack)>,
+    window: Window,
     /// This crafting tracker is used to update the current craft being constructed by 
     /// the player in the current window (player inventory or crafting table interface).
-    crafting_tracker: CraftingTracker,
+    craft_tracker: CraftTracker,
     /// If the player is breaking a block, this record the breaking state.
     breaking_block: Option<BreakingBlock>,
 }
 
 /// Describe an opened window and how to handle clicks into it.
+#[derive(Debug, Default)]
 struct Window {
     /// The unique id of the currently opened window.
     id: u8,
@@ -785,7 +810,13 @@ struct Window {
 }
 
 /// Describe a kind of opened window on the client side.
+#[derive(Debug, Default)]
 enum WindowKind {
+    /// The player inventory is the default window that is always opened if no other 
+    /// window is opened, it also always has the id 0, it contains the armor and craft
+    /// matrix.
+    #[default]
+    Player,
     /// The client-side has a crafting table window opened on the given block pos.
     CraftingTable {
         pos: IVec3,
@@ -811,6 +842,27 @@ struct BreakingBlock {
 }
 
 impl ServerPlayer {
+
+    fn new(net: &Network, client: NetworkClient, entity_id: u32, username: String, offline: &OfflinePlayer) -> Self {
+        Self {
+            net: net.clone(),
+            client,
+            entity_id,
+            username,
+            pos: offline.pos,
+            look: offline.look,
+            tracked_chunks: HashSet::new(),
+            tracked_entities: HashSet::new(),
+            main_inv: Box::new([ItemStack::EMPTY; 36]),
+            craft_inv: Box::new([ItemStack::EMPTY; 9]),
+            cursor_stack: ItemStack::EMPTY,
+            hand_slot: 0,
+            window_count: 0,
+            window: Window::default(),
+            craft_tracker: CraftTracker::default(),
+            breaking_block: None,
+        }
+    }
 
     /// Send a packet to this player.
     fn send(&self, packet: OutPacket) {
@@ -915,7 +967,12 @@ impl ServerPlayer {
                         .map_err(|_| format!("§cError: invalid stack size:§r {size_raw}"))?;
                 }
 
-                base.kind.kind.main_inv.add_stack(stack);
+                let mut inv = InventoryHandle::new(&mut self.main_inv[..]);
+                inv.add(stack);
+                for index in inv.iter_changes() {
+                    self.send_main_inv_item(index);
+                }
+
                 self.send_chat(format!("§aGave §r{}§a (§r{}:{}§a) x§r{}§a to §r{}", item.name, stack.id, stack.damage, stack.size, self.username));
                 Ok(())
 
@@ -995,9 +1052,7 @@ impl ServerPlayer {
 
         let in_water = base.in_water;
         let on_ground = base.on_ground;
-        let main_inv = &mut base.kind.kind.main_inv;
-        let hand_slot = base.kind.kind.hand_slot as usize;
-        let mut stack = main_inv.stack(hand_slot);
+        let mut stack = self.main_inv[self.hand_slot as usize];
 
         if packet.status == 0 {
 
@@ -1045,12 +1100,12 @@ impl ServerPlayer {
             if !stack.is_empty() {
                 
                 stack.size -= 1;
-                main_inv.set_stack(hand_slot, stack.to_non_empty().unwrap_or(ItemStack::EMPTY));
+                self.main_inv[self.hand_slot as usize] = stack.to_non_empty().unwrap_or_default();
                 
                 self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
                     window_id: 0,
-                    slot: 36 + hand_slot as i16,
-                    stack: main_inv.stack(hand_slot).to_non_empty(),
+                    slot: 36 + self.hand_slot as i16,
+                    stack: stack.to_non_empty(),
                 }));
 
                 self.drop_item(world, stack.with_size(1), false);
@@ -1063,9 +1118,6 @@ impl ServerPlayer {
 
     /// Handle a place block packet.
     fn handle_place_block(&mut self, world: &mut World, packet: proto::PlaceBlockPacket) {
-        
-        // This packet only works if the player's entity is a player.
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
         
         let face = match packet.direction {
             0 => Some(Face::NegY),
@@ -1087,8 +1139,8 @@ impl ServerPlayer {
         let mut new_hand_stack = None;
 
         // Check if the player is reasonably near the block.
-        if face.is_none() || base.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
-            let hand_stack = base.kind.kind.main_inv.stack(base.kind.kind.hand_slot as usize);
+        if face.is_none() || self.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
+            let hand_stack = self.main_inv[self.hand_slot as usize];
             // The real action depends on 
             if let Some(face) = face {
                 match world.interact_block(pos) {
@@ -1113,29 +1165,26 @@ impl ServerPlayer {
         }
 
         if let Some(hand_stack) = new_hand_stack {
-            let Entity::Player(base) = world.get_entity_mut(self.entity_id).unwrap() else { panic!() };
-            base.kind.kind.main_inv.set_stack(base.kind.kind.hand_slot as usize, hand_stack);
+            self.main_inv[self.hand_slot as usize] = hand_stack;
+            self.send_main_inv_item(self.hand_slot as usize);
         }
 
     }
 
     /// Handle a hand slot packet.
-    fn handle_hand_slot(&mut self, world: &mut World, slot: i16) {
-
-        // This packet only works if the player's entity is a player.
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
-        base.kind.kind.hand_slot = slot as u8;
-
+    fn handle_hand_slot(&mut self, _world: &mut World, slot: i16) {
+        if slot >= 0 && slot < 9 {
+            self.hand_slot = slot as u8;
+        } else {
+            println!("[WARN] Invalid hand slot: {slot}");
+        }
     }
 
     /// Handle a window click packet.
     fn handle_window_click(&mut self, world: &mut World, packet: proto::WindowClickPacket) {
 
-        // This packet only works if the player's entity is a player.
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
-        
         // Holding the target slot's item stack.
-        let mut cursor_stack = base.kind.kind.cursor_stack;
+        let mut cursor_stack = self.cursor_stack;
         let slot_stack;
 
         if packet.slot == -999 {
@@ -1156,9 +1205,12 @@ impl ServerPlayer {
         } else {
 
             let slot_handle = self.make_window_slot_handle(world, packet.window_id, packet.slot);
-            let Some(mut slot_handle) = slot_handle else { return };
+            let Some(mut slot_handle) = slot_handle else {
+                println!("[WARN] Cannot find a handle for slot {} in window {}", packet.slot, packet.window_id);
+                return;
+            };
 
-            slot_stack = slot_handle.stack();
+            slot_stack = slot_handle.get_stack();
 
             if slot_stack.is_empty() {
                 if !cursor_stack.is_empty() && slot_handle.can_drop(cursor_stack) {
@@ -1235,6 +1287,50 @@ impl ServerPlayer {
 
             }
 
+            // Handle notification if the slot has changed.
+            match slot_handle.notify {
+                SlotNotify::Craft { 
+                    mapping, 
+                    modified: true,
+                } => {
+
+                    self.craft_tracker.update(&self.craft_inv);
+                    
+                    self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                        window_id: packet.window_id,
+                        slot: 0,
+                        stack: self.craft_tracker.recipe(),
+                    }));
+
+                    if let Some(mapping) = mapping {
+                        for (index, &slot) in mapping.iter().enumerate() {
+                            if slot >= 0 {
+                                self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                                    window_id: packet.window_id,
+                                    slot,
+                                    stack: self.craft_inv[index].to_non_empty(),
+                                }));
+                            }
+                        }
+                    }
+
+                }
+                SlotNotify::BlockEntityStorageEvent { 
+                    pos,
+                    storage, 
+                    stack: Some(stack),
+                } => {
+                    world.push_event(Event::BlockEntity { 
+                        pos, 
+                        inner: BlockEntityEvent::Storage { 
+                            storage, 
+                            stack,
+                        },
+                    });
+                }
+                _ => {}
+            }
+
         }
             
         // Answer with a transaction packet that is accepted if the packet's stack is
@@ -1244,16 +1340,6 @@ impl ServerPlayer {
             transaction_id: packet.transaction_id,
             accepted: slot_stack.to_non_empty() == packet.stack,
         }));
-
-        // This temporary vector is filled by slot handles and contains stacks to update
-        // in the current window.
-        for (slot, stack) in self.window_slot_changes.drain(..) {
-            self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
-                window_id: packet.window_id,
-                slot,
-                stack: stack.to_non_empty(),
-            }));
-        }
 
         // Send the new cursor item.
         if cursor_stack.size == 0 {
@@ -1266,16 +1352,13 @@ impl ServerPlayer {
             stack: cursor_stack.to_non_empty(),
         }));
 
-        // At the end where the world is no longer borrowed, re-borrow our player entity
-        // and set the new cursor stack.
-        let Entity::Player(base) = world.get_entity_mut(self.entity_id).unwrap() else { panic!() };
-        base.kind.kind.cursor_stack = cursor_stack;
+        self.cursor_stack = cursor_stack;
 
     }
 
     /// Handle a window close packet, it just forget the current window.
-    fn handle_window_close(&mut self, world: &mut World, _packet: proto::WindowClosePacket) {
-        self.close_window(world, false);
+    fn handle_window_close(&mut self, world: &mut World, packet: proto::WindowClosePacket) {
+        self.close_window(world, Some(packet.window_id), false);
     }
 
     fn handle_animation(&mut self, _world: &mut World, _packet: proto::AnimationPacket) {
@@ -1286,14 +1369,18 @@ impl ServerPlayer {
     /// window id is automatically associated to that window.
     fn open_window(&mut self, world: &mut World, kind: WindowKind) {
         
+        // Close any already opened window.
+        self.close_window(world, None, true);
+
         // NOTE: We should never get a window id of 0 because it is the player inventory.
-        let id = (self.window_count % 100 + 1) as u8;
+        let window_id = (self.window_count % 100 + 1) as u8;
         self.window_count += 1;
         
         match kind {
+            WindowKind::Player => panic!("cannot force open the player window"),
             WindowKind::CraftingTable { .. } => {
                 self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
-                    window_id: id,
+                    window_id,
                     inventory_type: 1,
                     title: "Crafting".to_string(),
                     slots_count: 9,
@@ -1302,7 +1389,7 @@ impl ServerPlayer {
             WindowKind::Chest { ref pos } => {
 
                 self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
-                    window_id: id,
+                    window_id,
                     inventory_type: 0,
                     title: if pos.len() <= 1 { "Chest" } else { "Large Chest" }.to_string(),
                     slots_count: (pos.len() * 27) as u8,  // TODO: Checked cast
@@ -1312,14 +1399,14 @@ impl ServerPlayer {
 
                 for &pos in pos {
                     if let Some(BlockEntity::Chest(chest)) = world.get_block_entity(pos) {
-                        stacks.extend(chest.inv.stacks().iter().map(|stack| stack.to_non_empty()));
+                        stacks.extend(chest.inv.iter().map(|stack| stack.to_non_empty()));
                     } else {
                         stacks.extend(std::iter::repeat(None).take(27));
                     }
                 }
 
                 self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
-                    window_id: id,
+                    window_id,
                     stacks,
                 }));
 
@@ -1327,7 +1414,7 @@ impl ServerPlayer {
             WindowKind::Furnace { pos } => {
 
                 self.send(OutPacket::WindowOpen(proto::WindowOpenPacket {
-                    window_id: id,
+                    window_id,
                     inventory_type: 2,
                     title: format!("Furnace"),
                     slots_count: 3,
@@ -1342,25 +1429,25 @@ impl ServerPlayer {
                     ];
 
                     self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                        window_id: id,
+                        window_id,
                         bar_id: 0,
                         value: furnace.smelt_ticks as i16,
                     }));
 
                     self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                        window_id: id,
+                        window_id,
                         bar_id: 1,
                         value: furnace.burn_remaining_ticks as i16,
                     }));
 
                     self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
-                        window_id: id,
+                        window_id,
                         bar_id: 2,
                         value: furnace.burn_max_ticks as i16,
                     }));
     
                     self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
-                        window_id: id,
+                        window_id,
                         stacks,
                     }));
 
@@ -1369,24 +1456,26 @@ impl ServerPlayer {
             }
         };
 
-        self.window = Some(Window { 
-            id,
-            kind,
-        });
+        self.window.id = window_id;
+        self.window.kind = kind;
 
     }
 
-    /// Close the current window opened by the player. If the forced argument is given 
-    /// true, a window close packet is sent to the client.
-    fn close_window(&mut self, world: &mut World, forced: bool) {
-
-        let Some(window) = self.window.take() else { return };
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
+    /// Close the current window opened by the player. If the window id argument is 
+    /// provided, then this will only work if the current server-side window is matching.
+    /// The send boolean indicates if a window close packet must also be sent.
+    fn close_window(&mut self, world: &mut World, window_id: Option<u8>, send: bool) {
+    
+        if let Some(window_id) = window_id {
+            if self.window.id != window_id {
+                return;
+            }
+        }
 
         // For any closed inventory, we drop the cursor stack and crafting matrix.
         let mut drop_stacks = Vec::new();
-        drop_stacks.extend(base.kind.kind.cursor_stack.take_non_empty());
-        for stack in base.kind.kind.craft_inv.stacks_mut() {
+        drop_stacks.extend(self.cursor_stack.take_non_empty());
+        for stack in self.craft_inv.iter_mut() {
             drop_stacks.extend(stack.take_non_empty());
         }
 
@@ -1394,8 +1483,8 @@ impl ServerPlayer {
             self.drop_item(world, drop_stack, false);
         }
 
-        // Force clear the 2x2 inventory matrix.
-        if window.id == 0 {
+        // Closing the player inventory so we clear the crafting matrix.
+        if self.window.id == 0 {
             for slot in 1..=4 {
                 self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
                     window_id: 0,
@@ -1405,147 +1494,202 @@ impl ServerPlayer {
             }
         }
 
-        if forced {
+        // Reset to the default window.
+        self.window.id = 0;
+        self.window.kind = WindowKind::Player;
+
+        if send {
             self.send(OutPacket::WindowClose(proto::WindowClosePacket {
-                window_id: window.id,
+                window_id: self.window.id,
             }));
         }
+
+    }
+
+    /// Internal function to create a window slot handle specifically for a player main
+    /// inventory slot, the offset of the first player inventory slot is also given.
+    fn make_player_window_slot_handle(&mut self, slot: i16, offset: i16) -> Option<SlotHandle<'_>> {
+
+        let index = match slot - offset {
+            0..=26 => slot - offset + 9,
+            27..=35 => slot - offset - 27,
+            _ => return None,
+        } as usize;
+
+        Some(SlotHandle {
+            kind: SlotKind::Standard { 
+                stack: &mut self.main_inv[index],
+                access: SlotAccess::PickupDrop, 
+                max_size: 64,
+            },
+            notify: SlotNotify::None
+        })
 
     }
 
     /// Internal function to create a window slot handle. This handle is temporary and
     /// own two mutable reference to the player itself and the world, it can only work
     /// on the given slot.
-    fn make_window_slot_handle<'p, 'w>(&'p mut self, world: &'w mut World, window_id: u8, slot: i16) -> Option<SlotHandle<'p, 'w>> {
+    fn make_window_slot_handle<'a>(&'a mut self, world: &'a mut World, window_id: u8, slot: i16) -> Option<SlotHandle<'a>> {
 
-        // This avoid temporary cast issues afterward, even if we keep the signed type.
-        if slot < 0 {
+        // Check coherency of server/client windows.
+        if self.window.id != window_id {
+            println!("[WARN] Incoherent window id, expected {}, got {} from client", self.window.id, window_id);
             return None;
         }
 
-        // Internal function to get the common slot kind for player inventory of window.
-        fn make_player_window_slot<'w>(base: &'w mut PlayerEntity, relative_slot: i16) -> Option<SlotKind<'w>> {
-            Some(match relative_slot {
-                0..=26 => SlotKind::Storage { 
-                    inv: &mut base.kind.kind.main_inv, 
-                    index: relative_slot as usize + 9,
-                },
-                27..=35 => SlotKind::Storage { 
-                    inv: &mut base.kind.kind.main_inv, 
-                    index: relative_slot as usize - 27,
-                },
-                _ => return None,
-            })
+        // This avoid temporary cast issues afterward, even if we keep the signed type.
+        if slot < 0 {
+            println!("[WARN] Negative slot {slot} received for window {window_id}");
+            return None;
         }
 
-        let kind: SlotKind<'w>;
-        if window_id == 0 {
-
-            // Currently only work for player entity.
-            let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
-                return None
-            };
-
-            kind = match slot {
-                0 => SlotKind::CraftingResult {
-                    inv: &mut base.kind.kind.craft_inv,
-                    grid_slots: &[1, 2, -1, 3, 4, -1, -1, -1, -1],
-                },
-                1..=4 => SlotKind::CraftingGrid { 
-                    inv: &mut base.kind.kind.craft_inv, 
-                    index: match slot {
-                        1 => 0,
-                        2 => 1,
-                        3 => 3,
-                        4 => 4,
-                        _ => unreachable!()
+        Some(match self.window.kind {
+            WindowKind::Player => {
+                match slot {
+                    0 => SlotHandle {
+                        kind: SlotKind::CraftingResult { 
+                            craft_inv: &mut self.craft_inv, 
+                            craft_tracker: &mut self.craft_tracker,
+                        },
+                        notify: SlotNotify::Craft { 
+                            mapping: Some(&[1, 2, -1, 3, 4, -1, -1, -1, -1]),
+                            modified: false,
+                        },
                     },
-                    result_slot: 0,
-                },
-                5..=8 => SlotKind::Armor { 
-                    inv: &mut base.kind.kind.armor_inv, 
-                    index: slot as usize - 5,
-                },
-                _ => make_player_window_slot(base, slot - 9)?
-            };
-
-        } else {
-
-            let window = self.window.as_ref()?;
-            if window.id != window_id {
-                return None;
+                    1..=4 => SlotHandle { 
+                        kind: SlotKind::Standard { 
+                            stack: &mut self.craft_inv[match slot {
+                                1 => 0,
+                                2 => 1,
+                                3 => 3,
+                                4 => 4,
+                                _ => unreachable!()
+                            }], 
+                            access: SlotAccess::PickupDrop,
+                            max_size: 64,
+                        },
+                        notify: SlotNotify::Craft {
+                            mapping: None,
+                            modified: false,
+                        },
+                    },
+                    5..=8 => {
+                        // TODO: ARMOR
+                        return None;
+                    }
+                    _ => self.make_player_window_slot_handle(slot, 9)?
+                }
             }
+            WindowKind::CraftingTable { .. } => {
+                match slot {
+                    0 => SlotHandle {
+                        kind: SlotKind::CraftingResult { 
+                            craft_inv: &mut self.craft_inv, 
+                            craft_tracker: &mut self.craft_tracker,
+                        },
+                        notify: SlotNotify::Craft {
+                            mapping: Some(&[1, 2, 3, 4, 5, 6, 7, 8, 9]),
+                            modified: false,
+                        },
+                    },
+                    1..=9 => SlotHandle { 
+                        kind: SlotKind::Standard { 
+                            stack: &mut self.craft_inv[slot as usize - 1], 
+                            access: SlotAccess::PickupDrop,
+                            max_size: 64,
+                        },
+                        notify: SlotNotify::Craft {
+                            mapping: None,
+                            modified: false,
+                        },
+                    },
+                    _ => self.make_player_window_slot_handle(slot, 10)?
+                }
+            }
+            WindowKind::Chest { ref pos } => {
 
-            match window.kind {
-                WindowKind::CraftingTable { .. } => {
-
-                    // Currently only work for player entity.
-                    let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
+                let block_entity_index = slot as usize / 27;
+                if let Some(&pos) = pos.get(block_entity_index) {
+                    
+                    // Get the chest tile entity corresponding to the clicked slot,
+                    // if not found we just ignore.
+                    let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(pos) else {
                         return None
                     };
-                    
-                    kind = match slot {
-                        0 => SlotKind::CraftingResult {
-                            inv: &mut base.kind.kind.craft_inv,
-                            grid_slots: &[1, 2, 3, 4, 5, 6, 7, 8, 9],
+
+                    let index = slot as usize % 27;
+
+                    SlotHandle {
+                        kind: SlotKind::Standard { 
+                            stack: &mut chest.inv[index],
+                            access: SlotAccess::PickupDrop,
+                            max_size: 64,
                         },
-                        1..=9 => SlotKind::CraftingGrid { 
-                            inv: &mut base.kind.kind.craft_inv, 
-                            index: slot as usize - 1,
-                            result_slot: 0,
+                        notify: SlotNotify::BlockEntityStorageEvent {
+                            pos,
+                            storage: BlockEntityStorage::Standard(index as u8),
+                            stack: None,
                         },
-                        _ => make_player_window_slot(base, slot - 10)?,
+                    }
+
+                } else {
+                    self.make_player_window_slot_handle(slot, pos.len() as i16 * 27)?
+                }
+
+            }
+            WindowKind::Furnace { pos } => {
+
+                if slot >= 0 && slot <= 2 {
+
+                    let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else {
+                        return None
                     };
 
-                }
-                WindowKind::Chest { ref pos } => {
+                    let (stack, access, storage) = match slot {
+                        0 => (&mut furnace.input_stack, SlotAccess::PickupDrop, BlockEntityStorage::FurnaceInput),
+                        1 => (&mut furnace.fuel_stack, SlotAccess::PickupDrop, BlockEntityStorage::FurnaceFuel),
+                        2 => (&mut furnace.output_stack, SlotAccess::Pickup(1), BlockEntityStorage::FurnaceOutput),
+                        _ => unreachable!()
+                    };
 
-                    let block_entity_index = slot as usize / 27;
-                    if let Some(&block_entity_pos) = pos.get(block_entity_index) {
-                        // Get the chest tile entity corresponding to the clicked slot,
-                        // if not found we just ignore.
-                        let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(block_entity_pos) else {
-                            return None
-                        };
-                        kind = SlotKind::Storage { 
-                            inv: &mut chest.inv,
-                            index: slot as usize % 27,
-                        };
-                    } else {
-                        // Currently only work for player entity.
-                        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
-                            return None
-                        };
-                        kind = make_player_window_slot(base, slot - pos.len() as i16 * 27)?;
+                    SlotHandle {
+                        kind: SlotKind::Standard { 
+                            stack,
+                            access, 
+                            max_size: 64,
+                        },
+                        notify: SlotNotify::BlockEntityStorageEvent { 
+                            pos, 
+                            storage, 
+                            stack: None,
+                        },
                     }
 
+                } else {
+                    self.make_player_window_slot_handle(slot, 3)?
                 }
-                WindowKind::Furnace { pos } => {
 
-                    if slot >= 0 && slot <= 2 {
-                        let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else {
-                            return None
-                        };
-                        kind = match slot {
-                            0 => SlotKind::Single { stack_ref: &mut furnace.input_stack, can_drop: true },
-                            1 => SlotKind::Single { stack_ref: &mut furnace.fuel_stack, can_drop: true },
-                            2 => SlotKind::Single { stack_ref: &mut furnace.output_stack, can_drop: false },
-                            _ => unreachable!()
-                        };
-                    } else {
-                        // Currently only work for player entity.
-                        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else {
-                            return None
-                        };
-                        kind = make_player_window_slot(base, slot - 3)?
-                    }
-
-                }
             }
+        })
 
+    }
+
+    /// Send the main inventory item at given index to the client.
+    fn send_main_inv_item(&self, index: usize) {
+
+        let slot = match index {
+            0..=8 => 36 + index,
+            _ => index,
         };
 
-        Some(SlotHandle::new(self, slot, kind))
+        let stack = self.main_inv[index];
+
+        self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+            window_id: 0,
+            slot: slot as i16,
+            stack: stack.to_non_empty(),
+        }));
 
     }
 
@@ -1940,108 +2084,136 @@ impl EntityTracker {
 
 }
 
-/// A pointer to a slot in an inventory, its type affects the behavior of interactions 
-/// with it. Lifetimes are `'w` for references to world, and `'p` for references to the
-/// `ServerPlayer` structure that is using the slot.
-struct SlotHandle<'p, 'w> {
-    player: &'p mut ServerPlayer,
-    slot: i16,
-    kind: SlotKind<'w>,
+/// A pointer to a slot in an inventory.
+struct SlotHandle<'a> {
+    /// True if the client is able to drop item into this stack, if not then it can only
+    /// pickup the item stack.
+    kind: SlotKind<'a>,
+    notify: SlotNotify,
 }
 
-/// Different kind of slots, these kind of slots are generic and are made to adapt to
-/// a variety of containers and interfaces.
-enum SlotKind<'w> {
-    /// Refer to a single stack.
-    Single {
-        stack_ref: &'w mut ItemStack,
-        can_drop: bool,
+/// Represent a major slot kind.
+enum SlotKind<'a> {
+    /// A standard slot referencing a single item stack.
+    Standard {
+        /// The stack referenced by this slot handle.
+        stack: &'a mut ItemStack,
+        /// The access kind to this slot.
+        access: SlotAccess,
+        /// The maximum stack size this slot can accept.
+        max_size: u16,
     },
-    /// This slot is a regular storage slot in the given inventory and index into it.
-    Storage {
-        inv: &'w mut Inventory,
-        index: usize,
-    },
-    /// This slot is a player armor slot.
-    Armor {
-        inv: &'w mut Inventory,
-        index: usize,
-    },
-    /// This slot is part of a crafting grid, the inventory is the 3x3 of the player,
-    /// even if only the 2x2 matrix is used.
-    CraftingGrid {
-        inv: &'w mut Inventory,
-        index: usize,
-        result_slot: i16,
-    },
-    /// This slot is used for the result of a crafting recipe.
+    /// The slot represent a crafting result.
     CraftingResult {
-        inv: &'w mut Inventory,
-        grid_slots: &'static [i16; 9],
+        /// The crafting grid item stacks.
+        craft_inv: &'a mut [ItemStack; 9],
+        /// The crafting tracker for the player.
+        craft_tracker: &'a mut CraftTracker,
     },
 }
 
-impl<'p, 'w> SlotHandle<'p, 'w> {
+/// Represent the kind of drop rule to apply to this slot.
+#[derive(Clone, Copy)]
+enum SlotAccess {
+    /// The cursor is able to pickup and drop items into this slot. 
+    PickupDrop,
+    /// The cursor isn't able to drop items into this slot, it can only pickup. The field
+    /// gives the minimum number of items that can be picked up at the same time. 
+    /// Typically used for crafting because only a full recipe result can be picked up.
+    Pickup(u16),
+    /// This slot only accepts helmet armor items.
+    ArmorHelmet,
+    /// This slot only accepts chestplate armor items.
+    ArmorChestplate,
+    /// This slot only accepts leggings armor items.
+    ArmorLeggings,
+    /// This slot only accepts boots armor items.
+    ArmorBoots,
+}
 
-    fn new(player: &'p mut ServerPlayer, slot: i16, kind: SlotKind<'w>) -> Self {
-        Self { player, slot, kind }
+/// Type of notification that will be triggered when the slot gets modified.
+enum SlotNotify {
+    /// The modification of the slot has no effect.
+    None,
+    /// The modification of the slot requires the crafting matrix to be resent.
+    /// This should only be used for craft matrix windows, where the craft result is in
+    /// slot 0.
+    Craft {
+        /// For each craft inventory stack a client slot number. If not present, this 
+        /// means that the crafting matrix should not be updated. If the slot should not
+        /// be sent to the client, then the value must be negative.
+        mapping: Option<&'static [i16; 9]>,
+        /// True if the craft result should be updated from matrix and resent.
+        modified: bool,
+    },
+    /// A block entity storage event need to be pushed to the world.
+    BlockEntityStorageEvent {
+        /// The position of the block entity.
+        pos: IVec3,
+        /// The index of the inventory stack that is modified.
+        storage: BlockEntityStorage,
+        /// If the stack is actually modified, this is the new item stack at the index.
+        stack: Option<ItemStack>,
     }
+}
+
+impl<'a> SlotHandle<'a> {
 
     /// Get the maximum stack size for that slot.
     fn max_stack_size(&self) -> u16 {
         match self.kind {
-            SlotKind::Armor { .. } => 1,
-            _ => 64,
+            SlotKind::Standard { max_size, .. } => max_size,
+            SlotKind::CraftingResult { .. } => 64,
+        }
+    }
+
+    /// Get the access rule to this slot.
+    fn get_access(&self) -> SlotAccess {
+        match self.kind {
+            SlotKind::Standard { access, .. } => access,
+            SlotKind::CraftingResult { ref craft_tracker, .. } => 
+                SlotAccess::Pickup(craft_tracker.recipe().map(|stack| stack.size).unwrap_or(0)),
         }
     }
 
     /// Check if the given item stack can be dropped in the slot.
     fn can_drop(&self, stack: ItemStack) -> bool {
-        match self.kind {
-            SlotKind::Single { can_drop, .. } => can_drop,
-            SlotKind::Storage { .. } => true,
-            SlotKind::Armor { index, .. } if index == 0 => matches!(stack.id, 
+        match self.get_access() {
+            SlotAccess::PickupDrop => true,
+            SlotAccess::Pickup(_) => false,
+            SlotAccess::ArmorHelmet => matches!(stack.id, 
                 item::LEATHER_HELMET | 
                 item::GOLD_HELMET | 
                 item::CHAIN_HELMET | 
                 item::IRON_HELMET | 
                 item::DIAMOND_HELMET) || stack.id == block::PUMPKIN as u16,
-            SlotKind::Armor { index, .. } if index == 1 => matches!(stack.id, 
+            SlotAccess::ArmorChestplate => matches!(stack.id, 
                 item::LEATHER_CHESTPLATE | 
                 item::GOLD_CHESTPLATE | 
                 item::CHAIN_CHESTPLATE | 
                 item::IRON_CHESTPLATE | 
                 item::DIAMOND_CHESTPLATE),
-            SlotKind::Armor { index, .. } if index == 2 => matches!(stack.id, 
+            SlotAccess::ArmorLeggings => matches!(stack.id, 
                 item::LEATHER_LEGGINGS | 
                 item::GOLD_LEGGINGS | 
                 item::CHAIN_LEGGINGS | 
                 item::IRON_LEGGINGS | 
                 item::DIAMOND_LEGGINGS),
-            SlotKind::Armor { index, .. } if index == 3 => matches!(stack.id, 
+            SlotAccess::ArmorBoots => matches!(stack.id, 
                 item::LEATHER_BOOTS | 
                 item::GOLD_BOOTS | 
                 item::CHAIN_BOOTS | 
                 item::IRON_BOOTS | 
                 item::DIAMOND_BOOTS),
-            SlotKind::Armor { .. } => false,
-            SlotKind::CraftingGrid { .. } => true,
-            SlotKind::CraftingResult { .. } => false,
         }
     }
 
     /// Get the stack in this slot.
-    fn stack(&self) -> ItemStack {
-        match self.kind {
-            SlotKind::Single { ref stack_ref, .. } => **stack_ref,
-            SlotKind::Storage { ref inv, index } |
-            SlotKind::Armor { ref inv, index } |
-            SlotKind::CraftingGrid { ref inv, index, .. } => {
-                inv.stack(index)
-            }
-            SlotKind::CraftingResult { .. } => {
-                self.player.crafting_tracker.recipe().unwrap_or(ItemStack::EMPTY)
-            }
+    fn get_stack(&mut self) -> ItemStack {
+        match &self.kind {
+            SlotKind::Standard { stack, .. } => **stack,
+            SlotKind::CraftingResult { craft_tracker, .. } =>
+                craft_tracker.recipe().unwrap_or_default()
         }
     }
 
@@ -2050,58 +2222,26 @@ impl<'p, 'w> SlotHandle<'p, 'w> {
     /// 
     /// This function also push the slot changes that happened into `slot_changes` of the
     /// server player temporary vector.
-    fn set_stack(&mut self, stack: ItemStack) {
-        match self.kind {
-            SlotKind::Single { ref mut stack_ref, .. } => {
-                **stack_ref = stack;
-                self.player.window_slot_changes.push((self.slot, stack));
-            }
-            SlotKind::Storage { ref mut inv, index } |
-            SlotKind::Armor { ref mut inv, index } => {
-                inv.set_stack(index, stack);
-                self.player.window_slot_changes.push((self.slot, stack));
-            }
-            SlotKind::CraftingGrid { 
-                ref mut inv, 
-                index, 
-                result_slot,
-            } => {
+    fn set_stack(&mut self, new_stack: ItemStack) {
 
-                inv.set_stack(index, stack);
-                self.player.crafting_tracker.update(inv, 3, 3);
-
-                let result_stack = self.player.crafting_tracker.recipe()
-                    .unwrap_or(ItemStack::EMPTY);
-
-                self.player.window_slot_changes.push((self.slot, stack));
-                self.player.window_slot_changes.push((result_slot, result_stack));
-
+        match &mut self.kind {
+            SlotKind::Standard { stack, .. } => {
+                **stack = new_stack;
             }
             SlotKind::CraftingResult { 
-                ref mut inv,
-                grid_slots,
+                craft_inv, 
+                craft_tracker,
             } => {
-
-                // NOTE: The 'can_drop' method always return false for this slot.
-                // This means that this result slot has been picked up.
-                debug_assert_eq!(stack, ItemStack::EMPTY);
-
-                self.player.crafting_tracker.consume(inv);
-                self.player.crafting_tracker.update(inv, 3, 3);
-
-                let result_stack = self.player.crafting_tracker.recipe()
-                    .unwrap_or(ItemStack::EMPTY);
-
-                for (i, &grid_slot) in grid_slots.iter().enumerate() {
-                    if grid_slot >= 0 {
-                        self.player.window_slot_changes.push((grid_slot, inv.stack(i)));
-                    }
-                }
-
-                self.player.window_slot_changes.push((self.slot, result_stack));
-
+                craft_tracker.consume(*craft_inv);
             }
         }
+
+        match &mut self.notify {
+            SlotNotify::None => {}
+            SlotNotify::Craft { modified, .. } => *modified = true,
+            SlotNotify::BlockEntityStorageEvent { stack, .. } => *stack = Some(new_stack),
+        }
+
     }
 
 }

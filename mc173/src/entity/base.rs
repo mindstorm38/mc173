@@ -1,14 +1,20 @@
 //! Base entity logic implementation.
 
+use std::cell::RefCell;
 use std::ops::Sub;
 
 use glam::{DVec3, Vec2};
 
 use crate::block::{self, Material};
 use crate::util::BoundingBox;
-use crate::world::World;
+use crate::world::{World, Event, EntityEvent};
 
 use super::{Base, Size, Entity};
+
+
+thread_local! {
+    static PICKED_UP_ENTITIES: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+}
 
 
 impl<I> Base<I> {
@@ -54,6 +60,41 @@ impl<I> Base<I> {
         self.in_lava = world.iter_blocks_in_box(lava_bb)
             .any(|(_, block, _)| block::from_id(block).material == Material::Lava);
 
+        // If this entity can pickup other ones, trigger an event.
+        if self.can_pickup {
+
+            PICKED_UP_ENTITIES.with_borrow_mut(|picked_up_entities| {
+
+                debug_assert!(picked_up_entities.is_empty());
+                
+                for (entity_id, entity, _) in world.iter_entities_colliding(self.data.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
+                    match entity {
+                        Entity::Item(base) => {
+                            if base.kind.frozen_ticks == 0 {
+                                picked_up_entities.push(entity_id);
+                            }
+                        }
+                        Entity::Arrow(base) => {
+                            if base.on_ground {
+                                picked_up_entities.push(entity_id);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                for entity_id in picked_up_entities.drain(..) {
+                    world.push_event(Event::Entity { 
+                        id, 
+                        inner: EntityEvent::Pickup { 
+                            target_id: entity_id,
+                        },
+                    });
+                }
+
+            });
+
+        }
 
     }
 
