@@ -294,6 +294,12 @@ struct ServerWorld {
     players: Vec<ServerPlayer>,
     /// True when the world has been ticked once.
     init: bool,
+    /// Sliding average tick duration, in seconds.
+    tick_duration: f32,
+    /// Sliding average interval between two ticks.
+    tick_interval: f32,
+    /// Instant of the last tick.
+    tick_last: Instant,
 }
 
 impl ServerWorld {
@@ -316,12 +322,19 @@ impl ServerWorld {
             trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
+            tick_duration: 0.0,
+            tick_interval: 0.0,
+            tick_last: Instant::now(),
         }
 
     }
 
     /// Tick this world.
     fn tick(&mut self) {
+
+        let start = Instant::now();
+        self.tick_interval = (self.tick_interval * 0.98) + (start - self.tick_last).as_secs_f32() * 0.02;
+        self.tick_last = start;
 
         if !self.init {
             self.handle_init();
@@ -412,6 +425,14 @@ impl ServerWorld {
             }
 
         }
+
+        let tick_duration = start.elapsed();
+        self.tick_duration = (self.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
+
+        // if time % 20 == 0 {
+        //     println!("Tick duration: {:.2} ms", self.tick_duration * 1000.0);
+        //     println!("Tick interval: {:.2} ms", self.tick_interval * 1000.0);
+        // }
 
     }
     
