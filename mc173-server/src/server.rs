@@ -1390,12 +1390,6 @@ impl ServerPlayer {
                 }));
                 
                 if let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity(pos) {
-                    
-                    let stacks = vec![
-                        furnace.input_stack.to_non_empty(),
-                        furnace.fuel_stack.to_non_empty(),
-                        furnace.output_stack.to_non_empty()
-                    ];
 
                     self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
                         window_id,
@@ -1417,7 +1411,11 @@ impl ServerPlayer {
     
                     self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
                         window_id,
-                        stacks,
+                        stacks: vec![
+                            furnace.input_stack.to_non_empty(),
+                            furnace.fuel_stack.to_non_empty(),
+                            furnace.output_stack.to_non_empty()
+                        ],
                     }));
 
                 }
