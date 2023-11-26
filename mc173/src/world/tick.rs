@@ -42,7 +42,7 @@ impl World {
             // Mushrooms ticking
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM => self.tick_mushroom(pos, id),
-            block::SAPLING => {}, // Grow tree
+            block::SAPLING => self.tick_sapling(pos, metadata),
             block::GRASS => {}, // Spread
             block::ICE => {}, // Melt
             block::LEAVES => {}, // Decay
@@ -271,6 +271,21 @@ impl World {
                 }
             }
 
+        }
+    }
+
+    /// Tick a sapling to grow it.
+    fn tick_sapling(&mut self, pos: IVec3, mut metadata: u8) {
+        if let Some(light) = self.get_light(pos + IVec3::Y, true) {
+            if light.max >= 9 && self.rand.next_int_bounded(30) == 0 {
+                if block::sapling::is_growing(metadata) {
+                    let kind = block::sapling::get_kind(metadata);
+                    crate::tree::grow_tree_at(self, pos, kind, true);
+                } else {
+                    block::sapling::set_growing(&mut metadata, true);
+                    self.set_block_notify(pos, block::SAPLING, metadata);
+                }
+            }
         }
     }
 

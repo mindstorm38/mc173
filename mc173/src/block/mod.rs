@@ -10,6 +10,7 @@ pub mod dispenser;
 pub mod trapdoor;
 pub mod repeater;
 pub mod pumpkin;
+pub mod sapling;
 pub mod button;
 pub mod ladder;
 pub mod piston;

@@ -33,6 +33,7 @@ pub fn use_at(world: &mut World, pos: IVec3, face: Face, entity_id: u32, stack: 
         item::GOLD_HOE |
         item::WOOD_HOE => return use_hoe_at(world, pos, face, stack),
         item::WHEAT_SEEDS => use_wheat_seeds_at(world, pos, face),
+        item::DYE if stack.damage == 15 => use_bone_meal_at(world, pos),
         _ => false
     };
 
@@ -222,6 +223,20 @@ fn use_wheat_seeds_at(world: &mut World, pos: IVec3, face: Face) -> bool {
     }
 
     false
+
+}
+
+fn use_bone_meal_at(world: &mut World, pos: IVec3) -> bool {
+
+    let Some((id, metadata)) = world.get_block(pos) else { return false };
+
+    if id == block::SAPLING {
+        let kind = block::sapling::get_kind(metadata);
+        crate::tree::grow_tree_at(world, pos, kind, true);
+        true
+    } else {
+        false
+    }
 
 }
 

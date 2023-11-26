@@ -150,6 +150,7 @@ impl JavaRandom {
                 let s = v1 * v1 + v2 * v2;
                 if s < 1.0 && s != 0.0 {
                     let multiplier = (-2.0 * s.ln() / s).sqrt();
+                    self.next_gaussian = Some(v2 * multiplier);
                     break v1 * multiplier;
                 }
             }
