@@ -6,6 +6,7 @@ pub mod block;
 pub mod item;
 pub mod entity;
 pub mod block_entity;
+pub mod biome;
 
 pub mod inventory;
 pub mod craft;

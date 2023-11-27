@@ -27,7 +27,7 @@ pub trait ChunkSource {
     /// Load a chunk at the given coordinates and return the associated proto-chunk. This
     /// function should load the chunk synchronously. The default implementation just
     /// return an unsupported operation error.
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
+    fn load(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
         let _ = (cx, cz);
         Err(ChunkSourceError::Unsupported)
     }
@@ -35,7 +35,7 @@ pub trait ChunkSource {
     /// Save a chunk from the given view and return Ok if successful. This function should
     /// save the chunk synchronously. The default implementation just return an
     /// unsupported operation error.
-    fn save_chunk(&mut self, snapshot: ChunkSnapshot) -> Result<(), ChunkSourceError<Self::SaveError>> {
+    fn save(&mut self, snapshot: ChunkSnapshot) -> Result<(), ChunkSourceError<Self::SaveError>> {
         let _ = snapshot;
         Err(ChunkSourceError::Unsupported)
     }
@@ -68,7 +68,7 @@ impl ChunkSource for EmptyChunkSource {
     type LoadError = ();
     type SaveError = ();
 
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
+    fn load(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
         Ok(ChunkSnapshot::new(cx, cz))
     }
 
@@ -82,7 +82,7 @@ impl ChunkSource for FlatChunkSource {
     type LoadError = ();
     type SaveError = ();
 
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
+    fn load(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
         let mut view = ChunkSnapshot::new(cx, cz);
         let chunk = Arc::get_mut(&mut view.chunk).unwrap();
         chunk.fill_block(IVec3::new(0, 0, 0), IVec3::new(16, 1, 16), block::BEDROCK, 0);
@@ -275,7 +275,7 @@ impl<S: ChunkSource> Worker<S> {
         while let Ok(command) = self.command_receiver.recv() {
             match command {
                 WorkerCommand::Load { cx, cz } => {
-                    let result = self.inner.load_chunk(cx, cz);
+                    let result = self.inner.load(cx, cz);
                     // NOTE: We block until it's possible to send, but if the channel is
                     // disconnected, this means that the receiver side has been 
                     // disconnected, we should shutdown.
@@ -285,7 +285,7 @@ impl<S: ChunkSource> Worker<S> {
                 }
                 WorkerCommand::Save { view } => {
                     let (cx, cz) = (view.cx, view.cz);
-                    let result = self.inner.save_chunk(view);
+                    let result = self.inner.save(view);
                     if self.event_sender.send(ChunkSourceEvent::Save(result.map(|_| (cx, cz)))).is_err() {
                         break;
                     }

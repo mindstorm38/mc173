@@ -14,6 +14,7 @@ use flate2::Compression;
 use glam::{DVec3, Vec2, IVec3};
 
 use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
+use mc173::gen::{GeneratorChunkSource, OverworldGenerator};
 use mc173::inventory::InventoryHandle;
 use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
 use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
@@ -287,7 +288,7 @@ struct ServerWorld {
     /// The inner world data structure.
     world: World,
     /// The chunk source used to load and save the world's chunk.
-    chunk_source: ChunkSourcePool<RegionChunkSource>,
+    chunk_source: ChunkSourcePool<GeneratorChunkSource<OverworldGenerator>>,
     /// Entity tracker, each is associated to the entity id.
     trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
@@ -313,12 +314,13 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        let region_source = RegionChunkSource::new(r"/home/theo/.minecraft-beta/saves/New World/region");
+        // let region_source = RegionChunkSource::new(r"/home/theo/.minecraft-beta/saves/New World/region");
+        let source = GeneratorChunkSource::new(OverworldGenerator::new(3841016456717830250));
 
         Self {
             name: name.into(),
             world: inner,
-            chunk_source: ChunkSourcePool::new_single(region_source),
+            chunk_source: ChunkSourcePool::new_single(source),
             trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
@@ -1004,9 +1006,13 @@ impl ServerPlayer {
                 }
 
                 if let Some(light) = world.get_light(block_pos, false) {
-                    self.send_chat(format!("§a- Block light:§r {:?}", light.block));
-                    self.send_chat(format!("§a- Sky light:§r {:?}", light.sky));
-                    self.send_chat(format!("§a- Max light:§r {:?}", light.max));
+                    self.send_chat(format!("§a- Block light:§r {}", light.block));
+                    self.send_chat(format!("§a- Sky light:§r {}", light.sky));
+                    self.send_chat(format!("§a- Max light:§r {}", light.max));
+                }
+
+                if let Some(biome) = world.get_biome(block_pos) {
+                    self.send_chat(format!("§a- Biome:§r {biome:?}"));
                 }
 
                 Ok(())

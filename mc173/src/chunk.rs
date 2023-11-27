@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use glam::{IVec3, DVec3};
 
+use crate::biome::Biome;
 use crate::block::AIR;
 
 
@@ -71,15 +72,22 @@ pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
 #[derive(Clone)]
 pub struct Chunk {
     /// The numeric identifier of the block.
-    pub block: ChunkByteArray,
+    pub block: ChunkArray3<u8>,
     /// Four byte metadata for each block.
-    pub metadata: ChunkNibbleArray,
+    pub metadata: ChunkNibbleArray3,
     /// Block list level for each block.
-    pub block_light: ChunkNibbleArray,
+    pub block_light: ChunkNibbleArray3,
     /// Sky light level for each block.
-    pub sky_light: ChunkNibbleArray,
-    ///  The height map
-    pub heigh_map: ChunkHeightMap,
+    pub sky_light: ChunkNibbleArray3,
+    ///  The height map.
+    pub height: ChunkArray2<u8>,
+    /// The biome map, this map is not actually saved nor sent to the client. It is
+    /// internally used by this implementation to really split the chunk generation from
+    /// the running world. The Notchian server is different because the mob spawning
+    /// algorithms requires the biome map to be generated at runtime. This also explains
+    /// why we can use a Rust enumeration for this one, and not raw value, because we
+    /// don't need to deserialize it and therefore don't risk any unwanted value.
+    pub biome: ChunkArray2<Biome>,
 }
 
 impl Chunk {
@@ -96,10 +104,11 @@ impl Chunk {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             block: [AIR; CHUNK_3D_SIZE],
-            metadata: ChunkNibbleArray::new(0),
-            block_light: ChunkNibbleArray::new(0),
-            sky_light: ChunkNibbleArray::new(15),
-            heigh_map: [0; CHUNK_2D_SIZE],
+            metadata: ChunkNibbleArray3::new(0),
+            block_light: ChunkNibbleArray3::new(0),
+            sky_light: ChunkNibbleArray3::new(15),
+            height: [0; CHUNK_2D_SIZE],
+            biome: [Biome::Void; CHUNK_2D_SIZE],
         })
     }
 
@@ -154,7 +163,7 @@ impl Chunk {
     /// with full sky light.
     #[inline]
     pub fn get_height(&self, pos: IVec3) -> u8 {
-        self.heigh_map[calc_2d_index(pos)]
+        self.height[calc_2d_index(pos)]
     }
 
     /// Set the height at the given position, the Y component is ignored. 
@@ -163,7 +172,19 @@ impl Chunk {
     /// with full sky light.
     #[inline]
     pub fn set_height(&mut self, pos: IVec3, height: u8) {
-        self.heigh_map[calc_2d_index(pos)] = height;
+        self.height[calc_2d_index(pos)] = height;
+    }
+
+    /// Get the biome at the given position, the Y component is ignored.
+    #[inline]
+    pub fn get_biome(&self, pos: IVec3) -> Biome {
+        self.biome[calc_2d_index(pos)]
+    }
+
+    /// Set the biome at the given position, the Y component is ignored.
+    #[inline]
+    pub fn set_biome(&mut self, pos: IVec3, biome: Biome) {
+        self.biome[calc_2d_index(pos)] = biome;
     }
 
     /// Fill the given chunk area with given block id and metadata.
@@ -210,18 +231,18 @@ impl Chunk {
 }
 
 /// Type alias for a chunk array that stores `u8 * CHUNK_2D_SIZE` values.
-pub type ChunkHeightMap = [u8; CHUNK_2D_SIZE];
+pub type ChunkArray2<T> = [T; CHUNK_2D_SIZE];
 
 /// Type alias for a chunk array that stores `u8 * CHUNK_3D_SIZE` values.
-pub type ChunkByteArray = [u8; CHUNK_3D_SIZE];
+pub type ChunkArray3<T> = [T; CHUNK_3D_SIZE];
 
 /// Special arrays for chunks that stores `u4 * CHUNK_3D_SIZE` values.
 #[derive(Clone)]
-pub struct ChunkNibbleArray {
+pub struct ChunkNibbleArray3 {
     pub inner: [u8; CHUNK_3D_SIZE / 2]
 }
 
-impl ChunkNibbleArray {
+impl ChunkNibbleArray3 {
 
     pub const fn new(init: u8) -> Self {
         debug_assert!(init <= 0x0F);

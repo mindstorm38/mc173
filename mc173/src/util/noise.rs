@@ -1,17 +1,73 @@
 //! Perlin and octaves noise generators.
+//! 
+//! TODO: Ensure parity of wrapping arithmetic where relevant.
 
-use glam::{DVec3, DVec2};
+use std::fmt;
+
+use glam::{DVec3, DVec2, IVec3};
 
 use super::JavaRandom;
+
+
+/// A cube of given size for storing noise values.
+#[repr(transparent)]
+#[derive(Clone, PartialEq)]
+pub struct NoiseCube<const X: usize, const Y: usize, const Z: usize> {
+    inner: [[[f64; Y]; Z]; X],
+}
+
+impl<const X: usize, const Y: usize, const Z: usize> NoiseCube<X, Y, Z> {
+
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            inner: [[[0.0; Y]; Z]; X],
+        }
+    }
+
+    #[inline]
+    pub fn fill(&mut self, value: f64) {
+        self.inner = [[[value; Y]; Z]; X];
+    }
+
+    #[inline]
+    pub fn get(&self, x: usize, y: usize, z: usize) -> f64 {
+        self.inner[x][z][y]
+    }
+
+    #[inline]
+    pub fn set(&mut self, x: usize, y: usize, z: usize, value: f64) {
+        self.inner[x][z][y] = value;
+    }
+
+    #[inline]
+    pub fn add(&mut self, x: usize, y: usize, z: usize, value: f64) {
+        self.inner[x][z][y] += value;
+    }
+
+}
+
+impl<const X: usize, const Y: usize, const Z: usize> Default for NoiseCube<X, Y, Z> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const X: usize, const Y: usize, const Z: usize> fmt::Debug for NoiseCube<X, Y, Z> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("NoiseCube").field(&self.inner).finish()
+    }
+}
 
 
 /// A 3D/2D Perlin noise generator.
 #[derive(Debug, Clone)]
 pub struct PerlinNoise {
-    /// All permutations used by Perlin noise algorithm.
-    permutations: Box<[u16; 512]>,
     /// Offset applied to all position given to the generator.
     offset: DVec3,
+    /// All permutations used by Perlin noise algorithm.
+    permutations: Box<[u16; 512]>,
 }
 
 impl PerlinNoise {
@@ -20,6 +76,7 @@ impl PerlinNoise {
     pub fn new(rand: &mut JavaRandom) -> Self {
 
         let offset = rand.next_dvec3() * 256.0;
+
         let mut permutations = Box::new(std::array::from_fn::<u16, 512, _>(|i| {
             if i <= 256 {
                 i as u16
@@ -35,8 +92,8 @@ impl PerlinNoise {
         }
 
         Self {
-            permutations,
             offset,
+            permutations,
         }
 
     }
@@ -61,21 +118,23 @@ impl PerlinNoise {
         let b0 = self.permutations[b] as usize + z_index;
         let b1 = self.permutations[b + 1] as usize + z_index;
 
+        let DVec3 { x, y, z } = pos;
+
         lerp(factor.z,
             lerp(factor.y, 
                 lerp(factor.x, 
-                    grad(self.permutations[a0], pos), 
-                    grad(self.permutations[b0], pos - DVec3::new(1.0, 0.0, 0.0))), 
+                    grad3(self.permutations[a0], x      , y, z), 
+                    grad3(self.permutations[b0], x - 1.0, y, z)), 
                 lerp(factor.x,
-                    grad(self.permutations[a1], pos - DVec3::new(0.0, 1.0, 0.0)),
-                    grad(self.permutations[b1], pos - DVec3::new(1.0, 1.0, 0.0)))),
+                    grad3(self.permutations[a1], x      , y - 1.0, z),
+                    grad3(self.permutations[b1], x - 1.0, y - 1.0, z))),
             lerp(factor.y,
                 lerp(factor.x,
-                    grad(self.permutations[a0 + 1], pos - DVec3::new(0.0, 0.0, 1.0)),
-                    grad(self.permutations[b0 + 1], pos - DVec3::new(1.0, 0.0, 1.0))),
+                    grad3(self.permutations[a0 + 1], x      , y, z - 1.0),
+                    grad3(self.permutations[b0 + 1], x - 1.0, y, z - 1.0)),
                 lerp(factor.x,
-                    grad(self.permutations[a1 + 1], pos - DVec3::new(0.0, 1.0, 1.0)),
-                    grad(self.permutations[b1 + 1], pos - DVec3::new(1.0, 1.0, 1.0)))))
+                    grad3(self.permutations[a1 + 1], x      , y - 1.0, z - 1.0),
+                    grad3(self.permutations[b1 + 1], x - 1.0, y - 1.0, z - 1.0))))
 
     }
 
@@ -84,14 +143,14 @@ impl PerlinNoise {
         self.gen_3d_point(pos.extend(0.0))
     }
 
+    /// Generate a 3D noise cube at a given offset with the given scale and frequency.
     pub fn gen_3d<const X: usize, const Y: usize, const Z: usize>(&self, 
-        cube: &mut NoiceCube<X, Y, Z>,
+        cube: &mut NoiseCube<X, Y, Z>,
         offset: DVec3,
         scale: DVec3,
-        freq: f64
+        amplitude: f64
     ) {
         
-        let freq_inverted = 1.0 / freq;
         let mut last_y_index = usize::MAX;
 
         let mut x0 = 0.0;
@@ -117,25 +176,23 @@ impl PerlinNoise {
                         let b0 = self.permutations[b] as usize + z_index;
                         let b1 = self.permutations[b + 1] as usize + z_index;
 
-                        let pos = DVec3::new(x, y, z);
-
                         x0 = lerp(x_factor, 
-                            grad(self.permutations[a0], pos), 
-                            grad(self.permutations[b0], pos - DVec3::new(1.0, 0.0, 0.0)));
+                            grad3(self.permutations[a0], x      , y, z), 
+                            grad3(self.permutations[b0], x - 1.0, y, z));
                         x1 = lerp(x_factor,
-                            grad(self.permutations[a1], pos - DVec3::new(0.0, 1.0, 0.0)),
-                            grad(self.permutations[b1], pos - DVec3::new(1.0, 1.0, 0.0)));
+                            grad3(self.permutations[a1], x      , y - 1.0, z),
+                            grad3(self.permutations[b1], x - 1.0, y - 1.0, z));
                         x2 = lerp(x_factor,
-                            grad(self.permutations[a0 + 1], pos - DVec3::new(0.0, 0.0, 1.0)),
-                            grad(self.permutations[b0 + 1], pos - DVec3::new(1.0, 0.0, 1.0)));
+                            grad3(self.permutations[a0 + 1], x      , y, z - 1.0),
+                            grad3(self.permutations[b0 + 1], x - 1.0, y, z - 1.0));
                         x3 = lerp(x_factor,
-                            grad(self.permutations[a1 + 1], pos - DVec3::new(0.0, 1.0, 1.0)),
-                            grad(self.permutations[b1 + 1], pos - DVec3::new(1.0, 1.0, 1.0)));
+                            grad3(self.permutations[a1 + 1], x      , y - 1.0, z - 1.0),
+                            grad3(self.permutations[b1 + 1], x - 1.0, y - 1.0, z - 1.0));
 
                     }
 
                     let noise = lerp(z_factor, lerp(y_factor, x0, x1), lerp(y_factor, x2, x3));
-                    cube.add(x_cube, y_cube, z_cube, noise * freq_inverted);
+                    cube.add(x_cube, y_cube, z_cube, noise * amplitude);
 
                 }
             }
@@ -143,42 +200,110 @@ impl PerlinNoise {
 
     }
 
-}
+    /// Generate a 2D noise cube at a given offset with the given scale and frequency.
+    pub fn gen_2d<const X: usize, const Z: usize>(&self,
+        cube: &mut NoiseCube<X, 1, Z>,
+        offset: DVec2,
+        scale: DVec2,
+        amplitude: f64
+    ) {
 
-#[inline]
-fn lerp(factor: f64, from: f64, to: f64) -> f64 {
-    from + factor * (to - from)
-}
+        for x_cube in 0..X {
+            let (x, x_factor, x_index) = calc_pos((offset.x + x_cube as f64) * scale.x + self.offset.x);
+            for z_cube in 0..Z {
+                let (z, z_factor, z_index) = calc_pos((offset.y + z_cube as f64) * scale.y + self.offset.z);
+                
+                let a = self.permutations[x_index] as usize + 0;
+                let a0 = self.permutations[a] as usize + z_index;
+                let b = self.permutations[x_index + 1] as usize + 0;
+                let b0 = self.permutations[b] as usize + z_index;
 
-#[inline]
-fn grad(value: u16, pos: DVec3) -> f64 {
-    let value = value & 15;
-    let a = if value < 8 { pos.x } else { pos.y };
-    let b = if value < 4 { pos.y } else if value != 12 && value != 14 { pos.z } else { pos.x };
-    (if value & 1 == 0 { a } else { -a }) + (if value & 2 == 0 { b } else { -b })
-}
+                let noise = lerp(z_factor,
+                    lerp(x_factor,
+                        grad2(self.permutations[a0], x, z),
+                        grad3(self.permutations[b0], x - 1.0, 0.0, z)),
+                    lerp(x_factor,
+                        grad3(self.permutations[a0 + 1], x, 0.0, z - 1.0),
+                        grad3(self.permutations[b0 + 1], x - 1.0, 0.0, z - 1.0)));
+                
+                cube.add(x_cube, 0, z_cube, noise * amplitude);
 
-#[inline]
-fn calc_pos(mut pos: f64) -> (f64, f64, usize) {
+            }
+        }
 
-    let floor = pos.floor();
-    pos -= floor;
-    let factor = pos * pos * pos * (pos * (pos * 6.0 - 15.0) + 10.0);
-    let index = (floor as i32 & 255) as usize;
+    }
 
-    (pos, factor, index)
+    /// Weird noise generation (a handcrafted noise generator used by Notchian server 
+    /// that uses the same type of permutations table and offset as the perlin noise, so
+    /// we use the same structure).
+    /// 
+    /// The function is to be renamed if the algorithm name is found.
+    pub fn gen_weird_2d<const X: usize, const Z: usize>(&self,
+        cube: &mut NoiseCube<X, 1, Z>,
+        offset: DVec2,
+        scale: DVec2,
+        amplitude: f64
+    ) {
+
+        let const_a: f64 = 0.5 * (f64::sqrt(3.0) - 1.0);
+        let const_b: f64 = (3.0 - f64::sqrt(3.0)) / 6.0;
+        
+        for x_noise in 0..X {
+            let x = (offset.x + x_noise as f64) * scale.x + self.offset.x;
+            for z_noise in 0..Z {
+                // NOTE: Using Y component of everything but this is interpreted as Z.
+                let z = (offset.y + z_noise as f64) * scale.y + self.offset.y;
+
+                let a = (x + z) * const_a;
+                let x_wrap = wrap(x + a);
+                let z_wrap = wrap(z + a);
+
+                let b = i32::wrapping_add(x_wrap, z_wrap) as f64 * const_b;
+                let x_wrap_b = x_wrap as f64 - b;
+                let z_wrap_b = z_wrap as f64 - b;
+
+                let x_delta = x - x_wrap_b;
+                let z_delta = z - z_wrap_b;
+
+                let (
+                    x_offset, 
+                    z_offset
+                ) = if x_delta > z_delta { (1, 0) } else { (0, 1) };
+
+                let x_delta0 = x_delta - x_offset as f64 + const_b;
+                let z_delta0 = z_delta - z_offset as f64 + const_b;
+                let x_delta1 = x_delta - 1.0 + 2.0 * const_b;
+                let z_delta1 = z_delta - 1.0 + 2.0 * const_b;
+
+                let x_index = (x_wrap & 255) as usize;
+                let z_index = (z_wrap & 255) as usize;
+
+                let v0_index = self.permutations[x_index + self.permutations[z_index] as usize] % 12;
+                let v1_index = self.permutations[x_index + x_offset + self.permutations[z_index + z_offset] as usize] % 12;
+                let v2_index = self.permutations[x_index + 1 + self.permutations[z_index + 1] as usize] % 12;
+
+                let v0 = calc_weird_noise(x_delta, z_delta, v0_index as usize);
+                let v1 = calc_weird_noise(x_delta0, z_delta0, v1_index as usize);
+                let v2 = calc_weird_noise(x_delta1, z_delta1, v2_index as usize);
+
+                cube.add(x_noise, 0, z_noise, 70.0 * (v0 + v1 + v2) * amplitude);
+
+            }
+        }
+
+    }
 
 }
 
 
 /// A Perlin-based octave noise generator.
 #[derive(Debug, Clone)]
-pub struct OctaveNoise {
+pub struct PerlinOctaveNoise {
     /// Collection of generators for the different octaves.
     generators: Box<[PerlinNoise]>
 }
 
-impl OctaveNoise {
+impl PerlinOctaveNoise {
 
     /// Create a new Perlin-based octaves noise generator.
     pub fn new(rand: &mut JavaRandom, octaves: usize) -> Self {
@@ -212,51 +337,124 @@ impl OctaveNoise {
         ret
     }
 
+    /// Generate a 3D noise cube at a given offset with the given scale and frequency.
     pub fn gen_3d<const X: usize, const Y: usize, const Z: usize>(&self, 
-        cube: &mut NoiceCube<X, Y, Z>,
+        cube: &mut NoiseCube<X, Y, Z>,
         offset: DVec3,
         scale: DVec3
     ) {
-
         cube.fill(0.0);
-
         let mut freq = 1.0;
-
         for gen in &self.generators[..] {
-            gen.gen_3d(cube, offset, scale * freq, freq);
+            gen.gen_3d(cube, offset, scale * freq, 1.0 / freq);
             freq /= 2.0;
         }
+    }
 
+    /// Generate a 2D noise cube at a given offset with the given scale and frequency.
+    pub fn gen_2d<const X: usize, const Z: usize>(&self,
+        cube: &mut NoiseCube<X, 1, Z>,
+        offset: DVec2,
+        scale: DVec2,
+    ) {
+        cube.fill(0.0);
+        let mut freq = 1.0;
+        for gen in &self.generators[..] {
+            gen.gen_2d(cube, offset, scale * freq, 1.0 / freq);
+            freq /= 2.0;
+        }
+    }
+
+    /// Weird noise generation (a handcrafted noise generator used by Notchian server 
+    /// that uses the same type of permutations table and offset as the Perlin noise, so
+    /// we use the same structure).
+    /// 
+    /// The function is to be renamed if the algorithm name is found.
+    pub fn gen_weird_2d<const X: usize, const Z: usize>(&self,
+        cube: &mut NoiseCube<X, 1, Z>,
+        offset: DVec2,
+        scale: DVec2,
+        freq_factor: f64,
+    ) {
+        cube.fill(0.0);
+        let scale = scale / 1.5;
+        let mut freq = 1.0;
+        let mut amplitude = 0.55;
+        for gen in &self.generators[..] {
+            gen.gen_weird_2d(cube, offset, scale * freq, amplitude);
+            freq *= freq_factor;
+            amplitude *= 2.0;
+        }
     }
 
 }
 
 
-/// A cube of given size for storing some noise values.
-pub struct NoiceCube<const X: usize, const Y: usize, const Z: usize> {
-    inner: [[[f64; Y]; Z]; X],
+#[inline]
+fn lerp(factor: f64, from: f64, to: f64) -> f64 {
+    from + factor * (to - from)
 }
 
-impl<const X: usize, const Y: usize, const Z: usize> NoiceCube<X, Y, Z> {
+#[inline]
+fn grad3(value: u16, x: f64, y: f64, z: f64) -> f64 {
+    let value = value & 15;
+    let a = if value < 8 { x } else { y };
+    let b = if value < 4 { y } else if value != 12 && value != 14 { z } else { x };
+    (if value & 1 == 0 { a } else { -a }) + (if value & 2 == 0 { b } else { -b })
+}
 
-    #[inline]
-    pub fn fill(&mut self, value: f64) {
-        self.inner = [[[value; Y]; Z]; X];
-    }
+#[inline]
+fn grad2(value: u16, x: f64, z: f64) -> f64 {
+    let value = value & 15;
+    let a = (1 - ((value & 8) >> 3)) as f64 * x;
+    let b = if value < 4 { 0.0 } else if value != 12 && value != 14 { z } else { x };
+    (if value & 1 == 0 { a } else { -a }) + (if value & 2 == 0 { b } else { -b })
+}
 
-    #[inline]
-    pub fn get(&mut self, x: usize, y: usize, z: usize) -> f64 {
-        self.inner[x][z][y]
-    }
+#[inline]
+fn calc_pos(mut pos: f64) -> (f64, f64, usize) {
 
-    #[inline]
-    pub fn set(&mut self, x: usize, y: usize, z: usize, value: f64) {
-        self.inner[x][z][y] = value;
-    }
+    let floor = pos.floor();
+    pos -= floor;
+    let factor = pos * pos * pos * (pos * (pos * 6.0 - 15.0) + 10.0);
+    let index = (floor as i32 & 255) as usize;
 
-    #[inline]
-    pub fn add(&mut self, x: usize, y: usize, z: usize, value: f64) {
-        self.inner[x][z][y] += value;
+    // TODO: Check parity of wrapping arithmetic.
+
+    (pos, factor, index)
+
+}
+
+#[inline]
+fn wrap(value: f64) -> i32 {
+    if value > 0.0 { value as i32 } else { value as i32 - 1 }
+}
+
+#[inline]
+fn calc_weird_noise(x_delta: f64, z_delta: f64, index: usize) -> f64 {
+
+    static WEIRD_TABLE: [IVec3; 12] = [
+        IVec3::new(1, 1, 0),
+        IVec3::new(-1, 1, 0),
+        IVec3::new(1, -1, 0),
+        IVec3::new(-1, -1, 0),
+        IVec3::new(1, 0, 1),
+        IVec3::new(-1, 0, 1),
+        IVec3::new(1, 0, -1),
+        IVec3::new(-1, 0, -1),
+        IVec3::new(0, 1, 1),
+        IVec3::new(0, -1, 1),
+        IVec3::new(0, 1, -1),
+        IVec3::new(0, -1, -1),
+    ];
+
+    let tmp = 0.5 - x_delta * x_delta - z_delta * z_delta;
+    if tmp < 0.0 {
+        0.0
+    } else {
+        let tmp = tmp * tmp;
+        let weird = WEIRD_TABLE[index];
+        tmp * tmp * (weird.x as f64 * x_delta + weird.y as f64 * z_delta)
     }
 
 }

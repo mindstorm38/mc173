@@ -35,7 +35,7 @@ impl ChunkSource for RegionChunkSource {
     type LoadError = RegionError;
     type SaveError = RegionError;
 
-    fn load_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
+    fn load(&mut self, cx: i32, cz: i32) -> Result<ChunkSnapshot, ChunkSourceError<Self::LoadError>> {
 
         // Get the region file but do not create it if not already existing, returning
         // unsupported if not existing.
@@ -81,7 +81,7 @@ impl ChunkSource for RegionChunkSource {
         let sky_light = level.get_byte_array("SkyLight").unwrap();
         chunk.sky_light.inner.copy_from_slice(sky_light);
         let height_map = level.get_byte_array("HeightMap").unwrap();
-        chunk.heigh_map.copy_from_slice(height_map);
+        chunk.height.copy_from_slice(height_map);
 
         Ok(snapshot)
 

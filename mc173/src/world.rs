@@ -12,6 +12,7 @@ use std::mem;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
+use crate::biome::Biome;
 use crate::chunk::{Chunk, 
     calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos,
     CHUNK_HEIGHT, CHUNK_WIDTH};
@@ -463,6 +464,13 @@ impl World {
             max: block.max(sky),
         })
 
+    }
+
+    /// Get the biome at some position (Y component is ignored).
+    pub fn get_biome(&self, pos: IVec3) -> Option<Biome> {
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        let chunk = self.get_chunk(cx, cz)?;
+        Some(chunk.get_biome(pos))
     }
 
     /// Internal function to ensure monomorphization and reduce bloat of the 

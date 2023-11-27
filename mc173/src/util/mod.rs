@@ -12,3 +12,5 @@ pub use bb::BoundingBox;
 pub use face::{Face, FaceSet};
 
 pub use io::{ReadJavaExt, WriteJavaExt};
+
+pub use noise::{NoiseCube, PerlinNoise, PerlinOctaveNoise};
