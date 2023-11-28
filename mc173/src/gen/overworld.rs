@@ -2,11 +2,12 @@
 
 use glam::{DVec2, IVec3, Vec3Swizzles, DVec3};
 
-use crate::block;
 use crate::util::{JavaRandom, PerlinOctaveNoise, NoiseCube};
 use crate::chunk::{Chunk, CHUNK_WIDTH, CHUNK_HEIGHT};
 use crate::biome::Biome;
+use crate::block;
 
+use super::cave::CaveGenerator;
 use super::ChunkGenerator;
 
 
@@ -32,6 +33,7 @@ pub struct OverworldGenerator {
     sand_gravel_noise: PerlinOctaveNoise,
     thickness_noise: PerlinOctaveNoise,
     spawner_noise: PerlinOctaveNoise,
+    cave_gen: CaveGenerator,
     biome_table: Box<[Biome; 4096]>,
     cache: Box<NoiseCache>,
 }
@@ -111,6 +113,7 @@ impl OverworldGenerator {
             terrain_noise3: PerlinOctaveNoise::new(&mut rand, 10),
             terrain_noise4: PerlinOctaveNoise::new(&mut rand, 16),
             spawner_noise: PerlinOctaveNoise::new(&mut rand, 8),
+            cave_gen: CaveGenerator::new(seed, 8),
             biome_table: biome_lookup,
             cache: Default::default(),
             rand,
@@ -437,6 +440,11 @@ impl OverworldGenerator {
 
     }
 
+    // Generate chunk carving (only caves for beta 1.7.3).
+    fn gen_carving(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+        self.cave_gen.generate(cx, cz, chunk);
+    }
+
 }
 
 impl ChunkGenerator for OverworldGenerator {
@@ -452,6 +460,7 @@ impl ChunkGenerator for OverworldGenerator {
         self.gen_biomes(cx, cz, chunk);
         self.gen_terrain(cx, cz, chunk);
         self.gen_surface(cx, cz, chunk);
+        self.gen_carving(cx, cz, chunk);
 
     }
 

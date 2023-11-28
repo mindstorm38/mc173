@@ -6,6 +6,8 @@ use crate::source::{ChunkSource, ChunkSourceError};
 use crate::world::ChunkSnapshot;
 use crate::chunk::Chunk;
 
+mod cave;
+
 mod overworld;
 pub use overworld::OverworldGenerator;
 
