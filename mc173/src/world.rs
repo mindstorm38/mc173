@@ -92,6 +92,7 @@ thread_local! {
 /// method, for example `_in`, `_in_box` or `_colliding`.
 /// 
 /// TODO: Make a diagram to better explain the world structure with entity caching.
+#[derive(Clone)]
 pub struct World {
     /// When enabled, this contains the list of events that happened in the world since
     /// it was last swapped. This swap behavior is really useful in order to avoid 
@@ -1364,7 +1365,10 @@ impl ChunkSnapshot {
 /// 
 /// Entities and block entities in **unloaded** chunks are no longer updated as soon as
 /// they enter that unloaded chunk.
-#[derive(Default)]
+/// 
+/// Note: cloning a chunk component will also clone the chunk's Arc, therefore the whole
+/// chunk content is actually cloned only when written to.
+#[derive(Default, Clone)]
 struct ChunkComponent {
     /// Underlying chunk. This is important to understand why the data chunk is stored 
     /// in an Atomically Reference-Counted container: first the chunk structure is large
@@ -1388,6 +1392,7 @@ struct ChunkComponent {
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.
+#[derive(Clone)]
 struct EntityComponent {
     /// The entity storage.
     inner: ComponentStorage<Box<Entity>>,
@@ -1407,6 +1412,7 @@ struct EntityComponent {
 }
 
 /// Internal type for storing a world block entity.
+#[derive(Clone)]
 struct BlockEntityComponent {
     /// The block entity storage.
     inner: ComponentStorage<Box<BlockEntity>>,
@@ -1417,6 +1423,7 @@ struct BlockEntityComponent {
 }
 
 /// State of a component storage.
+#[derive(Clone)]
 enum ComponentStorage<T> {
     /// The component is present and ready to update.
     Ready(T),
@@ -1488,7 +1495,7 @@ struct ScheduledTickState {
 /// A block tick scheduled in the future, it's associated to a world time in a tree map.
 /// This structure is ordered by time and then by position, this allows to have multiple
 /// block update at the same time but for different positions.
-#[derive(Eq)]
+#[derive(Clone, Eq)]
 struct ScheduledTick {
     /// This tick unique id within the world.
     uid: u64,
@@ -1518,6 +1525,7 @@ impl Ord for ScheduledTick {
 }
 
 /// A light update to apply to the world.
+#[derive(Clone)]
 struct LightUpdate {
     /// Light kind targeted by this update, the update only applies to one of the kind.
     kind: LightUpdateKind,
