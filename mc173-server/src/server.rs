@@ -321,7 +321,7 @@ impl ServerWorld {
         Self {
             name: name.into(),
             world: inner,
-            chunk_source: ChunkSourcePool::new_single(source),
+            chunk_source: ChunkSourcePool::new(source, 2),
             trackers: HashMap::new(),
             players: Vec::new(),
             init: false,

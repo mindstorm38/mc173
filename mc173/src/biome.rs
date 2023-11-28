@@ -17,6 +17,6 @@ pub enum Biome {
     Plains,
     IceDesert,
     Tundra,
-    Hell,
+    Nether,
     Sky,
 }

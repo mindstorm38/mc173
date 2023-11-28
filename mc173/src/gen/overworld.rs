@@ -15,10 +15,9 @@ const NOISE_WIDTH: usize = 5;
 const NOISE_HEIGHT: usize = 17;
 
 
-/// A chunk generator for the overworld dimension.
+/// A chunk generator for the overworld dimension. This structure can be shared between
+/// workers.
 pub struct OverworldGenerator {
-    /// The random number generator used internally for chunk randomization.
-    rand: JavaRandom,
     /// The noise used for generating biome temperature.
     temperature_noise: PerlinOctaveNoise,
     /// The noise used for generating biome humidity.
@@ -32,28 +31,25 @@ pub struct OverworldGenerator {
     terrain_noise4: PerlinOctaveNoise,
     sand_gravel_noise: PerlinOctaveNoise,
     thickness_noise: PerlinOctaveNoise,
-    spawner_noise: PerlinOctaveNoise,
+    #[allow(unused)]
+    feature_noise: PerlinOctaveNoise,
     cave_gen: CaveGenerator,
     biome_table: Box<[Biome; 4096]>,
-    cache: Box<NoiseCache>,
 }
 
-#[derive(Default)]
-struct NoiseCache {
-    /// Temperature noise.
+/// This structure stores huge structures that should not be shared between workers.
+#[derive(Default, Clone)]
+pub struct OverworldCache {
     temperature: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
-    /// Humidity noise.
     humidity: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
-    /// Biome noise.
     biome: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
-    /// The final terrain noise.
     terrain:  NoiseCube<NOISE_WIDTH, NOISE_HEIGHT, NOISE_WIDTH>,
     terrain0: NoiseCube<NOISE_WIDTH, NOISE_HEIGHT, NOISE_WIDTH>,
     terrain1: NoiseCube<NOISE_WIDTH, NOISE_HEIGHT, NOISE_WIDTH>,
     terrain2: NoiseCube<NOISE_WIDTH, NOISE_HEIGHT, NOISE_WIDTH>,
     terrain3: NoiseCube<NOISE_WIDTH, 1, NOISE_WIDTH>,
     terrain4: NoiseCube<NOISE_WIDTH, 1, NOISE_WIDTH>,
-    sand: NoiseCube<CHUNK_WIDTH, CHUNK_WIDTH, 1>, // Notchian server is fucking incoherent here.
+    sand: NoiseCube<CHUNK_WIDTH, CHUNK_WIDTH, 1>,
     gravel: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
     thickness: NoiseCube<CHUNK_WIDTH, CHUNK_WIDTH, 1>,
 }
@@ -112,23 +108,21 @@ impl OverworldGenerator {
             thickness_noise: PerlinOctaveNoise::new(&mut rand, 4),
             terrain_noise3: PerlinOctaveNoise::new(&mut rand, 10),
             terrain_noise4: PerlinOctaveNoise::new(&mut rand, 16),
-            spawner_noise: PerlinOctaveNoise::new(&mut rand, 8),
+            feature_noise: PerlinOctaveNoise::new(&mut rand, 8),
             cave_gen: CaveGenerator::new(seed, 8),
             biome_table: biome_lookup,
-            cache: Default::default(),
-            rand,
         }
 
     }
 
     /// Generate a biome map for the chunk and store it in the chunk data.
-    fn gen_biomes(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    fn gen_biomes(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut OverworldCache) {
 
         let offset = DVec2::new((cx * 16) as f64, (cz * 16) as f64);
 
-        let temperature = &mut self.cache.temperature;
-        let humidity = &mut self.cache.humidity;
-        let biome = &mut self.cache.biome;
+        let temperature = &mut cache.temperature;
+        let humidity = &mut cache.humidity;
+        let biome = &mut cache.biome;
         
         self.temperature_noise.gen_weird_2d(temperature, offset, DVec2::splat(0.025f32 as f64), 0.25);
         self.humidity_noise.gen_weird_2d(humidity, offset, DVec2::splat(0.05f32 as f64), 1.0 / 3.0);
@@ -158,7 +152,7 @@ impl OverworldGenerator {
     }
 
     /// Generate the primitive terrain of the chunk.
-    fn gen_terrain(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    fn gen_terrain(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut OverworldCache) {
 
         const NOISE_STRIDE: usize = CHUNK_WIDTH / NOISE_WIDTH;
         const NOISE_REAL_WIDTH: usize = NOISE_WIDTH - 1;
@@ -168,14 +162,14 @@ impl OverworldGenerator {
 
         let offset = IVec3::new(cx * NOISE_REAL_WIDTH as i32, 0, cz * NOISE_REAL_WIDTH as i32);
 
-        let terrain = &mut self.cache.terrain;
-        let terrain0 = &mut self.cache.terrain0;
-        let terrain1 = &mut self.cache.terrain1;
-        let terrain2 = &mut self.cache.terrain2;
-        let terrain3 = &mut self.cache.terrain3;
-        let terrain4 = &mut self.cache.terrain4;
-        let temperature = &self.cache.temperature;
-        let humidity = &self.cache.humidity;
+        let terrain = &mut cache.terrain;
+        let terrain0 = &mut cache.terrain0;
+        let terrain1 = &mut cache.terrain1;
+        let terrain2 = &mut cache.terrain2;
+        let terrain3 = &mut cache.terrain3;
+        let terrain4 = &mut cache.terrain4;
+        let temperature = &cache.temperature;
+        let humidity = &cache.humidity;
 
         let offset_2d = offset.xz().as_dvec2();
         let offset_3d = offset.as_dvec3();
@@ -335,11 +329,11 @@ impl OverworldGenerator {
     }
 
     /// Generate the primitive terrain of the chunk.
-    fn gen_surface(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    fn gen_surface(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut OverworldCache, rand: &mut JavaRandom) {
 
-        let sand = &mut self.cache.sand;
-        let gravel = &mut self.cache.gravel;
-        let thickness = &mut self.cache.thickness;
+        let sand = &mut cache.sand;
+        let gravel = &mut cache.gravel;
+        let thickness = &mut cache.thickness;
 
         let offset = DVec3::new((cx * 16) as f64, (cz * 16) as f64, 0.0);
         let scale = 1.0 / 32.0;
@@ -356,14 +350,15 @@ impl OverworldGenerator {
                 let mut pos = IVec3::new(x as i32, 0, z as i32);
 
                 let biome = chunk.get_biome(pos);
-                let have_sand = sand.get(x, z, 0) + self.rand.next_double() * 0.2 > 0.0;
-                let have_gravel = gravel.get(x, 0, z) + self.rand.next_double() * 0.2 > 3.0;
-                let thickness = (thickness.get(x, z, 0) / 3.0 + 3.0 + self.rand.next_double() * 0.25) as i32;
+                let have_sand = sand.get(x, z, 0) + rand.next_double() * 0.2 > 0.0;
+                let have_gravel = gravel.get(x, 0, z) + rand.next_double() * 0.2 > 3.0;
+                let thickness = (thickness.get(x, z, 0) / 3.0 + 3.0 + rand.next_double() * 0.25) as i32;
 
                 let (
                     biome_top_id, 
                     biome_filler_id
                 ) = match biome {
+                    Biome::Nether => (block::NETHERRACK, block::NETHERRACK),
                     Biome::Desert |
                     Biome::IceDesert => (block::SAND, block::SAND),
                     _ => (block::GRASS, block::DIRT),
@@ -377,7 +372,7 @@ impl OverworldGenerator {
 
                     pos.y = y;
 
-                    if y <= self.rand.next_int_bounded(5) {
+                    if y <= rand.next_int_bounded(5) {
                         chunk.set_block(pos, block::BEDROCK, 0);
                         continue;
                     }
@@ -427,7 +422,7 @@ impl OverworldGenerator {
 
                             remaining_thickness -= 1;
                             if remaining_thickness == 0 && filler_id == block::SAND {
-                                remaining_thickness = self.rand.next_int_bounded(4);
+                                remaining_thickness = rand.next_int_bounded(4);
                                 filler_id = block::SANDSTONE;
                             }
 
@@ -443,7 +438,7 @@ impl OverworldGenerator {
     }
 
     // Generate chunk carving (only caves for beta 1.7.3).
-    fn gen_carving(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    fn gen_carving(&self, cx: i32, cz: i32, chunk: &mut Chunk) {
         self.cave_gen.generate(cx, cz, chunk);
     }
 
@@ -451,17 +446,19 @@ impl OverworldGenerator {
 
 impl ChunkGenerator for OverworldGenerator {
 
-    fn generate(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    type Cache = OverworldCache;
+
+    fn generate(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut Self::Cache) {
 
         let chunk_seed = i64::wrapping_add(
             (cx as i64).wrapping_mul(341873128712), 
             (cz as i64).wrapping_mul(132897987541));
         
-        self.rand.set_seed(chunk_seed);
+        let mut rand = JavaRandom::new(chunk_seed);
 
-        self.gen_biomes(cx, cz, chunk);
-        self.gen_terrain(cx, cz, chunk);
-        self.gen_surface(cx, cz, chunk);
+        self.gen_biomes(cx, cz, chunk, cache);
+        self.gen_terrain(cx, cz, chunk, cache);
+        self.gen_surface(cx, cz, chunk, cache, &mut rand);
         self.gen_carving(cx, cz, chunk);
 
         chunk.recompute_height();

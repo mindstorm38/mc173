@@ -13,8 +13,6 @@ pub struct CaveGenerator {
     seed: i64,
     /// Max chunk radius for the caves.
     radius: u8,
-    /// The random
-    rand: JavaRandom,
 }
 
 impl CaveGenerator {
@@ -23,16 +21,16 @@ impl CaveGenerator {
         Self {
             seed,
             radius,
-            rand: JavaRandom::new_blank(),
         }
     }
 
     /// Generate all caves in the given chunk.
-    pub fn generate(&mut self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    pub fn generate(&self, cx: i32, cz: i32, chunk: &mut Chunk) {
 
-        self.rand.set_seed(self.seed);
-        let x_mul = self.rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
-        let z_mul = self.rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
+        let mut rand = JavaRandom::new(self.seed);
+
+        let x_mul = rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
+        let z_mul = rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
         let radius = self.radius as i32;
 
         for from_cx in cx - radius..=cx + radius {
@@ -43,8 +41,8 @@ impl CaveGenerator {
                     (from_cz as i64).wrapping_mul(z_mul)
                 ) ^ self.seed;
 
-                self.rand.set_seed(chunk_seed);
-                self.generate_from(from_cx, from_cz, cx, cz, chunk);
+                rand.set_seed(chunk_seed);
+                self.generate_from(from_cx, from_cz, cx, cz, chunk, &mut rand);
                 
             }
         }
@@ -53,39 +51,39 @@ impl CaveGenerator {
 
     /// Internal function to generate a cave from a chunk and modify the chunk if that
     /// cave come in.
-    fn generate_from(&mut self, from_cx: i32, from_cz: i32, cx: i32, cz: i32, chunk: &mut Chunk) {
+    fn generate_from(&self, from_cx: i32, from_cz: i32, cx: i32, cz: i32, chunk: &mut Chunk, rand: &mut JavaRandom) {
 
-        let count = self.rand.next_int_bounded(40);
-        let count = self.rand.next_int_bounded(count + 1);
-        let count = self.rand.next_int_bounded(count + 1);
+        let count = rand.next_int_bounded(40);
+        let count = rand.next_int_bounded(count + 1);
+        let count = rand.next_int_bounded(count + 1);
 
-        if self.rand.next_int_bounded(15) != 0 {
+        if rand.next_int_bounded(15) != 0 {
             return;
         }
 
         for _ in 0..count {
 
             let start = IVec3 {
-                x: from_cx * 16 + self.rand.next_int_bounded(16),
+                x: from_cx * 16 + rand.next_int_bounded(16),
                 y: {
-                    let v = self.rand.next_int_bounded(120);
-                    self.rand.next_int_bounded(v + 8)
+                    let v = rand.next_int_bounded(120);
+                    rand.next_int_bounded(v + 8)
                 },
-                z: from_cz * 16 + self.rand.next_int_bounded(16),
+                z: from_cz * 16 + rand.next_int_bounded(16),
             }.as_dvec3();
 
             let mut normal_count = 1;
-            if self.rand.next_int_bounded(4) == 0 {
-                let start_width = self.rand.next_float() * 6.0 + 1.0;
-                self.generate_node(cx, cz, chunk, start, start_width, 0.0, 0.0, -1, -1, 0.5);
-                normal_count += self.rand.next_int_bounded(4);
+            if rand.next_int_bounded(4) == 0 {
+                let start_width = rand.next_float() * 6.0 + 1.0;
+                self.generate_node(cx, cz, chunk, rand, start, start_width, 0.0, 0.0, -1, -1, 0.5);
+                normal_count += rand.next_int_bounded(4);
             }
 
             for _ in 0..normal_count {
-                let yaw = self.rand.next_float() * f32::MC_PI * 2.0;
-                let pitch = (self.rand.next_float() - 0.5) * 2.0 / 8.0;
-                let start_width = self.rand.next_float() * 2.0 + self.rand.next_float();
-                self.generate_node(cx, cz, chunk, start, start_width, yaw, pitch, 0, 0, 1.0);
+                let yaw = rand.next_float() * f32::MC_PI * 2.0;
+                let pitch = (rand.next_float() - 0.5) * 2.0 / 8.0;
+                let start_width = rand.next_float() * 2.0 + rand.next_float();
+                self.generate_node(cx, cz, chunk, rand, start, start_width, yaw, pitch, 0, 0, 1.0);
             }
 
         }
@@ -93,8 +91,8 @@ impl CaveGenerator {
     }
 
     /// Generate a cave node with the given properties.
-    fn generate_node(&mut self, 
-        cx: i32, cz: i32, chunk: &mut Chunk, 
+    fn generate_node(&self, 
+        cx: i32, cz: i32, chunk: &mut Chunk, chunk_rand: &mut JavaRandom,
         mut pos: DVec3, 
         start_width: f32, 
         mut yaw: f32, 
@@ -107,7 +105,7 @@ impl CaveGenerator {
         let cx_mid = (cx * 16 + 8) as f64;
         let cz_mid = (cz * 16 + 8) as f64;
 
-        let mut rand = JavaRandom::new(self.rand.next_long());
+        let mut rand = JavaRandom::new(chunk_rand.next_long());
 
         // The length is the maximum length of the cave from start point to any end.
         if length <= 0 {
@@ -163,14 +161,14 @@ impl CaveGenerator {
             // Generate two perpendicular nodes to the current offset.
             if !auto_offset && offset == new_nodes_offset && start_width > 1.0 {
 
-                self.generate_node(cx, cz, chunk, 
+                self.generate_node(cx, cz, chunk, chunk_rand,
                     pos, 
                     rand.next_float() * 0.5 + 0.5, 
                     yaw - f32::MC_PI * 0.5, 
                     pitch / 3.0, 
                     offset, length, 1.0);
 
-                self.generate_node(cx, cz, chunk, 
+                self.generate_node(cx, cz, chunk, chunk_rand,
                     pos, 
                     rand.next_float() * 0.5 + 0.5, 
                     yaw + f32::MC_PI * 0.5, 
