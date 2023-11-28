@@ -212,14 +212,10 @@ impl CaveGenerator {
             start -= IVec3::new(cx * 16 + 1, 1, cz * 16 + 1);
             end -= IVec3::new(cx * 16 - 1, -1, cz * 16 - 1);
 
-            // println!("generating node {offset}/{length} from {start} to {end}");
-
             // Finally clamp the values to be valid for chunk coordinates.
             // NOTE: End is exclusive.
             let start = start.max(IVec3::new(0, 1, 0));
             let end = end.min(IVec3::new(16, 120, 16));
-
-            // println!("=> from {start} to {end}");
 
             // Check all block an abort if water is present in the carve area.
             for bx in start.x..end.x {

@@ -184,7 +184,8 @@ pub struct InLoginPacket {
 pub struct OutLoginPacket {
     /// The entity id of the player being connected.
     pub entity_id: u32,
-    /// A random seed sent to the player.
+    /// A random seed sent to the player. The client use this to recompute the biomes
+    /// on their side in order to show the right foliage color and also for weather.
     pub random_seed: i64,
     /// The dimension the player is connected to.
     pub dimension: i8,

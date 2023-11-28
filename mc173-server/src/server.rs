@@ -21,7 +21,6 @@ use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::interact::Interaction;
 use mc173::block_entity::BlockEntity;
-use mc173::serde::RegionChunkSource;
 use mc173::item::{self, ItemStack};
 use mc173::craft::CraftTracker;
 use mc173::util::Face;
@@ -32,6 +31,9 @@ use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPack
 
 /// Target tick duration. Currently 20 TPS, so 50 ms/tick.
 const TICK_DURATION: Duration = Duration::from_millis(50);
+
+/// Server world seed is currently hardcoded.
+const SEED: i64 = 3841016456717830250;
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
@@ -197,7 +199,7 @@ impl Server {
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {
             entity_id,
-            random_seed: 0,
+            random_seed: SEED,
             dimension: match world.world.get_dimension() {
                 Dimension::Overworld => 0,
                 Dimension::Nether => -1,
@@ -314,8 +316,7 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        // let region_source = RegionChunkSource::new(r"/home/theo/.minecraft-beta/saves/New World/region");
-        let source = GeneratorChunkSource::new(OverworldGenerator::new(3841016456717830250));
+        let source = GeneratorChunkSource::new(OverworldGenerator::new(SEED));
 
         Self {
             name: name.into(),
