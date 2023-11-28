@@ -2,7 +2,7 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::util::JavaRandom;
+use crate::util::{JavaRandom, MinecraftMath};
 use crate::chunk::Chunk;
 use crate::block;
 
@@ -82,7 +82,7 @@ impl CaveGenerator {
             }
 
             for _ in 0..normal_count {
-                let yaw = self.rand.next_float() * std::f32::consts::TAU;
+                let yaw = self.rand.next_float() * f32::MC_PI * 2.0;
                 let pitch = (self.rand.next_float() - 0.5) * 2.0 / 8.0;
                 let start_width = self.rand.next_float() * 2.0 + self.rand.next_float();
                 self.generate_node(cx, cz, chunk, start, start_width, yaw, pitch, 0, 0, 1.0);
@@ -135,11 +135,12 @@ impl CaveGenerator {
 
         'main: for offset in offset..length {
 
-            let width = (1.5 + (offset as f32 * std::f32::consts::PI / length as f32).sin() * start_width * 1.0) as f64;
+            // The sine here is made is used to make the cave less large at the ends.
+            let width = 1.5 + ((offset as f32 * f32::MC_PI / length as f32).mc_sin() * start_width * 1.0) as f64;
             let height = width * height_scale;
 
-            let (pitch_sin, pitch_cos) = pitch.sin_cos();
-            let (yaw_sin, yaw_cos) = yaw.sin_cos();
+            let (pitch_sin, pitch_cos) = pitch.mc_sin_cos();
+            let (yaw_sin, yaw_cos) = yaw.mc_sin_cos();
 
             pos.x += (yaw_cos * pitch_cos) as f64;
             pos.y += pitch_sin as f64;
@@ -165,14 +166,14 @@ impl CaveGenerator {
                 self.generate_node(cx, cz, chunk, 
                     pos, 
                     rand.next_float() * 0.5 + 0.5, 
-                    yaw - std::f32::consts::FRAC_PI_2, 
+                    yaw - f32::MC_PI * 0.5, 
                     pitch / 3.0, 
                     offset, length, 1.0);
 
                 self.generate_node(cx, cz, chunk, 
                     pos, 
                     rand.next_float() * 0.5 + 0.5, 
-                    yaw + std::f32::consts::FRAC_PI_2, 
+                    yaw + f32::MC_PI * 0.5, 
                     pitch / 3.0, 
                     offset, length, 1.0);
                 
@@ -250,7 +251,7 @@ impl CaveGenerator {
                 for bz in start.z..end.z {
                     let dz = ((bz + cz * 16) as f64 + 0.5 - pos.z) / width;
 
-                    // We carve a cylinder.
+                    // We carve a cylinder.<
                     let xz_dist_sq = dx.powi(2) + dz.powi(2);
                     if xz_dist_sq >= 1.0 {
                         continue;
@@ -267,7 +268,8 @@ impl CaveGenerator {
                             continue;
                         }
 
-                        let pos = IVec3::new(bx, by, bz);
+                        // NOTE: +1 because the java code is weird.
+                        let pos = IVec3::new(bx, by + 1, bz);
                         let (prev_id, _) = chunk.get_block(pos);
 
                         // Read above.

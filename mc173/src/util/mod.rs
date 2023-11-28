@@ -3,6 +3,7 @@
 mod noise;
 mod rand;
 mod face;
+mod math;
 mod bb;
 mod io;
 
@@ -14,3 +15,5 @@ pub use face::{Face, FaceSet};
 pub use io::{ReadJavaExt, WriteJavaExt};
 
 pub use noise::{NoiseCube, PerlinNoise, PerlinOctaveNoise};
+
+pub use math::MinecraftMath;
