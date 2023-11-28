@@ -209,8 +209,8 @@ impl CaveGenerator {
             let mut end = (pos + size).floor().as_ivec3();
 
             // Calculate relative chunk coordinates.
-            start -= IVec3::new(cx * 16 + 1, 1, cz * 16 - 1);
-            end -= IVec3::new(cx * 16 + 1, -1, cz * 16 - 1);
+            start -= IVec3::new(cx * 16 + 1, 1, cz * 16 + 1);
+            end -= IVec3::new(cx * 16 - 1, -1, cz * 16 - 1);
 
             // println!("generating node {offset}/{length} from {start} to {end}");
 
@@ -228,9 +228,9 @@ impl CaveGenerator {
                     while by >= start.y - 1 {
                         if by < 128 {
 
-                            let pos = IVec3::new(bx, by, bz);
+                            let carve_pos = IVec3::new(bx, by, bz);
 
-                            if let (block::WATER_MOVING | block::WATER_STILL, _) = chunk.get_block(pos) {
+                            if let (block::WATER_MOVING | block::WATER_STILL, _) = chunk.get_block(carve_pos) {
                                 // Encountered water, do not carve this.
                                 continue 'main;
                             } else if by != start.y - 1 && bx != start.x && bx != end.x - 1 && bz != start.z && bz != end.z - 1 {
@@ -269,8 +269,8 @@ impl CaveGenerator {
                         }
 
                         // NOTE: +1 because the java code is weird.
-                        let pos = IVec3::new(bx, by + 1, bz);
-                        let (prev_id, _) = chunk.get_block(pos);
+                        let carve_pos = IVec3::new(bx, by + 1, bz);
+                        let (prev_id, _) = chunk.get_block(carve_pos);
 
                         // Read above.
                         if prev_id == block::GRASS {
@@ -283,15 +283,15 @@ impl CaveGenerator {
                                 // Place a lava below y 10, it seems that the Notchian
                                 // implementation place moving lava in order to use the
                                 // random tick to make lava flowing.
-                                chunk.set_block(pos, block::LAVA_MOVING, 0);
+                                chunk.set_block(carve_pos, block::LAVA_MOVING, 0);
                             } else {
                                 // Just place air.
-                                chunk.set_block(pos, block::AIR, 0);
+                                chunk.set_block(carve_pos, block::AIR, 0);
                                 // If we are carving surface and the block below is dirt,
                                 // replace it with grass. This also explains why we go
                                 // from end Y to start Y.
                                 if carving_surface {
-                                    let below_pos = pos - IVec3::Y;
+                                    let below_pos = carve_pos - IVec3::Y;
                                     if let (block::DIRT, _) = chunk.get_block(below_pos) {
                                         chunk.set_block(below_pos, block::GRASS, 0);
                                     }
