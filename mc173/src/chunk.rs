@@ -8,7 +8,7 @@ use std::sync::Arc;
 use glam::{IVec3, DVec3};
 
 use crate::biome::Biome;
-use crate::block::AIR;
+use crate::block;
 
 
 /// Chunk size in both X and Z coordinates.
@@ -103,7 +103,7 @@ impl Chunk {
     /// asynchronous chunk saving.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            block: [AIR; CHUNK_3D_SIZE],
+            block: [block::AIR; CHUNK_3D_SIZE],
             metadata: ChunkNibbleArray3::new(0),
             block_light: ChunkNibbleArray3::new(0),
             sky_light: ChunkNibbleArray3::new(15),
@@ -215,6 +215,41 @@ impl Chunk {
                     // Increment Y component.
                     index += 1;
                 }
+            }
+        }
+    }
+
+    /// Recompute the whole height map based on all block in the chunk. This also reset
+    /// all sky light values to the right values each columns. Note that skylight is not
+    /// propagated and therefore the updates should be scheduled manually when chunk is
+    /// added to a world. Block light is not touched.
+    pub fn recompute_height(&mut self) {
+        for x in 0..CHUNK_WIDTH {
+            for z in 0..CHUNK_WIDTH {
+
+                let mut sky_light = 15u8;
+                for y in (0..CHUNK_HEIGHT).rev() {
+                    
+                    let pos = IVec3::new(x as i32, y as i32, z as i32);
+                    let index_3d = calc_3d_index(pos);
+                    let id = self.block[index_3d];
+
+                    if sky_light != 0 {
+                        let opacity = block::material::get_light_opacity(id);
+                        if sky_light == 15 && opacity != 0 {
+                            // We are currently above height, but the current block will
+                            // block the light and therefore change set the height to the
+                            // block above.
+                            // NOTE: Cast is safe because Y is in range.
+                            self.height[calc_2d_index(pos)] = y as u8 + 1;
+                        }
+                        sky_light = sky_light.saturating_sub(block::material::get_light_opacity(id));
+                    }
+
+                    self.sky_light.set(index_3d, sky_light);
+
+                }
+
             }
         }
     }

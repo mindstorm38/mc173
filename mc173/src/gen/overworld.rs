@@ -464,6 +464,8 @@ impl ChunkGenerator for OverworldGenerator {
         self.gen_surface(cx, cz, chunk);
         self.gen_carving(cx, cz, chunk);
 
+        chunk.recompute_height();
+
     }
 
 }
