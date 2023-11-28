@@ -349,8 +349,9 @@ impl OverworldGenerator {
         self.sand_gravel_noise.gen_2d(gravel, offset.xz(), DVec2::new(scale, scale));
         self.thickness_noise.gen_3d(thickness, offset, DVec3::splat(scale * 2.0));
 
-        for x in 0usize..16 {
-            for z in 0usize..16 {
+        // NOTE: Order of iteration is really important for random parity.
+        for z in 0usize..16 {
+            for x in 0usize..16 {
 
                 let mut pos = IVec3::new(x as i32, 0, z as i32);
 
@@ -423,6 +424,7 @@ impl OverworldGenerator {
                         } else if remaining_thickness > 0 {
 
                             chunk.set_block(pos, filler_id, 0);
+
                             remaining_thickness -= 1;
                             if remaining_thickness == 0 && filler_id == block::SAND {
                                 remaining_thickness = self.rand.next_int_bounded(4);
