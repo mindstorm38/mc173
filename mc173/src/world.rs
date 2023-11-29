@@ -92,6 +92,7 @@ thread_local! {
 /// method, for example `_in`, `_in_box` or `_colliding`.
 /// 
 /// TODO: Make a diagram to better explain the world structure with entity caching.
+/// TODO: Immediate entity/block entity removal if not ticking.
 #[derive(Clone)]
 pub struct World {
     /// When enabled, this contains the list of events that happened in the world since
@@ -242,6 +243,24 @@ impl World {
         }
     }
 
+    /// Insert a chunk snapshot into this world at its position with all entities and 
+    /// block entities attached to it.
+    pub fn insert_chunk_snapshot(&mut self, snapshot: ChunkSnapshot) {
+        
+        self.set_chunk(snapshot.cx, snapshot.cz, snapshot.chunk);
+        
+        for entity in snapshot.entities {
+            debug_assert_eq!(calc_entity_chunk_pos(entity.base().pos), (snapshot.cx, snapshot.cz), "incoherent entity in chunk snapshot");
+            self.spawn_entity_inner(entity);
+        }
+
+        for (pos, block_entity) in snapshot.block_entities {
+            debug_assert_eq!(calc_chunk_pos_unchecked(pos), (snapshot.cx, snapshot.cz), "incoherent block entity in chunk snapshot");
+            self.set_block_entity_inner(pos, block_entity);
+        }
+
+    }
+
     /// Create a snapshot of a chunk's content, this only works if chunk data is existing.
     /// This operation can be costly depending on the number of entities in the chunk, but
     /// is free regarding the block and light data because it use shared reference.
@@ -264,33 +283,46 @@ impl World {
         })
     }
 
-    /// Insert a chunk snapshot into this world at its position with all entities and 
-    /// block entities attached to it.
-    pub fn insert_chunk_snapshot(&mut self, snapshot: ChunkSnapshot) {
+    /// Remove a chunk at given chunk coordinates and return a snapshot of it. If there
+    /// is no chunk at the coordinates but entities or block entities are present, None
+    /// is returned but entities and block entities are removed from the world.
+    pub fn remove_chunk_snapshot(&mut self, cx: i32, cz: i32) -> Option<ChunkSnapshot> {
         
-        self.set_chunk(snapshot.cx, snapshot.cz, snapshot.chunk);
-        
-        for entity in snapshot.entities {
-            debug_assert_eq!(calc_entity_chunk_pos(entity.base().pos), (snapshot.cx, snapshot.cz), "incoherent entity in chunk snapshot");
-            self.spawn_entity_inner(entity);
+        let chunk_comp = self.chunks.remove(&(cx, cz))?;
+        let mut ret = None;
+
+        if let Some(chunk) = chunk_comp.data {
+            ret = Some(ChunkSnapshot { 
+                cx, 
+                cz,
+                chunk,
+                entities: chunk_comp.entities.iter()
+                    // Ignoring entities being updated, silently for now.
+                    .filter_map(|&index| self.entities[index].inner.as_ref().cloned())
+                    .collect(),
+                block_entities: chunk_comp.block_entities.iter()
+                    .filter_map(|(&pos, &index)| self.block_entities[index].inner.as_ref()
+                        .cloned()
+                        .map(|e| (pos, e)))
+                    .collect(),
+            });
         }
 
-        for (pos, block_entity) in snapshot.block_entities {
-            debug_assert_eq!(calc_chunk_pos_unchecked(pos), (snapshot.cx, snapshot.cz), "incoherent block entity in chunk snapshot");
-            self.set_block_entity_inner(pos, block_entity);
+        for index in chunk_comp.entities {
+            let comp = &mut self.entities[index];
+            let prev = comp.inner.replace(ComponentStorage::Removed);
+            debug_assert!(!matches!(prev, ComponentStorage::Removed), "entity should not already be removed");
+            self.entities_id_map.remove(&comp.id);
         }
 
-    }
+        for (pos, index) in chunk_comp.block_entities {
+            let prev = self.block_entities[index].inner.replace(ComponentStorage::Removed);
+            debug_assert!(!matches!(prev, ComponentStorage::Removed), "block entity should not already be removed");
+            self.block_entities_pos_map.remove(&pos);
+        }
 
-    /// Get a reference to a chunk, if existing.
-    pub fn get_chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
-        self.chunks.get(&(cx, cz)).and_then(|c| c.data.as_deref())
-    }
+        ret
 
-    /// Get a mutable reference to a chunk, if existing. This operation will clone the 
-    /// internal chunk data if it was previously shared in with a [`ChunkView`].
-    pub fn get_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
-        self.chunks.get_mut(&(cx, cz)).and_then(|c| c.data.as_mut().map(Arc::make_mut))
     }
 
     /// Raw function to add a chunk to the world at the given coordinates. Note that the
@@ -316,6 +348,22 @@ impl World {
         }
     }
 
+    /// Return true if a given chunk is present in the world.
+    pub fn contains_chunk(&self, cx: i32, cz: i32) -> bool {
+        self.chunks.get(&(cx, cz)).is_some_and(|c| c.data.is_some())
+    }
+
+    /// Get a reference to a chunk, if existing.
+    pub fn get_chunk(&self, cx: i32, cz: i32) -> Option<&Chunk> {
+        self.chunks.get(&(cx, cz)).and_then(|c| c.data.as_deref())
+    }
+
+    /// Get a mutable reference to a chunk, if existing. This operation will clone the 
+    /// internal chunk data if it was previously shared in with a [`ChunkView`].
+    pub fn get_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
+        self.chunks.get_mut(&(cx, cz)).and_then(|c| c.data.as_mut().map(Arc::make_mut))
+    }
+
     /// Remove a chunk that may not exists. Note that this only removed the chunk data,
     /// not its entities and block entities.
     /// 
@@ -333,16 +381,6 @@ impl World {
             }
         }
         ret
-    }
-
-    /// Get block and metadata at given position in the world, if the chunk is not
-    /// loaded, none is returned.
-    /// 
-    /// TODO: Work on a world's block cache to speed up access.
-    pub fn get_block(&self, pos: IVec3) -> Option<(u8, u8)> {
-        let (cx, cz) = calc_chunk_pos(pos)?;
-        let chunk = self.get_chunk(cx, cz)?;
-        Some(chunk.get_block(pos))
     }
 
     /// Set block and metadata at given position in the world, if the chunk is not
@@ -389,6 +427,9 @@ impl World {
                 
             }
 
+            // TODO: Move light update to self_notify function to avoid light updates in
+            // chunk generation.
+
             self.light_updates.push_back(LightUpdate { 
                 kind: LightUpdateKind::Block,
                 pos,
@@ -431,6 +472,16 @@ impl World {
         let (prev_id, prev_metadata) = self.set_block_self_notify(pos, id, metadata)?;
         self.notify_blocks_around(pos, id);
         Some((prev_id, prev_metadata))
+    }
+
+    /// Get block and metadata at given position in the world, if the chunk is not
+    /// loaded, none is returned.
+    /// 
+    /// TODO: Work on a world's block cache to speed up access.
+    pub fn get_block(&self, pos: IVec3) -> Option<(u8, u8)> {
+        let (cx, cz) = calc_chunk_pos(pos)?;
+        let chunk = self.get_chunk(cx, cz)?;
+        Some(chunk.get_block(pos))
     }
 
     /// Get saved height of a chunk column, Y component is ignored in the position.
@@ -522,6 +573,11 @@ impl World {
         self.spawn_entity_inner(entity.into())
     }
 
+    /// Return true if an entity is present from its id.
+    pub fn contains_entity(&self, id: u32) -> bool {
+        self.entities_id_map.contains_key(&id)
+    }
+
     /// Get a generic entity from its unique id. This generic entity can later be checked
     /// for being of a particular type. None can be returned if no entity is existing for
     /// this id or if the entity is the current entity being updated.
@@ -562,18 +618,6 @@ impl World {
 
     }
 
-    /// Get a block entity from its position.
-    pub fn get_block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
-        let index = *self.block_entities_pos_map.get(&pos)?;
-        self.block_entities[index].inner.as_deref()
-    }
-
-    /// Get a block entity from its position.
-    pub fn get_block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
-        let index = *self.block_entities_pos_map.get(&pos)?;
-        self.block_entities[index].inner.as_deref_mut()
-    }
-
     /// Inner function to set block entity at given position, used to elide generics.
     #[inline(never)]
     fn set_block_entity_inner(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
@@ -607,6 +651,23 @@ impl World {
     #[inline(always)]
     pub fn set_block_entity(&mut self, pos: IVec3, block_entity: impl Into<Box<BlockEntity>>) {
         self.set_block_entity_inner(pos, block_entity.into());
+    }
+
+    /// Return true if some block entity is present in the world.
+    pub fn contains_block_entity(&self, pos: IVec3) -> bool {
+        self.block_entities_pos_map.contains_key(&pos)
+    }
+
+    /// Get a block entity from its position.
+    pub fn get_block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
+        let index = *self.block_entities_pos_map.get(&pos)?;
+        self.block_entities[index].inner.as_deref()
+    }
+
+    /// Get a block entity from its position.
+    pub fn get_block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
+        let index = *self.block_entities_pos_map.get(&pos)?;
+        self.block_entities[index].inner.as_deref_mut()
     }
 
     /// Internal function to mark the block entity at index as removed.

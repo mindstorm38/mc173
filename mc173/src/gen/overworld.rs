@@ -5,6 +5,7 @@ use glam::{DVec2, IVec3, Vec3Swizzles, DVec3};
 use crate::util::{JavaRandom, PerlinOctaveNoise, NoiseCube};
 use crate::chunk::{Chunk, CHUNK_WIDTH, CHUNK_HEIGHT};
 use crate::biome::Biome;
+use crate::world::World;
 use crate::block;
 
 use super::cave::CaveGenerator;
@@ -462,6 +463,27 @@ impl ChunkGenerator for OverworldGenerator {
         self.gen_carving(cx, cz, chunk);
 
         chunk.recompute_height();
+
+    }
+
+    fn populate(&self, cx: i32, cz: i32, world: &mut World, cache: &mut Self::Cache) {
+
+        let _ = cache;
+
+        let id = if cx.rem_euclid(2) == cz.rem_euclid(2) { block::GOLD_BLOCK } else { block::DIAMOND_BLOCK };
+
+        for dx in 0..16 {
+            for dz in 0..16 {
+                if dx == 0 || dz == 0 {
+                    let mut pos = IVec3::new(cx * 16 + dx + 8, 0, cz * 16 + dz + 8);
+                    let height = world.get_height(pos).unwrap();
+                    if height < 128 {
+                        pos.y = height as i32;
+                        world.set_block(pos, id, 0).unwrap();
+                    }
+                }
+            }
+        }
 
     }
 
