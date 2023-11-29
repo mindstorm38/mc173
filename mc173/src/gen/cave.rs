@@ -9,25 +9,22 @@ use crate::block;
 
 /// A cave generator.
 pub struct CaveGenerator {
-    /// The world seed used as a base for chunk seeding.
-    seed: i64,
     /// Max chunk radius for the caves.
     radius: u8,
 }
 
 impl CaveGenerator {
 
-    pub fn new(seed: i64, radius: u8) -> Self {
+    pub fn new(radius: u8) -> Self {
         Self {
-            seed,
             radius,
         }
     }
 
     /// Generate all caves in the given chunk.
-    pub fn generate(&self, cx: i32, cz: i32, chunk: &mut Chunk) {
+    pub fn generate(&self, cx: i32, cz: i32, chunk: &mut Chunk, seed: i64) {
 
-        let mut rand = JavaRandom::new(self.seed);
+        let mut rand = JavaRandom::new(seed);
 
         let x_mul = rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
         let z_mul = rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
@@ -39,7 +36,7 @@ impl CaveGenerator {
                 let chunk_seed = i64::wrapping_add(
                     (from_cx as i64).wrapping_mul(x_mul), 
                     (from_cz as i64).wrapping_mul(z_mul)
-                ) ^ self.seed;
+                ) ^ seed;
 
                 rand.set_seed(chunk_seed);
                 self.generate_from(from_cx, from_cz, cx, cz, chunk, &mut rand);

@@ -60,6 +60,28 @@ impl<const X: usize, const Y: usize, const Z: usize> fmt::Debug for NoiseCube<X,
     }
 }
 
+impl NoiseCube<1, 1, 1> {
+
+    /// Create a reference to a 1x1x1 noise cube from a reference to a single f64.
+    #[inline(always)]
+    pub fn from_ref(value: &f64) -> &Self {
+        // SAFETY: both f64 and NoiseCube<1, 1, 1> have are guaranteed to have the same
+        // layout because NoiseCube is a transparent struct around an array, and arrays
+        // have a known layout where first element is at byte offset 0.
+        // This is almost identical to std::array::from_ref
+        unsafe { &*(value as *const f64 as *const Self) }
+    }
+    
+    /// Create a mutable reference to a 1x1x1 noise cube from a mutable reference to a 
+    /// single f64.
+    #[inline(always)]
+    pub fn from_mut(value: &mut f64) -> &mut Self {
+        // SAFETY: Same as above.
+        unsafe { &mut *(value as *mut f64 as *mut Self) }
+    }
+
+}
+
 
 /// A 3D/2D Perlin noise generator.
 #[derive(Debug, Clone)]

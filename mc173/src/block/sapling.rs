@@ -1,6 +1,13 @@
 //! Sapling block metadata functions.
 
-use crate::tree::TreeKind;
+
+/// Kind of tree for sapling, logs and leaves.
+#[derive(Debug, )]
+pub enum TreeKind {
+    Oak,
+    Birch,
+    Spruce,
+}
 
 
 /// Get the kind of tree for this sapling.
@@ -8,7 +15,7 @@ use crate::tree::TreeKind;
 pub fn get_kind(metadata: u8) -> TreeKind {
     match metadata & 3 {
         0 | 3 => TreeKind::Oak,
-        1 => TreeKind::Taiga,
+        1 => TreeKind::Spruce,
         2 => TreeKind::Birch,
         _ => unreachable!()
     }
@@ -20,7 +27,7 @@ pub fn set_kind(metadata: &mut u8, kind: TreeKind) {
     *metadata &= !3;
     *metadata |= match kind {
         TreeKind::Oak |
-        TreeKind::Taiga => 1,
+        TreeKind::Spruce => 1,
         TreeKind::Birch => 2,
     };
 }

@@ -195,4 +195,18 @@ impl JavaRandom {
         items[self.next_int_bounded(items.len() as i32) as usize]
     }
 
+    /// Randomly pick an item in the given slice and return mutable reference to it.
+    /// **This is not part of the standard Java class.**
+    #[inline]
+    pub fn next_choice_ref<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+        &items[self.next_int_bounded(items.len() as i32) as usize]
+    }
+
+    /// Randomly pick an item in the given slice and return mutable reference to it.
+    /// **This is not part of the standard Java class.**
+    #[inline]
+    pub fn next_choice_mut<'a, T>(&mut self, items: &'a mut [T]) -> &'a mut T {
+        &mut items[self.next_int_bounded(items.len() as i32) as usize]
+    }
+
 }

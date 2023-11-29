@@ -2,7 +2,9 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
+use crate::block::sapling::TreeKind;
 use crate::item::{self, ItemStack};
+use crate::gen::TreeGenerator;
 use crate::world::World;
 use crate::util::Face;
 use crate::block;
@@ -231,9 +233,17 @@ fn use_bone_meal_at(world: &mut World, pos: IVec3) -> bool {
     let Some((id, metadata)) = world.get_block(pos) else { return false };
 
     if id == block::SAPLING {
-        let kind = block::sapling::get_kind(metadata);
-        crate::tree::grow_tree_at(world, pos, kind, true);
+        
+        let mut gen = match block::sapling::get_kind(metadata) {
+            TreeKind::Oak if world.get_rand_mut().next_int_bounded(10) == 0 => TreeGenerator::new_big(),
+            TreeKind::Oak => TreeGenerator::new_oak(),
+            TreeKind::Birch => TreeGenerator::new_birch(),
+            TreeKind::Spruce => TreeGenerator::new_spruce2(),
+        };
+        
+        gen.generate_from_sapling(world, pos);
         true
+
     } else {
         false
     }

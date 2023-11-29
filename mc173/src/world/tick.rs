@@ -4,7 +4,9 @@ use glam::{IVec3, DVec3};
 
 use crate::entity::{Entity, ItemEntity};
 use crate::block_entity::BlockEntity;
+use crate::block::sapling::TreeKind;
 use crate::util::{Face, FaceSet};
+use crate::gen::TreeGenerator;
 use crate::{block, item};
 
 use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage};
@@ -279,8 +281,16 @@ impl World {
         if let Some(light) = self.get_light(pos + IVec3::Y, true) {
             if light.max >= 9 && self.rand.next_int_bounded(30) == 0 {
                 if block::sapling::is_growing(metadata) {
-                    let kind = block::sapling::get_kind(metadata);
-                    crate::tree::grow_tree_at(self, pos, kind, true);
+                   
+                    let mut gen = match block::sapling::get_kind(metadata) {
+                        TreeKind::Oak if self.rand.next_int_bounded(10) == 0 => TreeGenerator::new_big(),
+                        TreeKind::Oak => TreeGenerator::new_oak(),
+                        TreeKind::Birch => TreeGenerator::new_birch(),
+                        TreeKind::Spruce => TreeGenerator::new_spruce2(),
+                    };
+
+                    gen.generate_from_sapling(self, pos);
+
                 } else {
                     block::sapling::set_growing(&mut metadata, true);
                     self.set_block_notify(pos, block::SAPLING, metadata);

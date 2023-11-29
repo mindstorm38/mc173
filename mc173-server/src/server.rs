@@ -453,8 +453,8 @@ impl ServerWorld {
         }
 
         // FIXME: Temporary code.
-        for cx in -4..4 {
-            for cz in -4..4 {
+        for cx in -5..=5 {
+            for cz in -5..=5 {
                 assert!(self.chunk_source.request_chunk_load(cx, cz));
             }
         }
@@ -1053,6 +1053,10 @@ impl ServerPlayer {
             self.look = Vec2::new(look.x.to_radians(), look.y.to_radians());
             entity_base.look = self.look;
             entity_base.look_dirty = true;
+        }
+
+        if pos.is_some() {
+            self.update_chunks(world);
         }
 
     }

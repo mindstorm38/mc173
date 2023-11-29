@@ -12,7 +12,6 @@ pub mod inventory;
 pub mod craft;
 pub mod smelt;
 pub mod path;
-pub mod tree;
 
 pub mod chunk;
 pub mod world;

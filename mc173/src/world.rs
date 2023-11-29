@@ -492,6 +492,8 @@ impl World {
     }
 
     /// Get light level at the given position, in range 0..16.
+    /// 
+    /// TODO: Maybe always return light, with default value if chunk is absent.
     pub fn get_light(&self, mut pos: IVec3, actual_sky_light: bool) -> Option<Light> {
         
         if pos.y > 127 {

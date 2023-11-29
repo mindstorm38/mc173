@@ -4,12 +4,16 @@ use glam::{DVec2, IVec3, Vec3Swizzles, DVec3};
 
 use crate::util::{JavaRandom, PerlinOctaveNoise, NoiseCube};
 use crate::chunk::{Chunk, CHUNK_WIDTH, CHUNK_HEIGHT};
+use crate::block::{self, Material};
 use crate::biome::Biome;
 use crate::world::World;
-use crate::block;
 
+use super::{ChunkGenerator, FeatureGenerator};
+use super::dungeon::DungeonGenerator;
+use super::vein::VeinGenerator;
 use super::cave::CaveGenerator;
-use super::ChunkGenerator;
+use super::lake::LakeGenerator;
+use super::tree::TreeGenerator;
 
 
 const NOISE_WIDTH: usize = 5;
@@ -19,6 +23,8 @@ const NOISE_HEIGHT: usize = 17;
 /// A chunk generator for the overworld dimension. This structure can be shared between
 /// workers.
 pub struct OverworldGenerator {
+    /// The world seed.
+    seed: i64,
     /// The noise used for generating biome temperature.
     temperature_noise: PerlinOctaveNoise,
     /// The noise used for generating biome humidity.
@@ -32,9 +38,7 @@ pub struct OverworldGenerator {
     terrain_noise4: PerlinOctaveNoise,
     sand_gravel_noise: PerlinOctaveNoise,
     thickness_noise: PerlinOctaveNoise,
-    #[allow(unused)]
     feature_noise: PerlinOctaveNoise,
-    cave_gen: CaveGenerator,
     biome_table: Box<[Biome; 4096]>,
 }
 
@@ -99,6 +103,7 @@ impl OverworldGenerator {
         let mut rand = JavaRandom::new(seed);
 
         Self {
+            seed,
             temperature_noise: PerlinOctaveNoise::new(&mut JavaRandom::new(seed.wrapping_mul(9871)), 4),
             humidity_noise: PerlinOctaveNoise::new(&mut JavaRandom::new(seed.wrapping_mul(39811)), 4),
             biome_noise: PerlinOctaveNoise::new(&mut JavaRandom::new(seed.wrapping_mul(543321)), 2),
@@ -110,9 +115,41 @@ impl OverworldGenerator {
             terrain_noise3: PerlinOctaveNoise::new(&mut rand, 10),
             terrain_noise4: PerlinOctaveNoise::new(&mut rand, 16),
             feature_noise: PerlinOctaveNoise::new(&mut rand, 8),
-            cave_gen: CaveGenerator::new(seed, 8),
             biome_table: biome_lookup,
         }
+
+    }
+
+    /// Internal function to calculate the biome from given random variables.
+    #[inline]
+    fn calc_biome(&self, temperature: f64, humidity: f64, biome: f64) -> (f64, f64, Biome) {
+
+        let a = biome * 1.1 + 0.5;
+        let t = (temperature * 0.15 + 0.7) * 0.99 + a * 0.01;
+        let t = 1.0 - (1.0 - t).powi(2);
+        let h = (humidity * 0.15 + 0.5) * 0.998 + a * 0.002;
+
+        let t = t.clamp(0.0, 1.0);
+        let h = h.clamp(0.0, 1.0);
+
+        let pos_biome = self.biome_table[(t * 63.0) as usize + (h * 63.0) as usize * 64];
+        (t, h, pos_biome)
+
+    }
+
+    /// Get a single biome at given position.
+    fn get_biome(&self, x: i32, z: i32) -> Biome {
+
+        let offset = DVec2::new(x as f64, z as f64);
+        let mut temperature = 0.0;
+        let mut humidity = 0.0;
+        let mut biome = 0.0;
+
+        self.temperature_noise.gen_weird_2d(NoiseCube::from_mut(&mut temperature), offset, DVec2::splat(0.025f32 as f64), 0.25);
+        self.humidity_noise.gen_weird_2d(NoiseCube::from_mut(&mut humidity), offset, DVec2::splat(0.05f32 as f64), 1.0 / 3.0);
+        self.biome_noise.gen_weird_2d(NoiseCube::from_mut(&mut biome), offset, DVec2::splat(0.25), 0.5882352941176471);
+
+        self.calc_biome(temperature, humidity, biome).2
 
     }
 
@@ -132,19 +169,15 @@ impl OverworldGenerator {
         for x in 0usize..16 {
             for z in 0usize..16 {
 
-                let a = biome.get(x, 0, z) * 1.1 + 0.5;
-                let t = (temperature.get(x, 0, z) * 0.15 + 0.7) * 0.99 + a * 0.01;
-                let t = 1.0 - (1.0 - t).powi(2);
-                let h = (humidity.get(x, 0, z) * 0.15 + 0.5) * 0.998 + a * 0.002;
-
-                let t = t.clamp(0.0, 1.0);
-                let h = h.clamp(0.0, 1.0);
+                let (t, h, pos_biome) = self.calc_biome(
+                    temperature.get(x, 0, z), 
+                    humidity.get(x, 0, z),
+                    biome.get(x, 0, z));
                 
                 // The value may be used afterward for generation, so we update the value.
                 temperature.set(x, 0, z, t);
                 humidity.set(x, 0, z, h);
 
-                let pos_biome = self.biome_table[(t * 63.0) as usize + (h * 63.0) as usize * 64];
                 chunk.set_biome(IVec3::new(x as i32, 0, z as i32), pos_biome);
 
             }
@@ -440,7 +473,7 @@ impl OverworldGenerator {
 
     // Generate chunk carving (only caves for beta 1.7.3).
     fn gen_carving(&self, cx: i32, cz: i32, chunk: &mut Chunk) {
-        self.cave_gen.generate(cx, cz, chunk);
+        CaveGenerator::new(8).generate(cx, cz, chunk, self.seed);
     }
 
 }
@@ -466,22 +499,211 @@ impl ChunkGenerator for OverworldGenerator {
 
     }
 
-    fn populate(&self, cx: i32, cz: i32, world: &mut World, cache: &mut Self::Cache) {
+    fn populate(&self, cx: i32, cz: i32, world: &mut World, _cache: &mut Self::Cache) {
 
-        let _ = cache;
+        let pos = IVec3::new(cx * 16, 0, cz * 16);
+        let biome = self.get_biome(pos.x + 16, pos.z + 16);
 
-        let id = if cx.rem_euclid(2) == cz.rem_euclid(2) { block::GOLD_BLOCK } else { block::DIAMOND_BLOCK };
+        // Start by calculating the chunk seed from chunk coordinates and world seed.
+        let mut rand = JavaRandom::new(self.seed);
 
-        for dx in 0..16 {
-            for dz in 0..16 {
-                if dx == 0 || dz == 0 {
-                    let mut pos = IVec3::new(cx * 16 + dx + 8, 0, cz * 16 + dz + 8);
-                    let height = world.get_height(pos).unwrap();
-                    if height < 128 {
-                        pos.y = height as i32;
-                        world.set_block(pos, id, 0).unwrap();
+        let x_mul = rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
+        let z_mul = rand.next_long().wrapping_div(2).wrapping_mul(2).wrapping_add(1);
+
+        let chunk_seed = i64::wrapping_add(
+            (cx as i64).wrapping_mul(x_mul), 
+            (cz as i64).wrapping_mul(z_mul)
+        ) ^ self.seed;
+
+        rand.set_seed(chunk_seed);
+
+        // Water lakes...
+        if rand.next_int_bounded(4) == 0 {
+
+            let pos = pos + IVec3 {
+                x: rand.next_int_bounded(16) + 8,
+                y: rand.next_int_bounded(128),
+                z: rand.next_int_bounded(16) + 8,
+            };
+
+            LakeGenerator::new(block::WATER_STILL).generate(world, pos, &mut rand);
+
+        }
+        // Lava lakes...
+        if rand.next_int_bounded(8) == 0 {
+
+            let pos = pos + IVec3 {
+                x: rand.next_int_bounded(16) + 8,
+                y: {
+                    let v = rand.next_int_bounded(120);
+                    rand.next_int_bounded(v + 8)
+                },
+                z: rand.next_int_bounded(16) + 8,
+            };
+
+            if pos.y < 64 || rand.next_int_bounded(10) == 0 {
+                LakeGenerator::new(block::LAVA_STILL).generate(world, pos, &mut rand);
+            }
+
+        }
+
+        // Mob dungeons...
+        for _ in 0..8 {
+
+            let pos = pos + IVec3 {
+                x: rand.next_int_bounded(16) + 8,
+                y: rand.next_int_bounded(128),
+                z: rand.next_int_bounded(16) + 8,
+            };
+
+            if DungeonGenerator::new().generate(world, pos, &mut rand) {
+                println!("generated dungeon at {pos}");
+            }
+
+        }
+
+        // Common function for picking a random position for vein generators.
+        #[inline]
+        fn next_pos(rand: &mut JavaRandom, max_y: i32) -> IVec3 {
+            IVec3 {
+                x: rand.next_int_bounded(16),
+                y: rand.next_int_bounded(max_y),
+                z: rand.next_int_bounded(16),
+            }
+        }
+
+        // Clay veins (only in water).
+        for _ in 0..10 {
+            let pos = pos + next_pos(&mut rand, 128);
+            if world.get_block_material(pos) == Material::Water {
+                VeinGenerator::new_clay(32).generate(world, pos, &mut rand);
+            }
+        }
+
+        // Dirt veins.
+        for _ in 0..20 {
+            let pos = pos + next_pos(&mut rand, 128);
+            VeinGenerator::new_ore(block::DIRT, 32).generate(world, pos, &mut rand);
+        }
+
+        // Gravel veins.
+        for _ in 0..10 {
+            let pos = pos + next_pos(&mut rand, 128);
+            VeinGenerator::new_ore(block::GRAVEL, 32).generate(world, pos, &mut rand);
+        }
+
+        // Coal veins.
+        for _ in 0..20 {
+            let pos = pos + next_pos(&mut rand, 128);
+            VeinGenerator::new_ore(block::COAL_ORE, 16).generate(world, pos, &mut rand);
+        }
+
+        // Iron veins.
+        for _ in 0..20 {
+            let pos = pos + next_pos(&mut rand, 64);
+            VeinGenerator::new_ore(block::IRON_ORE, 8).generate(world, pos, &mut rand);
+        }
+
+        // Gold veins.
+        for _ in 0..2 {
+            let pos = pos + next_pos(&mut rand, 32);
+            VeinGenerator::new_ore(block::GOLD_ORE, 8).generate(world, pos, &mut rand);
+        }
+
+        // Redstone veins.
+        for _ in 0..8 {
+            let pos = pos + next_pos(&mut rand, 16);
+            VeinGenerator::new_ore(block::REDSTONE_ORE, 7).generate(world, pos, &mut rand);
+        }
+
+        // Diamond veins.
+        for _ in 0..1 {
+            let pos = pos + next_pos(&mut rand, 16);
+            VeinGenerator::new_ore(block::DIAMOND_ORE, 7).generate(world, pos, &mut rand);
+        }
+
+        // Lapis veins.
+        for _ in 0..1 {
+            
+            let pos = pos + IVec3 {
+                x: rand.next_int_bounded(16),
+                y: rand.next_int_bounded(16) + rand.next_int_bounded(16),
+                z: rand.next_int_bounded(16),
+            };
+
+            VeinGenerator::new_ore(block::LAPIS_ORE, 6).generate(world, pos, &mut rand);
+
+        }
+
+        let feature_noise = self.feature_noise.gen_2d_point(pos.xz().as_dvec2() * 0.5);
+        let base_tree_count  = ((feature_noise / 8.0 + rand.next_double() * 4.0 + 4.0) / 3.0) as i32;
+        let mut tree_count = 0;
+
+        if rand.next_int_bounded(10) == 0 {
+            tree_count += 1;
+        }
+
+        // Customize tree count based on biome.
+        match biome {
+            Biome::Taiga |
+            Biome::RainForest |
+            Biome::Forest => tree_count += base_tree_count + 5,
+            Biome::SeasonalForest => tree_count += base_tree_count + 2,
+            Biome::Desert |
+            Biome::Tundra |
+            Biome::Plains => tree_count -= 20,
+            _ => {}
+        }
+
+        // println!("[{cx}/{cz}] tree_count = {tree_count} base_tree_count = {base_tree_count} biome = {biome:?}");
+
+        // Place all trees.
+        if tree_count > 0 {
+            for _ in 0..tree_count {
+
+                let mut pos = pos + IVec3 {
+                    x: rand.next_int_bounded(16) + 8,
+                    y: 0,
+                    z: rand.next_int_bounded(16) + 8,
+                };
+
+                pos.y = world.get_height(pos).unwrap() as i32;
+
+                let mut gen = match biome {
+                    Biome::Taiga => {
+                        if rand.next_int_bounded(3) == 0 {
+                            TreeGenerator::new_spruce1()
+                        } else {
+                            TreeGenerator::new_spruce2()
+                        }
                     }
-                }
+                    Biome::Forest => {
+                        if rand.next_int_bounded(5) == 0 {
+                            TreeGenerator::new_birch()
+                        } else if rand.next_int_bounded(3) == 0 {
+                            TreeGenerator::new_big_natural()
+                        } else {
+                            TreeGenerator::new_oak()
+                        }
+                    }
+                    Biome::RainForest => {
+                        if rand.next_int_bounded(3) == 0 {
+                            TreeGenerator::new_big_natural()
+                        } else {
+                            TreeGenerator::new_oak()
+                        }
+                    }
+                    _ => {
+                        if rand.next_int_bounded(10) == 0 {
+                            TreeGenerator::new_big_natural()
+                        } else {
+                            TreeGenerator::new_oak()
+                        }
+                    }
+                };
+
+                gen.generate(world, pos, &mut rand);
+                
             }
         }
 

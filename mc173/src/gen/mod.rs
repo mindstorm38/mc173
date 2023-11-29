@@ -3,14 +3,30 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use crate::source::{ChunkSource, ChunkSourceError};
+use glam::IVec3;
+
 use crate::world::{World, ChunkSnapshot, Dimension};
+use crate::source::{ChunkSource, ChunkSourceError};
+use crate::util::JavaRandom;
 use crate::chunk::Chunk;
 
 
-mod cave;
-mod overworld;
+// Feature generators.
+mod dungeon;
+mod vein;
+mod lake;
+mod tree;
+pub use dungeon::DungeonGenerator;
+pub use vein::VeinGenerator;
+pub use lake::LakeGenerator;
+pub use tree::TreeGenerator;
 
+// Chunks carvers.
+mod cave;
+pub use cave::CaveGenerator;
+
+// World generators.
+mod overworld;
 pub use overworld::OverworldGenerator;
 
 
@@ -206,5 +222,14 @@ pub trait ChunkGenerator {
     /// a 16x16 populate area, this means that neighbor chunks affected are also
     /// guaranteed to be loaded.
     fn populate(&self, cx: i32, cz: i32, world: &mut World, cache: &mut Self::Cache);
+
+}
+
+
+/// A trait common to all feature generators.
+pub trait FeatureGenerator {
+
+    /// Generate the feature at the given position in the world with given RNG.
+    fn generate(&mut self, world: &mut World, pos: IVec3, rand: &mut JavaRandom) -> bool;
 
 }
