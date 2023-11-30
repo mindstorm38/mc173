@@ -201,7 +201,18 @@ where
         let populated = self.populated.remove(&(cx, cz)).expect("chunk should be present");
         assert_eq!(populated, POPULATED_ALL, "chunk should be fully populated at this point");
 
-        Ok(self.world.remove_chunk_snapshot(cx, cz).expect("chunk should be present"))
+        // We can also remove the terrain chunk, because it will likely never be 
+        // generated again and all neighbors are at least populated and no longer 
+        // requires this one. If generators need it, it will be generated again anyway.
+        let mut chunks = self.shared.terrain_chunks.write().unwrap();
+        chunks.remove(&(cx, cz));
+
+        // FIXME: The chunk also needs to be removed in all worlds.
+
+        // Then we can remove the chunk and all of its components from the temporary 
+        // world and return it.
+        let snapshot = self.world.remove_chunk_snapshot(cx, cz).expect("chunk should be present");
+        Ok(snapshot)
 
     }
 

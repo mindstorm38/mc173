@@ -243,6 +243,11 @@ impl World {
         }
     }
 
+    /// Return the number of internal chunks.
+    pub fn _debug_count_chunks(&self) -> usize {
+        self.chunks.len()
+    }
+
     /// Insert a chunk snapshot into this world at its position with all entities and 
     /// block entities attached to it.
     pub fn insert_chunk_snapshot(&mut self, snapshot: ChunkSnapshot) {
