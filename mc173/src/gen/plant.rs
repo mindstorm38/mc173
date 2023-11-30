@@ -114,7 +114,7 @@ impl FeatureGenerator for SugarCanesGenerator {
                         // Check that the bottom cane can be placed.
                         if world.can_place_block(place_pos, Face::NegY, block::SUGAR_CANES) {
                             for dy in 0..height {
-                                world.set_block(pos + IVec3::new(0, dy, 0), block::SUGAR_CANES, 0);
+                                world.set_block(place_pos + IVec3::new(0, dy, 0), block::SUGAR_CANES, 0);
                             }
                         }
 
@@ -198,7 +198,7 @@ impl FeatureGenerator for CactusGenerator {
                 // Check that the bottom cane can be placed.
                 for dy in 0..height {
                     if world.can_place_block(place_pos, Face::NegY, block::CACTUS) {
-                        world.set_block(pos + IVec3::new(0, dy, 0), block::CACTUS, 0);
+                        world.set_block(place_pos + IVec3::new(0, dy, 0), block::CACTUS, 0);
                     }
                 }
 
