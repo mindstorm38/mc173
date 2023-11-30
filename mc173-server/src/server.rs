@@ -33,7 +33,8 @@ use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPack
 const TICK_DURATION: Duration = Duration::from_millis(50);
 
 /// Server world seed is currently hardcoded.
-const SEED: i64 = 3841016456717830250;
+// const SEED: i64 = 3841016456717830250;
+const SEED: i64 = 9999;
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets

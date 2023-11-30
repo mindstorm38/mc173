@@ -21,6 +21,8 @@ pub fn is_cube(id: u8) -> bool {
         block::DEAD_BUSH |
         block::RED_MUSHROOM |
         block::BROWN_MUSHROOM |
+        block::DANDELION |
+        block::POPPY |
         block::SAPLING |
         block::TALL_GRASS |
         block::WATER_MOVING |

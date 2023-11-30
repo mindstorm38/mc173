@@ -25,6 +25,7 @@ impl World {
             block::PISTON_EXT |
             block::PISTON_MOVING => false,
             block::DEAD_BUSH => matches!(self.get_block(pos - IVec3::Y), Some((block::SAND, _))),
+            // // PARITY: Notchian impl checks block light >= 8 or see sky
             block::DANDELION |
             block::POPPY |
             block::SAPLING |
@@ -42,8 +43,8 @@ impl World {
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.is_block_opaque_cube(pos + face.delta()),
             // Common blocks that needs opaque block below.
-            block::RED_MUSHROOM |
-            block::BROWN_MUSHROOM |
+            block::RED_MUSHROOM |        // PARITY: Notchian impl checks block light >= 8 or see sky
+            block::BROWN_MUSHROOM |      // PARITY: Notchian impl checks block light >= 8 or see sky
             block::WOOD_PRESSURE_PLATE |
             block::STONE_PRESSURE_PLATE |
             block::PUMPKIN |

@@ -13,10 +13,12 @@ use crate::chunk::Chunk;
 
 // Feature generators.
 mod dungeon;
+mod plant;
 mod vein;
 mod lake;
 mod tree;
 pub use dungeon::DungeonGenerator;
+pub use plant::FlowerGenerator;
 pub use vein::VeinGenerator;
 pub use lake::LakeGenerator;
 pub use tree::TreeGenerator;

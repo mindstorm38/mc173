@@ -9,12 +9,12 @@ use crate::biome::Biome;
 use crate::world::World;
 
 use super::{ChunkGenerator, FeatureGenerator};
+use super::plant::{FlowerGenerator, TallGrassGenerator};
 use super::dungeon::DungeonGenerator;
 use super::vein::VeinGenerator;
 use super::cave::CaveGenerator;
 use super::lake::LakeGenerator;
 use super::tree::TreeGenerator;
-
 
 const NOISE_WIDTH: usize = 5;
 const NOISE_HEIGHT: usize = 17;
@@ -374,7 +374,7 @@ impl OverworldGenerator {
         let sea_level = 64;
 
         self.sand_gravel_noise.gen_3d(sand, offset, DVec3::new(scale, scale, 1.0));
-        self.sand_gravel_noise.gen_2d(gravel, offset.xz(), DVec2::new(scale, scale));
+        self.sand_gravel_noise.gen_2d(gravel, offset.truncate(), DVec2::new(scale, scale));
         self.thickness_noise.gen_3d(thickness, offset, DVec3::splat(scale * 2.0));
 
         // NOTE: Order of iteration is really important for random parity.
@@ -392,7 +392,6 @@ impl OverworldGenerator {
                     biome_top_id, 
                     biome_filler_id
                 ) = match biome {
-                    Biome::Nether => (block::NETHERRACK, block::NETHERRACK),
                     Biome::Desert |
                     Biome::IceDesert => (block::SAND, block::SAND),
                     _ => (block::GRASS, block::DIRT),
@@ -517,18 +516,22 @@ impl ChunkGenerator for OverworldGenerator {
 
         rand.set_seed(chunk_seed);
 
+        // Function to pick a uniform random position offset.
+        #[inline(always)]
+        fn next_offset(rand: &mut JavaRandom, max_y: i32, offset_xz: i32) -> IVec3 {
+            IVec3 {
+                x: rand.next_int_bounded(16) + offset_xz,
+                y: rand.next_int_bounded(max_y),
+                z: rand.next_int_bounded(16) + offset_xz,
+            }
+        }
+
         // Water lakes...
         if rand.next_int_bounded(4) == 0 {
-
-            let pos = pos + IVec3 {
-                x: rand.next_int_bounded(16) + 8,
-                y: rand.next_int_bounded(128),
-                z: rand.next_int_bounded(16) + 8,
-            };
-
+            let pos = pos + next_offset(&mut rand, 128, 8);
             LakeGenerator::new(block::WATER_STILL).generate(world, pos, &mut rand);
-
         }
+
         // Lava lakes...
         if rand.next_int_bounded(8) == 0 {
 
@@ -549,32 +552,15 @@ impl ChunkGenerator for OverworldGenerator {
 
         // Mob dungeons...
         for _ in 0..8 {
-
-            let pos = pos + IVec3 {
-                x: rand.next_int_bounded(16) + 8,
-                y: rand.next_int_bounded(128),
-                z: rand.next_int_bounded(16) + 8,
-            };
-
+            let pos = pos + next_offset(&mut rand, 128, 8);
             if DungeonGenerator::new().generate(world, pos, &mut rand) {
                 println!("generated dungeon at {pos}");
-            }
-
-        }
-
-        // Common function for picking a random position for vein generators.
-        #[inline]
-        fn next_pos(rand: &mut JavaRandom, max_y: i32) -> IVec3 {
-            IVec3 {
-                x: rand.next_int_bounded(16),
-                y: rand.next_int_bounded(max_y),
-                z: rand.next_int_bounded(16),
             }
         }
 
         // Clay veins (only in water).
         for _ in 0..10 {
-            let pos = pos + next_pos(&mut rand, 128);
+            let pos = pos + next_offset(&mut rand, 128, 0);
             if world.get_block_material(pos) == Material::Water {
                 VeinGenerator::new_clay(32).generate(world, pos, &mut rand);
             }
@@ -582,43 +568,43 @@ impl ChunkGenerator for OverworldGenerator {
 
         // Dirt veins.
         for _ in 0..20 {
-            let pos = pos + next_pos(&mut rand, 128);
+            let pos = pos + next_offset(&mut rand, 128, 0);
             VeinGenerator::new_ore(block::DIRT, 32).generate(world, pos, &mut rand);
         }
 
         // Gravel veins.
         for _ in 0..10 {
-            let pos = pos + next_pos(&mut rand, 128);
+            let pos = pos + next_offset(&mut rand, 128, 0);
             VeinGenerator::new_ore(block::GRAVEL, 32).generate(world, pos, &mut rand);
         }
 
         // Coal veins.
         for _ in 0..20 {
-            let pos = pos + next_pos(&mut rand, 128);
+            let pos = pos + next_offset(&mut rand, 128, 0);
             VeinGenerator::new_ore(block::COAL_ORE, 16).generate(world, pos, &mut rand);
         }
 
         // Iron veins.
         for _ in 0..20 {
-            let pos = pos + next_pos(&mut rand, 64);
+            let pos = pos + next_offset(&mut rand, 64, 0);
             VeinGenerator::new_ore(block::IRON_ORE, 8).generate(world, pos, &mut rand);
         }
 
         // Gold veins.
         for _ in 0..2 {
-            let pos = pos + next_pos(&mut rand, 32);
+            let pos = pos + next_offset(&mut rand, 32, 0);
             VeinGenerator::new_ore(block::GOLD_ORE, 8).generate(world, pos, &mut rand);
         }
 
         // Redstone veins.
         for _ in 0..8 {
-            let pos = pos + next_pos(&mut rand, 16);
+            let pos = pos + next_offset(&mut rand, 16, 0);
             VeinGenerator::new_ore(block::REDSTONE_ORE, 7).generate(world, pos, &mut rand);
         }
 
         // Diamond veins.
         for _ in 0..1 {
-            let pos = pos + next_pos(&mut rand, 16);
+            let pos = pos + next_offset(&mut rand, 16, 0);
             VeinGenerator::new_ore(block::DIAMOND_ORE, 7).generate(world, pos, &mut rand);
         }
 
@@ -635,6 +621,7 @@ impl ChunkGenerator for OverworldGenerator {
 
         }
 
+        // Trees, depending on biome and feature noise.
         let feature_noise = self.feature_noise.gen_2d_point(pos.xz().as_dvec2() * 0.5);
         let base_tree_count  = ((feature_noise / 8.0 + rand.next_double() * 4.0 + 4.0) / 3.0) as i32;
         let mut tree_count = 0;
@@ -643,7 +630,6 @@ impl ChunkGenerator for OverworldGenerator {
             tree_count += 1;
         }
 
-        // Customize tree count based on biome.
         match biome {
             Biome::Taiga |
             Biome::RainForest |
@@ -655,9 +641,6 @@ impl ChunkGenerator for OverworldGenerator {
             _ => {}
         }
 
-        // println!("[{cx}/{cz}] tree_count = {tree_count} base_tree_count = {base_tree_count} biome = {biome:?}");
-
-        // Place all trees.
         if tree_count > 0 {
             for _ in 0..tree_count {
 
@@ -705,6 +688,42 @@ impl ChunkGenerator for OverworldGenerator {
                 gen.generate(world, pos, &mut rand);
                 
             }
+        }
+
+        // Dandelion patches.
+        let dandelion_count = match biome {
+            Biome::Forest => 2,
+            Biome::Taiga => 2,
+            Biome::SeasonalForest => 4,
+            Biome::Plains => 3,
+            _ => 0,
+        };
+
+        for _ in 0..dandelion_count {
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            FlowerGenerator::new(block::DANDELION).generate(world, pos, &mut rand);
+        }
+
+        // Tall grass patches.
+        let tall_grass_count = match biome {
+            Biome::Forest => 2,
+            Biome::RainForest => 10,
+            Biome::SeasonalForest => 2,
+            Biome::Taiga => 1,
+            Biome::Plains => 10,
+            _ => 0,
+        };
+
+        for _ in 0..tall_grass_count {
+
+            let mut metadata = 1;
+            if biome == Biome::RainForest && rand.next_int_bounded(3) != 0 {
+                metadata = 2;
+            }
+
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            TallGrassGenerator::new(metadata).generate(world, pos, &mut rand);
+
         }
 
     }
