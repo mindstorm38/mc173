@@ -1,4 +1,10 @@
 //! World generation module.
+//! 
+//! PARITY: The parity of world generation is really hard to fully to get exact, mostly
+//! because Minecraft itself is not at parity with itself! The world generation scheduling
+//! has a huge impact on chunk populating, so this implementation is on parity but it may
+//! not give exact same world on each generation, just like Minecraft. Terrain however,
+//! should be exactly the same on same run.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -12,16 +18,11 @@ use crate::chunk::Chunk;
 
 
 // Feature generators.
-mod dungeon;
-mod plant;
-mod vein;
-mod lake;
-mod tree;
-pub use dungeon::DungeonGenerator;
-pub use plant::FlowerGenerator;
-pub use vein::VeinGenerator;
-pub use lake::LakeGenerator;
-pub use tree::TreeGenerator;
+pub mod dungeon;
+pub mod plant;
+pub mod vein;
+pub mod liquid;
+pub mod tree;
 
 // Chunks carvers.
 mod cave;

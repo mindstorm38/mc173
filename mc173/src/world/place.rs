@@ -4,7 +4,7 @@ use glam::IVec3;
 
 use crate::block_entity::BlockEntity;
 use crate::util::Face;
-use crate::block;
+use crate::block::{self, Material};
 
 use super::World;
 
@@ -32,7 +32,7 @@ impl World {
             block::TALL_GRASS => matches!(self.get_block(pos - IVec3::Y), Some((block::GRASS | block::DIRT | block::FARMLAND, _))),
             block::WHEAT => matches!(self.get_block(pos - IVec3::Y), Some((block::FARMLAND, _))),
             block::CACTUS => self.can_place_cactus(pos),
-            block::SUGAR_CANES => true, // TODO:
+            block::SUGAR_CANES => self.can_place_sugar_canes(pos),
             block::CAKE => self.is_block_solid(pos - IVec3::Y),
             block::CHEST => self.can_place_chest(pos),
             block::WOOD_DOOR |
@@ -68,6 +68,18 @@ impl World {
             }
         }
         matches!(self.get_block(pos - IVec3::Y), Some((block::CACTUS | block::SAND, _)))
+    }
+
+    fn can_place_sugar_canes(&mut self, pos: IVec3) -> bool {
+        let below_pos = pos - IVec3::Y;
+        if let Some((block::SUGAR_CANES | block::GRASS | block::DIRT, _)) = self.get_block(below_pos) {
+            for face in Face::HORIZONTAL {
+                if self.get_block_material(below_pos + face.delta()) == Material::Water {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn can_place_chest(&mut self, pos: IVec3) -> bool {

@@ -1,14 +1,15 @@
-//! Lake generation.
+//! Liquids generation.
 
 use glam::{IVec3, DVec3};
 
-use crate::util::JavaRandom;
+use crate::util::{JavaRandom, Face};
 use crate::world::World;
 use crate::block;
 
 use super::FeatureGenerator;
 
 
+/// A generator for lakes.
 pub struct LakeGenerator {
     fluid_id: u8,
 }
@@ -16,6 +17,7 @@ pub struct LakeGenerator {
 impl LakeGenerator {
 
     /// Create a new lake generator for the given block id.
+    #[inline]
     pub fn new(fluid_id: u8) -> Self {
         Self { fluid_id, }
     }
@@ -142,6 +144,55 @@ impl FeatureGenerator for LakeGenerator {
                     }
                 }
             }
+        }
+
+        true
+
+    }
+
+}
+
+
+/// A generator for single liquid blocks.
+pub struct LiquidGenerator {
+    fluid_id: u8,
+}
+
+impl LiquidGenerator {
+    
+    /// Create a new liquid generator for the given block id.
+    #[inline]
+    pub fn new(fluid_id: u8) -> Self {
+        Self { fluid_id, }
+    }
+
+}
+
+impl FeatureGenerator for LiquidGenerator {
+
+    fn generate(&mut self, world: &mut World, pos: IVec3, _rand: &mut JavaRandom) -> bool {
+        
+        if !world.is_block(pos + IVec3::Y, block::STONE) {
+            return false;
+        } else if !world.is_block(pos - IVec3::Y, block::STONE) {
+            return false;
+        } else if !matches!(world.get_block(pos), Some((block::AIR | block::STONE, _))) {
+            return false;
+        }
+
+        let mut stone_count = 0;
+        let mut air_count = 0;
+
+        for face in Face::HORIZONTAL {
+            match world.get_block(pos + face.delta()) {
+                Some((block::STONE, _)) => stone_count += 1,
+                None | Some((block::AIR, _)) => air_count += 1,
+                _ => {}
+            }
+        }
+
+        if stone_count == 3 && air_count == 1 {
+            world.set_block(pos, self.fluid_id, 0);
         }
 
         true

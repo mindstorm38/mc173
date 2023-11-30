@@ -136,12 +136,12 @@ impl<S: ChunkSource> ChunkSourcePool<S> {
         let (
             command_sender,
             command_receiver,
-        ) = bounded(workers_count * 100);
+        ) = bounded(workers_count * 300);
 
         let (
             event_sender,
             event_receiver,
-        ) = bounded(workers_count * 100);
+        ) = bounded(workers_count * 300);
 
         start_threads(command_receiver, event_sender);
         

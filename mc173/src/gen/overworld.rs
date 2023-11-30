@@ -9,15 +9,23 @@ use crate::biome::Biome;
 use crate::world::World;
 
 use super::{ChunkGenerator, FeatureGenerator};
-use super::plant::{FlowerGenerator, TallGrassGenerator};
+use super::plant::{PlantGenerator, SugarCanesGenerator, PumpkinGenerator, CactusGenerator};
+use super::liquid::{LakeGenerator, LiquidGenerator};
 use super::dungeon::DungeonGenerator;
-use super::vein::VeinGenerator;
 use super::cave::CaveGenerator;
-use super::lake::LakeGenerator;
+use super::vein::VeinGenerator;
 use super::tree::TreeGenerator;
+
 
 const NOISE_WIDTH: usize = 5;
 const NOISE_HEIGHT: usize = 17;
+
+const TEMPERATURE_SCALE: DVec2 = DVec2::splat(0.025f32 as f64);
+const TEMPERATURE_FREQ_FACTOR: f64 = 0.25;
+const HUMIDITY_SCALE: DVec2 = DVec2::splat(0.05f32 as f64);
+const HUMIDITY_FREQ_FACTOR: f64 = 1.0 / 3.0;
+const BIOME_SCALE: DVec2 = DVec2::splat(0.25);
+const BIOME_FREQ_FACTOR: f64 = 0.5882352941176471;
 
 
 /// A chunk generator for the overworld dimension. This structure can be shared between
@@ -145,9 +153,9 @@ impl OverworldGenerator {
         let mut humidity = 0.0;
         let mut biome = 0.0;
 
-        self.temperature_noise.gen_weird_2d(NoiseCube::from_mut(&mut temperature), offset, DVec2::splat(0.025f32 as f64), 0.25);
-        self.humidity_noise.gen_weird_2d(NoiseCube::from_mut(&mut humidity), offset, DVec2::splat(0.05f32 as f64), 1.0 / 3.0);
-        self.biome_noise.gen_weird_2d(NoiseCube::from_mut(&mut biome), offset, DVec2::splat(0.25), 0.5882352941176471);
+        self.temperature_noise.gen_weird_2d(NoiseCube::from_mut(&mut temperature), offset, TEMPERATURE_SCALE, TEMPERATURE_FREQ_FACTOR);
+        self.humidity_noise.gen_weird_2d(NoiseCube::from_mut(&mut humidity), offset, HUMIDITY_SCALE, HUMIDITY_FREQ_FACTOR);
+        self.biome_noise.gen_weird_2d(NoiseCube::from_mut(&mut biome), offset, BIOME_SCALE, BIOME_FREQ_FACTOR);
 
         self.calc_biome(temperature, humidity, biome).2
 
@@ -162,9 +170,9 @@ impl OverworldGenerator {
         let humidity = &mut cache.humidity;
         let biome = &mut cache.biome;
         
-        self.temperature_noise.gen_weird_2d(temperature, offset, DVec2::splat(0.025f32 as f64), 0.25);
-        self.humidity_noise.gen_weird_2d(humidity, offset, DVec2::splat(0.05f32 as f64), 1.0 / 3.0);
-        self.biome_noise.gen_weird_2d(biome, offset, DVec2::splat(0.25), 0.5882352941176471);
+        self.temperature_noise.gen_weird_2d(temperature, offset,TEMPERATURE_SCALE, TEMPERATURE_FREQ_FACTOR);
+        self.humidity_noise.gen_weird_2d(humidity, offset, HUMIDITY_SCALE, HUMIDITY_FREQ_FACTOR);
+        self.biome_noise.gen_weird_2d(biome, offset, BIOME_SCALE, BIOME_FREQ_FACTOR);
 
         for x in 0usize..16 {
             for z in 0usize..16 {
@@ -498,7 +506,7 @@ impl ChunkGenerator for OverworldGenerator {
 
     }
 
-    fn populate(&self, cx: i32, cz: i32, world: &mut World, _cache: &mut Self::Cache) {
+    fn populate(&self, cx: i32, cz: i32, world: &mut World, cache: &mut Self::Cache) {
 
         let pos = IVec3::new(cx * 16, 0, cz * 16);
         let biome = self.get_biome(pos.x + 16, pos.z + 16);
@@ -515,6 +523,10 @@ impl ChunkGenerator for OverworldGenerator {
         ) ^ self.seed;
 
         rand.set_seed(chunk_seed);
+
+        // if cx == 0 && cz == 2 {
+        //     println!("debugging chunk {cx}/{cz} biome: {biome:?}");
+        // }
 
         // Function to pick a uniform random position offset.
         #[inline(always)]
@@ -641,6 +653,10 @@ impl ChunkGenerator for OverworldGenerator {
             _ => {}
         }
 
+        // if cx == 0 && cz == 2 {
+        //     println!("tree_count: {tree_count}");
+        // }
+
         if tree_count > 0 {
             for _ in 0..tree_count {
 
@@ -690,6 +706,10 @@ impl ChunkGenerator for OverworldGenerator {
             }
         }
 
+        // if cx == 0 && cz == 2 {
+        //     println!("next float: {}", rand.next_float());
+        // }
+
         // Dandelion patches.
         let dandelion_count = match biome {
             Biome::Forest => 2,
@@ -701,7 +721,7 @@ impl ChunkGenerator for OverworldGenerator {
 
         for _ in 0..dandelion_count {
             let pos = pos + next_offset(&mut rand, 128, 8);
-            FlowerGenerator::new(block::DANDELION).generate(world, pos, &mut rand);
+            PlantGenerator::new_flower(block::DANDELION).generate(world, pos, &mut rand);
         }
 
         // Tall grass patches.
@@ -722,8 +742,116 @@ impl ChunkGenerator for OverworldGenerator {
             }
 
             let pos = pos + next_offset(&mut rand, 128, 8);
-            TallGrassGenerator::new(metadata).generate(world, pos, &mut rand);
+            PlantGenerator::new_tall_grass(metadata).generate(world, pos, &mut rand);
 
+        }
+
+        // Dead bush in deserts.
+        if biome == Biome::Desert {
+            for _ in 0..2 {
+                let pos = pos + next_offset(&mut rand, 128, 8);
+                PlantGenerator::new_dead_bush().generate(world, pos, &mut rand);
+            }
+        }
+
+        // Poppy.
+        if rand.next_int_bounded(2) == 0 {
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            PlantGenerator::new_flower(block::POPPY).generate(world, pos, &mut rand);
+        }
+
+        // Brown mushroom.
+        if rand.next_int_bounded(4) == 0 {
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            PlantGenerator::new_flower(block::BROWN_MUSHROOM).generate(world, pos, &mut rand);
+        }
+
+        // Red mushroom.
+        if rand.next_int_bounded(8) == 0 {
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            PlantGenerator::new_flower(block::RED_MUSHROOM).generate(world, pos, &mut rand);
+        }
+
+        // Sugar canes.
+        for _ in 0..10 {
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            SugarCanesGenerator::new().generate(world, pos, &mut rand);
+        }
+
+        // Pumpkin.
+        if rand.next_int_bounded(32) == 0 {
+            let pos = pos + next_offset(&mut rand, 128, 8);
+            PumpkinGenerator::new().generate(world, pos, &mut rand);
+        }
+
+        // Cactus.
+        if biome == Biome::Desert {
+            for _ in 0..10 {
+                let pos = pos + next_offset(&mut rand, 128, 8);
+                CactusGenerator::new().generate(world, pos, &mut rand);
+            }
+        }
+
+        // Water sources.
+        for _ in 0..50 {
+
+            let pos = pos + IVec3 {
+                x: rand.next_int_bounded(16) + 8,
+                y: {
+                    let v = rand.next_int_bounded(120);
+                    rand.next_int_bounded(v + 8)
+                },
+                z: rand.next_int_bounded(16) + 8,
+            };
+
+            LiquidGenerator::new(block::WATER_MOVING).generate(world, pos, &mut rand);
+
+        }
+
+        // Lava sources.
+        for _ in 0..20 {
+
+            let pos = pos + IVec3 {
+                x: rand.next_int_bounded(16) + 8,
+                y: {
+                    let v = rand.next_int_bounded(112);
+                    let v = rand.next_int_bounded(v + 8);
+                    rand.next_int_bounded(v + 8)
+                },
+                z: rand.next_int_bounded(16) + 8,
+            };
+
+            LiquidGenerator::new(block::LAVA_MOVING).generate(world, pos, &mut rand);
+
+        }
+
+        // Finally add snow layer if cold enought.
+        let offset = DVec2::new((pos.x + 8) as f64, (pos.y + 8) as f64);
+        let temperature = &mut cache.temperature;
+        let biome = &mut cache.biome;
+        self.temperature_noise.gen_weird_2d(temperature, offset,TEMPERATURE_SCALE, TEMPERATURE_FREQ_FACTOR);
+        self.biome_noise.gen_weird_2d(biome, offset, BIOME_SCALE, BIOME_FREQ_FACTOR);
+
+        for dx in 0usize..16 {
+            for dz in 0usize..16 {
+
+                let snow_pos = pos + IVec3 {
+                    x: dx as i32,
+                    y: 0,
+                    z: dz as i32,
+                };
+
+                // Find highest block and set pos.y.
+
+                let temp = temperature.get(dx, 0, dz) - (snow_pos.y - 64) as f64 / 64.0 * 0.3;
+                if temp < 0.5 && snow_pos.y > 0 && snow_pos.y < 128 &&  world.is_block_air(snow_pos) {
+                    let material = world.get_block_material(snow_pos - IVec3::Y);
+                    if material.is_solid() && material != Material::Ice {
+                        world.set_block(snow_pos, block::SNOW, 0);
+                    }
+                }
+
+            }
         }
 
     }

@@ -5,8 +5,8 @@ use glam::{IVec3, DVec3};
 use crate::entity::{Entity, ItemEntity};
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
+use crate::gen::tree::TreeGenerator;
 use crate::util::{Face, FaceSet};
-use crate::gen::TreeGenerator;
 use crate::{block, item};
 
 use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage};

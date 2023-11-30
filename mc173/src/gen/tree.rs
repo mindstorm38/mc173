@@ -659,11 +659,11 @@ impl Iterator for BlockLineIter {
         } else {
             let mut pos = IVec3::ZERO;
             // PARITY: The Notchian client adds an offset of 0.5 before floor only when
-            // placing logs, the first issue is that it's incoherent with the check 
-            // function, so here we remove the offset for now.
+            // placing logs, but it's incoherent with its checking, we fix this 
+            // incoherency here.
             pos[self.major_axis] = self.from[self.major_axis] + self.major;
-            pos[self.second_axis] = (self.from[self.second_axis] as f32 + self.major as f32 * self.second_ratio).floor() as i32;
-            pos[self.third_axis] = (self.from[self.third_axis] as f32 + self.major as f32 * self.third_ratio).floor() as i32;
+            pos[self.second_axis] = (self.from[self.second_axis] as f32 + self.major as f32 * self.second_ratio + 0.5).floor() as i32;
+            pos[self.third_axis] = (self.from[self.third_axis] as f32 + self.major as f32 * self.third_ratio + 0.5).floor() as i32;
             self.major += self.major_inc;
             Some(pos)
         }

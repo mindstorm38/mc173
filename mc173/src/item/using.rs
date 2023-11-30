@@ -3,8 +3,8 @@
 use glam::{IVec3, DVec3, Vec3};
 
 use crate::block::sapling::TreeKind;
+use crate::gen::tree::TreeGenerator;
 use crate::item::{self, ItemStack};
-use crate::gen::TreeGenerator;
 use crate::world::World;
 use crate::util::Face;
 use crate::block;

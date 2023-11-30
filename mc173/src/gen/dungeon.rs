@@ -125,7 +125,7 @@ impl FeatureGenerator for DungeonGenerator {
 
                     let mut solid_count = 0usize;
                     for face in Face::HORIZONTAL {
-                        if world.is_block_air(chest_pos + face.delta()) {
+                        if world.get_block_material(chest_pos + face.delta()).is_solid() {
                             solid_count += 1;
                             if solid_count > 1 {
                                 continue 'chest_try;
