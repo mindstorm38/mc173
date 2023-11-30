@@ -79,7 +79,10 @@ pub struct Chunk {
     pub block_light: ChunkNibbleArray3,
     /// Sky light level for each block.
     pub sky_light: ChunkNibbleArray3,
-    ///  The height map.
+    /// The height map, the height map is closely related to sky light level, the height
+    /// is set to the first block in a column (start from Y = 0) that has sky light 15,
+    /// and therefore all blocks above also have sky light 15. The height must be in
+    /// range 0..=128.
     pub height: ChunkArray2<u8>,
     /// The biome map, this map is not actually saved nor sent to the client. It is
     /// internally used by this implementation to really split the chunk generation from
@@ -172,6 +175,7 @@ impl Chunk {
     /// with full sky light.
     #[inline]
     pub fn set_height(&mut self, pos: IVec3, height: u8) {
+        debug_assert!(height <= 128, "illegal height");
         self.height[calc_2d_index(pos)] = height;
     }
 
@@ -219,37 +223,73 @@ impl Chunk {
         }
     }
 
+    /// Recompute the height column after the modification of the given block position. 
+    /// The height is recomputed and the skylight is also recomputed.
+    /// 
+    /// This function also returns a Y position, lower that the given one, that represent
+    pub fn recompute_height(&mut self, pos: IVec3) -> u8 {
+
+        assert!(pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32);
+
+        // Get the previous height, we know that the sky light is 15 at this height.
+        let prev_height = self.get_height(pos) as i32;
+        let mut new_height = prev_height.max(pos.y + 1);
+
+        // Start by calculating the new height, this loop ensures that the height never
+        // go below zero (> 0 and then - 1, so 0).
+        while new_height > 0 {
+            new_height -= 1;
+            let pos = IVec3::new(pos.x, new_height, pos.z);
+            let (id, _) = self.get_block(pos);
+            if block::material::get_light_opacity(id) != 0 {
+                new_height += 1;
+                break;
+            }
+        }
+
+        // Nothing to be done.
+        if new_height == prev_height {
+            // Just cast the other way.
+            return prev_height as u8;
+        }
+
+        // If new height is below previous one, force sky light level to 15.
+        if new_height < prev_height {
+            // NOTE: Y will be in range.
+            for y in new_height..prev_height {
+                let pos = IVec3::new(pos.x, y, pos.z);
+                self.set_sky_light(pos, 15);
+            }
+        }
+
+        let mut sky_light = 15u8;
+        for y in (0..new_height).rev() {
+
+            let pos = IVec3::new(pos.x, y, pos.z);
+
+            if sky_light > 0 {
+                let (id, _) = self.get_block(pos);
+                let opacity = block::material::get_light_opacity(id).max(1);
+                sky_light = sky_light.saturating_sub(opacity);
+            }
+
+            self.set_sky_light(pos, sky_light);
+
+        }
+
+        self.set_height(pos, new_height as u8);
+        new_height as u8
+
+    }
+
     /// Recompute the whole height map based on all block in the chunk. This also reset
     /// all sky light values to the right values each columns. Note that skylight is not
     /// propagated and therefore the updates should be scheduled manually when chunk is
     /// added to a world. Block light is not touched.
-    pub fn recompute_height(&mut self) {
+    pub fn recompute_all_height(&mut self) {
         for x in 0..CHUNK_WIDTH {
             for z in 0..CHUNK_WIDTH {
-
-                let mut sky_light = 15u8;
-                for y in (0..CHUNK_HEIGHT).rev() {
-                    
-                    let pos = IVec3::new(x as i32, y as i32, z as i32);
-                    let index_3d = calc_3d_index(pos);
-                    let id = self.block[index_3d];
-
-                    if sky_light != 0 {
-                        let opacity = block::material::get_light_opacity(id);
-                        if sky_light == 15 && opacity != 0 {
-                            // We are currently above height, but the current block will
-                            // block the light and therefore change set the height to the
-                            // block above.
-                            // NOTE: Cast is safe because Y is in range.
-                            self.height[calc_2d_index(pos)] = y as u8 + 1;
-                        }
-                        sky_light = sky_light.saturating_sub(block::material::get_light_opacity(id));
-                    }
-
-                    self.sky_light.set(index_3d, sky_light);
-
-                }
-
+                self.recompute_height(IVec3::new(x as i32, 127, z as i32));
             }
         }
     }

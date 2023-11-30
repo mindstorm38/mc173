@@ -398,34 +398,7 @@ impl World {
         if prev_id != id || prev_metadata != metadata {
 
             chunk.set_block(pos, id, metadata);
-
-            let prev_height = chunk.get_height(pos);
-            let height = pos.y as u8 + 1; // Cast is safe because we checked it before.
-
-            if block::material::get_light_opacity(id) != 0 {
-                // If the block is opaque and it is placed above current height, update
-                // that height to the new one.
-                if height > prev_height {
-                    chunk.set_height(pos, height);
-                }
-            } else if prev_height == height {
-                // We set a transparent block at the current height, so we need to find 
-                // an opaque block below to update height. While we are above 0 we check
-                // if the block below is opaque or not.
-                let mut check_pos = pos;
-                while check_pos.y > 0 {
-                    check_pos.y -= 1;
-                    let (id, _) = chunk.get_block(check_pos);
-                    if block::material::get_light_opacity(id) != 0 {
-                        // Increment to the new height just before breaking.
-                        check_pos.y += 1;
-                        break;
-                    }
-                }
-                // NOTE: If the loop don't find any opaque block below, it is set to 0.
-                chunk.set_height(check_pos, check_pos.y as u8);
-                
-            }
+            chunk.recompute_height(pos);
 
             // TODO: Move light update to self_notify function to avoid light updates in
             // chunk generation.
@@ -433,7 +406,7 @@ impl World {
             self.light_updates.push_back(LightUpdate { 
                 kind: LightUpdateKind::Block,
                 pos,
-                credit: 15, // TODO: Use the previous light emission as credit.
+                credit: 15,
             });
 
             self.light_updates.push_back(LightUpdate { 
