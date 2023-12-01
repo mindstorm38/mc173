@@ -41,12 +41,12 @@ pub fn from_nbt(root: &Nbt, only_populated: bool) -> Result<ChunkSnapshot, Chunk
 
     let entities = level.get_list("Entities").ok_or(invalid_tag("/Level/Entities not list"))?;
     for entity in entities {
-        let entity = entity.as_compound().ok_or(invalid_tag("/Level/Entities/[] not compound"))?;
+        snapshot.entities.push(entity_from_nbt(entity)?);
     }
 
     let block_entities = level.get_list("TileEntities").ok_or(invalid_tag("/Level/TileEntities not list"))?;
-    for block_entity in block_entities {
-        let block_entity = block_entity.as_compound().ok_or(invalid_tag("/Level/TileEntities/[] not compound"))?;
+    for _block_entity in block_entities {
+        // TODO:
     }
 
     Ok(snapshot)
