@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use glam::IVec3;
 
@@ -44,6 +45,13 @@ const POPULATED_NEG_Z: u8   = POPULATED_NEG_NEG | POPULATED_POS_NEG;
 const POPULATED_POS_Z: u8   = POPULATED_POS_POS | POPULATED_NEG_POS;
 
 
+// /// A worker for generating terrain-only chunks, this is the heaviest part.
+// struct TerrainWorker<G: ChunkGenerator> {
+//     /// The generator
+//     generator: Arc<G>,
+// }
+
+
 /// Chunk source for generating a world.
 pub struct GeneratorChunkSource<G: ChunkGenerator> {
     /// The inner generator immutable structure shared between all workers.
@@ -56,6 +64,10 @@ pub struct GeneratorChunkSource<G: ChunkGenerator> {
     world: World,
     /// For each chunk present in the world, this tells wether it is populated or not.
     populated: HashMap<(i32, i32), u8>,
+
+    generate_duration: f32,
+    populate_duration: f32,
+    duration_count: usize,
 }
 
 /// Shared data between all workers.
@@ -85,6 +97,9 @@ where
             // The dimension is not relevant here.
             world: World::new(Dimension::Overworld),
             populated: HashMap::new(),
+            generate_duration: 0.0,
+            populate_duration: 0.0,
+            duration_count: 0,
         }
     }
 
@@ -104,6 +119,9 @@ where
             cache: self.cache.clone(),
             world: self.world.clone(),
             populated: self.populated.clone(),
+            generate_duration: self.generate_duration,
+            populate_duration: self.populate_duration,
+            duration_count: self.duration_count,
         }
     }
 
@@ -143,6 +161,9 @@ where
             max_cz += 1;
         }
 
+        let mut generate_duration = 0.0;
+        let mut generate_count = 0;
+
         // For each chunk that needs to be loaded, we check if its terrain already exists,
         // if not existing then we generate it. Note that two workers may generate the
         // same chunk at the same time, but it's not a problem because only one will add
@@ -165,8 +186,12 @@ where
 
                         let mut terrain_chunk = Chunk::new();
                         let chunk_access = Arc::get_mut(&mut terrain_chunk).unwrap();
-                        self.shared.generator.generate(terrain_cx, terrain_cz, chunk_access, &mut self.cache);
 
+                        let start = Instant::now();
+                        self.shared.generator.generate(terrain_cx, terrain_cz, chunk_access, &mut self.cache);
+                        generate_duration += start.elapsed().as_secs_f32();
+                        generate_count += 1;
+                        
                         // It's rare but two workers may generate the same chunk if slow.
                         let mut chunks = self.shared.terrain_chunks.write().unwrap();
                         let chunk = chunks.entry((terrain_cx, terrain_cz)).or_insert(terrain_chunk);
@@ -182,12 +207,18 @@ where
             }
         }
 
+        let mut populate_duration = 0.0;
+        let mut populate_count = 0;
+
         // Now that we have all our terrain chunks, we can generate the chunks. We also
         // update the populated flag of each generated chunk.
         for populate_cx in min_cx..=max_cx - 1 {
             for populate_cz in min_cz..=max_cz - 1 {
                 
+                let start = Instant::now();
                 self.shared.generator.populate(populate_cx, populate_cz, &mut self.world, &mut self.cache);
+                populate_duration += start.elapsed().as_secs_f32();
+                populate_count += 1;
 
                 // This is a bit complex to compute, maybe improve in the future.
                 *self.populated.get_mut(&(populate_cx    , populate_cz    )).unwrap() |= POPULATED_POS_POS;
@@ -197,6 +228,15 @@ where
 
             }
         }
+
+        self.generate_duration += generate_duration / generate_count as f32;
+        self.populate_duration += populate_duration / populate_count as f32;
+        self.duration_count += 1;
+
+        // println!("TIMINGS:");
+        // println!("- generate: {} ms", self.generate_duration / self.duration_count as f32 * 1000.0);
+        // println!("- populate: {} ms", self.populate_duration / self.duration_count as f32 * 1000.0);
+        // println!("- ratio: {}", self.populate_duration / self.generate_duration);
 
         let populated = self.populated.remove(&(cx, cz)).expect("chunk should be present");
         assert_eq!(populated, POPULATED_ALL, "chunk should be fully populated at this point");
@@ -220,7 +260,10 @@ where
 
 
 /// A trait common to all chunk generators, such generator can be used as a chunk source
-/// through a [`GeneratorChunkSource`] object.
+/// through a [`GeneratorChunkSource`] object. Generators are stored in shared location
+/// without synchronization, therefore they are only accessed immutably and shared 
+/// between all workers. If the generator need a mutable worker-local data, the `Cache`
+/// associated type can be used instead, for example to contains temporary tables.
 pub trait ChunkGenerator {
 
     /// Type of the cache that is only owned by a single worker, the generator itself

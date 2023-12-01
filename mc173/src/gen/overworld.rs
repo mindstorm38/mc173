@@ -1,4 +1,24 @@
 //! Overworld chunk generator.
+//! 
+//! The overworld generator is fully featured and should produces the same chunk terrain
+//! and randomly the same features.
+//! 
+//! The overworld generator is an heavy piece of algorithm, and the runtime duration of
+//! generation and population depends on optimization level:
+//! - Release: populate take around 75% of time to generate
+//! - Debug: populate take around 150% of time to generate
+//! 
+//! However, it's important to note that to fully generate a chunk in middle of nowhere,
+//! it's required to generate terrain for 9 chunks and populate only one, so populating
+//! in this case will always be faster that terrain generation. Even in the worst case
+//! of no optimization, populate only represent around 16% of terrain generation time, 
+//! for each fully populated chunk.
+//! 
+//! If we take a more realistic approach of loading a chunk near already-existing chunks,
+//! we only need to generate 2 to 4 chunks, in the worst case, populate represent 75% of
+//! terrain generation time, for each fully populated chunk.
+//! 
+//! We see that in general, we will have more terrain generation than populating to run.
 
 use glam::{DVec2, IVec3, Vec3Swizzles, DVec3};
 
