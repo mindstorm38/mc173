@@ -106,6 +106,7 @@ impl World {
             block::COBBLESTONE_STAIR |
             block::JUKEBOX |
             block::FENCE => 2.0,
+            block::CRAFTING_TABLE |
             block::CHEST => 2.5,
             block::GOLD_ORE |
             block::IRON_ORE |
