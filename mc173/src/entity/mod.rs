@@ -24,13 +24,13 @@ pub type LightningBoltEntity = Base<LightningBolt>;
 pub type FallingBlockEntity = Base<FallingBlock>;
 pub type TntEntity = Base<Tnt>;
 
-type ProjectileEntity<I> = Base<Projectile<I>>;
+pub type ProjectileEntity<I> = Base<Projectile<I>>;
 pub type ArrowEntity = ProjectileEntity<Arrow>;
 pub type EggEntity = ProjectileEntity<Egg>;
 pub type FireballEntity = ProjectileEntity<Fireball>;
 pub type SnowballEntity = ProjectileEntity<Snowball>;
 
-type LivingEntity<I> = Base<Living<I>>;
+pub type LivingEntity<I> = Base<Living<I>>;
 pub type PlayerEntity = LivingEntity<Player>;
 pub type GhastEntity = LivingEntity<Ghast>;
 pub type SlimeEntity = LivingEntity<Slime>;
@@ -83,6 +83,38 @@ pub enum Entity {
     Zombie(ZombieEntity),
 }
 
+/// Kind of entity, without actual data.
+#[derive(Debug, Clone, Copy)]
+pub enum EntityKind {
+    Item,
+    Painting,
+    Boat,
+    Minecart,
+    Fish,
+    LightningBolt,
+    FallingBlock,
+    Tnt,
+    Arrow,
+    Egg,
+    Fireball,
+    Snowball,
+    Player,
+    Ghast,
+    Slime,
+    Pig,
+    Chicken,
+    Cow,
+    Sheep,
+    Squid,
+    Wolf,
+    Creeper,
+    Giant,
+    PigZombie,
+    Skeleton,
+    Spider,
+    Zombie,
+}
+
 #[derive(Debug, Clone, Default, Deref, DerefMut)]
 pub struct Base<I> {
     /// Inner data.
@@ -131,6 +163,8 @@ pub struct BaseData {
     /// guarantee, although this will often be normalized in 2pi range. The yaw angle
     /// in Minecraft is set to zero when pointing toward PosZ, and then rotate clockwise
     /// to NegX, NegZ and then PosX.
+    /// 
+    /// Yaw is X and pitch is Y.
     pub look: Vec2,
     /// True if an entity look event should be sent after update.
     pub look_dirty: bool,
@@ -155,6 +189,8 @@ pub struct BaseData {
     pub fall_distance: f32,
     /// Remaining fire ticks.
     pub fire_ticks: u32,
+    /// Remaining air ticks to breathe.
+    pub air_ticks: u32,
     /// The health.
     pub health: u32,
     /// If this entity is ridden, this contains its entity id.
@@ -204,7 +240,7 @@ pub struct Projectile<I> {
 #[derive(Debug, Clone, Default)]
 pub struct ProjectileData {
     /// Set to the position and block id this projectile is stuck in.
-    pub block_hit: Option<(IVec3, u8)>,
+    pub block_hit: Option<(IVec3, u8, u8)>,
     /// Some entity id if this projectile was thrown by an entity.
     pub owner_id: Option<u32>,
 }
@@ -534,6 +570,43 @@ impl Entity {
             Entity::Spider(base) => &mut base.data,
             Entity::Zombie(base) => &mut base.data,
         }
+    }
+
+}
+
+impl EntityKind {
+
+    /// Create a new boxed entity with the default values.
+    pub fn new_default(self) -> Box<Entity> {
+        Box::new(match self {
+            EntityKind::Item => Entity::Item(Default::default()),
+            EntityKind::Painting => Entity::Painting(Default::default()),
+            EntityKind::Boat => Entity::Boat(Default::default()),
+            EntityKind::Minecart => Entity::Minecart(Default::default()),
+            EntityKind::Fish => Entity::Fish(Default::default()),
+            EntityKind::LightningBolt => Entity::LightningBolt(Default::default()),
+            EntityKind::FallingBlock => Entity::FallingBlock(Default::default()),
+            EntityKind::Tnt => Entity::Tnt(Default::default()),
+            EntityKind::Arrow => Entity::Arrow(Default::default()),
+            EntityKind::Egg => Entity::Egg(Default::default()),
+            EntityKind::Fireball => Entity::Fireball(Default::default()),
+            EntityKind::Snowball => Entity::Snowball(Default::default()),
+            EntityKind::Player => Entity::Player(Default::default()),
+            EntityKind::Ghast => Entity::Ghast(Default::default()),
+            EntityKind::Slime => Entity::Slime(Default::default()),
+            EntityKind::Pig => Entity::Pig(Default::default()),
+            EntityKind::Chicken => Entity::Chicken(Default::default()),
+            EntityKind::Cow => Entity::Cow(Default::default()),
+            EntityKind::Sheep => Entity::Sheep(Default::default()),
+            EntityKind::Squid => Entity::Squid(Default::default()),
+            EntityKind::Wolf => Entity::Wolf(Default::default()),
+            EntityKind::Creeper => Entity::Creeper(Default::default()),
+            EntityKind::Giant => Entity::Giant(Default::default()),
+            EntityKind::PigZombie => Entity::PigZombie(Default::default()),
+            EntityKind::Skeleton => Entity::Skeleton(Default::default()),
+            EntityKind::Spider => Entity::Spider(Default::default()),
+            EntityKind::Zombie => Entity::Zombie(Default::default()),
+        })
     }
 
 }

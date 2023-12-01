@@ -8,7 +8,6 @@ use std::fs::File;
 use std::io::Take;
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use thiserror::Error;
 
 use flate2::read::{GzDecoder, ZlibDecoder};
 use flate2::write::ZlibEncoder;
@@ -406,7 +405,7 @@ impl SectorRange {
 }
 
 /// Error type used together with `RegionResult` for every call on region file methods.
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum RegionError {
     #[error("{0}")]
     Io(#[from] io::Error),

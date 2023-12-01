@@ -4,8 +4,6 @@ use std::io::{Read, self, Write};
 use std::collections::BTreeMap;
 use std::fmt;
 
-use thiserror::Error;
-
 use crate::util::{ReadJavaExt, WriteJavaExt};
 
 
@@ -183,6 +181,11 @@ fn get_nbt_type_id(tag: &Nbt) -> i8 {
 impl Nbt {
 
     #[inline]
+    pub fn as_boolean(&self) -> Option<bool> {
+        self.as_byte().map(|b| b != 0)
+    }
+
+    #[inline]
     pub fn as_byte(&self) -> Option<i8> {
         match *self {
             Self::Byte(n) => Some(n),
@@ -281,6 +284,11 @@ impl NbtCompound {
     }
 
     #[inline]
+    pub fn get_boolean(&self, key: &str) -> Option<bool> {
+        self.get(key).and_then(Nbt::as_boolean)
+    }
+
+    #[inline]
     pub fn get_byte(&self, key: &str) -> Option<i8> {
         self.get(key).and_then(Nbt::as_byte)
     }
@@ -357,7 +365,7 @@ impl fmt::Debug for Nbt {
 
 
 /// Error type used together with `RegionResult` for every call on region file methods.
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum NbtError {
     #[error("{0}")]
     Io(#[from] io::Error),

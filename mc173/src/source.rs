@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::thread;
 
 use crossbeam_channel::{bounded, Sender, Receiver, TrySendError, TryRecvError};
-use thiserror::Error;
 use glam::IVec3;
 
 use crate::world::ChunkSnapshot;
@@ -45,7 +44,7 @@ pub trait ChunkSource {
 
 /// Base error type common to loading and saving of chunks on [`ChunkSource`] trait. It
 /// is used to inform the caller if the source support the requested function.
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ChunkSourceError<E> {
     /// The request chunk operation is not currently supported. When loading a chunk, 
     /// this could mean either that the chunk is absent from that source or just that

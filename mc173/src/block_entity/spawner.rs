@@ -2,6 +2,7 @@
 
 use glam::IVec3;
 
+use crate::entity::EntityKind;
 use crate::world::World;
 
 
@@ -9,6 +10,8 @@ use crate::world::World;
 pub struct SpawnerBlockEntity {
     /// Remaining ticks to spawn the entity.
     pub remaining_ticks: u32,
+    /// Kind of entity.
+    pub entity_kind: EntityKind,
 }
 
 impl Default for SpawnerBlockEntity {
@@ -17,6 +20,7 @@ impl Default for SpawnerBlockEntity {
     fn default() -> Self {
         Self { 
             remaining_ticks: 20,
+            entity_kind: EntityKind::Zombie,
         }
     }
     
