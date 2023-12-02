@@ -86,13 +86,13 @@ impl World {
         }
 
         match to_id {
-            block::WATER_MOVING => self.schedule_tick(pos, from_id, 5),
-            block::LAVA_MOVING => self.schedule_tick(pos, from_id, 30),
+            block::WATER_MOVING => self.schedule_tick(pos, to_id, 5),
+            block::LAVA_MOVING => self.schedule_tick(pos, to_id, 30),
             block::REDSTONE => self.notify_redstone(pos),
             block::REPEATER |
-            block::REPEATER_LIT => self.notify_repeater(pos, from_id, from_metadata),
+            block::REPEATER_LIT => self.notify_repeater(pos, to_id, from_metadata),
             block::REDSTONE_TORCH |
-            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, from_id),
+            block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, to_id),
             // Break the cactus when it grows.
             block::CACTUS => self.notify_cactus(pos),
             _ => {}
@@ -125,7 +125,7 @@ impl World {
         let moving_id = id - 1;
 
         self.notify_fluid(pos, moving_id, metadata);
-        self.set_block_notify(pos, moving_id, metadata);
+        self.set_block_self_notify(pos, moving_id, metadata);
 
     }
 
