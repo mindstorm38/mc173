@@ -9,7 +9,7 @@ use crate::world::World;
 #[derive(Debug, Clone)]
 pub struct PistonBlockEntity {
     /// The block id of the moving piston block.
-    pub block: u8,
+    pub id: u8,
     /// The block metadata of the moving piston block.
     pub metadata: u8,
     /// Face toward the block is moving.
@@ -23,7 +23,7 @@ pub struct PistonBlockEntity {
 impl Default for PistonBlockEntity {
     fn default() -> Self {
         Self { 
-            block: 0, 
+            id: 0, 
             metadata: 0, 
             face: Face::PosY,
             progress: 0.0,

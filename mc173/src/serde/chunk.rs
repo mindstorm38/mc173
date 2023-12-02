@@ -5,8 +5,20 @@ use std::sync::Arc;
 use glam::IVec3;
 
 use crate::entity::{Entity, EntityKind, ProjectileEntity, LivingEntity};
-use crate::item::ItemStack;
+
+use crate::util::Face;
 use crate::world::ChunkSnapshot;
+use crate::item::ItemStack;
+
+use crate::block_entity::note_block::NoteBlockBlockEntity;
+use crate::block_entity::dispenser::DispenserBlockEntity;
+use crate::block_entity::furnace::FurnaceBlockEntity;
+use crate::block_entity::jukebox::JukeboxBlockEntity;
+use crate::block_entity::spawner::SpawnerBlockEntity;
+use crate::block_entity::piston::PistonBlockEntity;
+use crate::block_entity::chest::ChestBlockEntity;
+use crate::block_entity::sign::SignBlockEntity;
+use crate::block_entity::BlockEntity;
 
 use super::nbt::{Nbt, NbtError, NbtCompound};
 
@@ -45,44 +57,22 @@ pub fn from_nbt(root: &Nbt, only_populated: bool) -> Result<ChunkSnapshot, Chunk
     }
 
     let block_entities = level.get_list("TileEntities").ok_or(invalid_tag("/Level/TileEntities not list"))?;
-    for _block_entity in block_entities {
-        // TODO:
+    for block_entity in block_entities {
+        let (pos, block_entity) = block_entity_from_nbt(block_entity)?;
+        snapshot.block_entities.insert(pos, block_entity);
     }
 
     Ok(snapshot)
 
 }
 
+/// Decode an entity from NBT.
 pub fn entity_from_nbt(root: &Nbt) -> Result<Box<Entity>, ChunkError> {
 
     let root = root.as_compound().ok_or(invalid_tag("/ not compound"))?;
     let entity_id = root.get_string("id").ok_or(invalid_tag("/id not string"))?;
 
-    let mut entity = match entity_id {
-        "Arrow" => EntityKind::Arrow,
-        "Snowball" => EntityKind::Snowball,
-        "Item" => EntityKind::Item,
-        "Painting" => EntityKind::Painting,
-        "Creeper" => EntityKind::Creeper,
-        "Skeleton" => EntityKind::Skeleton,
-        "Spider" => EntityKind::Spider,
-        "Giant" => EntityKind::Giant,
-        "Zombie" => EntityKind::Zombie,
-        "Slime" => EntityKind::Slime,
-        "Ghast" => EntityKind::Ghast,
-        "PigZombie" => EntityKind::PigZombie,
-        "Pig" => EntityKind::Pig,
-        "Sheep" => EntityKind::Sheep,
-        "Cow" => EntityKind::Cow,
-        "Chicken" => EntityKind::Chicken,
-        "Squid" => EntityKind::Squid,
-        "Wolf" => EntityKind::Wolf,
-        "PrimedTnt" => EntityKind::Tnt,
-        "FallingSand" => EntityKind::FallingBlock,
-        "Minecart" => EntityKind::Minecart,
-        "Boat" => EntityKind::Boat,
-        _ => return Err(ChunkError::InvalidEntityId(entity_id.to_string())),
-    }.new_default();
+    let mut entity = entity_kind_from_id(entity_id)?.new_default();
 
     let base = entity.base_mut();
 
@@ -146,6 +136,107 @@ pub fn entity_from_nbt(root: &Nbt) -> Result<Box<Entity>, ChunkError> {
 
 }
 
+/// Decode an block entity from NBT.
+pub fn block_entity_from_nbt(root: &Nbt) -> Result<(IVec3, Box<BlockEntity>), ChunkError> {
+
+    let root = root.as_compound().ok_or(invalid_tag("/ not compound"))?;
+    let entity_id = root.get_string("id").ok_or(invalid_tag("/id not string"))?;
+
+    let pos = IVec3 {
+        x: root.get_int("x").ok_or(invalid_tag("/x not int"))?,
+        y: root.get_int("y").ok_or(invalid_tag("/y not int"))?,
+        z: root.get_int("z").ok_or(invalid_tag("/z not int"))?,
+    };
+
+    /// Internal function to iterate over block entity's inventory slots.
+    fn iter_slots_from_nbt(root: &NbtCompound) -> Result<impl Iterator<Item = (usize, ItemStack)> + '_, ChunkError> {
+        let items = root.get_list("Items").ok_or(invalid_tag("/Items not list"))?;
+        let iter = items.iter()
+            .filter_map(|item| item.as_compound())
+            .map(|item| {
+                let slot = item.get_byte("Slot").unwrap_or(0) as u8 as usize;
+                (slot, stack_from_nbt(item))
+            });
+        Ok(iter)
+    }
+
+    let block_entity = Box::new(match entity_id {
+        "Chest" => {
+            let mut chest = ChestBlockEntity::default();
+            for (slot, stack) in iter_slots_from_nbt(root)? {
+                if slot < chest.inv.len() {
+                    chest.inv[slot] = stack;
+                }
+            }
+            BlockEntity::Chest(chest)
+        }
+        "Furnace" => {
+            let mut furnace = FurnaceBlockEntity::default();
+            for (slot, stack) in iter_slots_from_nbt(root)? {
+                match slot {
+                    0 => furnace.input_stack = stack,
+                    1 => furnace.fuel_stack = stack,
+                    2 => furnace.output_stack = stack,
+                    _ => {}
+                }
+            }
+            BlockEntity::Furnace(furnace)
+        }
+        "RecordPlayer" => {
+            let mut jukebox = JukeboxBlockEntity::default();
+            jukebox.record = root.get_int("Record").unwrap_or(0).max(0) as u32;
+            BlockEntity::Jukebox(jukebox)
+        }
+        "Trap" => {
+            let mut dispenser = DispenserBlockEntity::default();
+            for (slot, stack) in iter_slots_from_nbt(root)? {
+                if slot < dispenser.inv.len() {
+                    dispenser.inv[slot] = stack;
+                }
+            }
+            BlockEntity::Dispenser(dispenser)
+        }
+        "Sign" => {
+            let mut sign = SignBlockEntity::default();
+            for (i, key) in ["Text1", "Text2", "Text3", "Text4"].into_iter().enumerate() {
+                sign.lines[i] = root.get_string(key).unwrap_or_default().to_string();
+            }
+            BlockEntity::Sign(sign)
+        }
+        "MobSpawner" => {
+            let mut spawner = SpawnerBlockEntity::default();
+            spawner.entity_kind = entity_kind_from_id(root.get_string("EntityId").unwrap_or_default())?;
+            spawner.remaining_ticks = root.get_short("Delay").unwrap_or(0).max(0) as u32;
+            BlockEntity::Spawner(spawner)
+        }
+        "Music" => {
+            let mut note_block = NoteBlockBlockEntity::default();
+            note_block.note = root.get_byte("note").unwrap_or(0).clamp(0, 24) as u8;
+            BlockEntity::NoteBlock(note_block)
+        }
+        "Piston" => {
+            let mut piston = PistonBlockEntity::default();
+            piston.id = root.get_int("blockId").unwrap_or(0).clamp(0, 255) as u8;
+            piston.metadata = root.get_int("blockData").unwrap_or(0).clamp(0, 255) as u8;
+            piston.face = match root.get_int("facing").unwrap_or(0) {
+                0 => Face::NegY,
+                1 => Face::PosY,
+                2 => Face::NegZ,
+                3 => Face::PosZ,
+                4 => Face::NegX,
+                _ => Face::PosX,
+            };
+            piston.progress = root.get_float("progress").unwrap_or(0.0);
+            piston.extending = root.get_boolean("extending").unwrap_or(false);
+            BlockEntity::Piston(piston)
+        }
+        _ => return Err(ChunkError::InvalidBlockEntityId(entity_id.to_string())),
+    });
+
+    Ok((pos, block_entity))
+
+}
+
 /// Read an item stack from given nbt compound.
 fn stack_from_nbt(root: &NbtCompound) -> ItemStack {
     ItemStack { 
@@ -153,6 +244,34 @@ fn stack_from_nbt(root: &NbtCompound) -> ItemStack {
         size: root.get_byte("Count").unwrap_or_default().max(0) as u16, 
         damage: root.get_short("Damage").unwrap_or_default().max(0) as u16,
     }
+}
+
+fn entity_kind_from_id(id: &str) -> Result<EntityKind, ChunkError> {
+    Ok(match id {
+        "Arrow" => EntityKind::Arrow,
+        "Snowball" => EntityKind::Snowball,
+        "Item" => EntityKind::Item,
+        "Painting" => EntityKind::Painting,
+        "Creeper" => EntityKind::Creeper,
+        "Skeleton" => EntityKind::Skeleton,
+        "Spider" => EntityKind::Spider,
+        "Giant" => EntityKind::Giant,
+        "Zombie" => EntityKind::Zombie,
+        "Slime" => EntityKind::Slime,
+        "Ghast" => EntityKind::Ghast,
+        "PigZombie" => EntityKind::PigZombie,
+        "Pig" => EntityKind::Pig,
+        "Sheep" => EntityKind::Sheep,
+        "Cow" => EntityKind::Cow,
+        "Chicken" => EntityKind::Chicken,
+        "Squid" => EntityKind::Squid,
+        "Wolf" => EntityKind::Wolf,
+        "PrimedTnt" => EntityKind::Tnt,
+        "FallingSand" => EntityKind::FallingBlock,
+        "Minecart" => EntityKind::Minecart,
+        "Boat" => EntityKind::Boat,
+        _ => return Err(ChunkError::InvalidEntityId(id.to_string())),
+    })
 }
 
 #[inline]
@@ -171,4 +290,6 @@ pub enum ChunkError {
     InvalidTag(String),
     #[error("Invalid entity id: {0}")]
     InvalidEntityId(String),
+    #[error("Invalid block entity id: {0}")]
+    InvalidBlockEntityId(String),
 }
