@@ -13,15 +13,15 @@ use flate2::Compression;
 
 use glam::{DVec3, Vec2, IVec3};
 
-use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
-use mc173::gen::{GeneratorChunkSource, OverworldGenerator};
-use mc173::inventory::InventoryHandle;
 use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
-use mc173::source::{ChunkSourcePool, ChunkSourceEvent};
+use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
 use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::world::interact::Interaction;
+use mc173::inventory::InventoryHandle;
 use mc173::block_entity::BlockEntity;
+use mc173::gen::OverworldGenerator;
 use mc173::item::{self, ItemStack};
+use mc173::storage::{ChunkStorage, ChunkStorageReply};
 use mc173::craft::CraftTracker;
 use mc173::util::Face;
 use mc173::block;
@@ -291,7 +291,7 @@ struct ServerWorld {
     /// The inner world data structure.
     world: World,
     /// The chunk source used to load and save the world's chunk.
-    chunk_source: ChunkSourcePool<GeneratorChunkSource<OverworldGenerator>>,
+    storage: ChunkStorage,
     /// Entity tracker, each is associated to the entity id.
     trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
@@ -317,12 +317,10 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        let source = GeneratorChunkSource::new(OverworldGenerator::new(SEED));
-
         Self {
             name: name.into(),
             world: inner,
-            chunk_source: ChunkSourcePool::new(source, 2),
+            storage: ChunkStorage::new("region/", OverworldGenerator::new(SEED), 4),
             trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
@@ -346,13 +344,13 @@ impl ServerWorld {
         }
 
         // Poll all chunks to load in the world.
-        while let Some(proto_chunk) = self.chunk_source.poll_event() {
-            match proto_chunk {
-                ChunkSourceEvent::Load(Ok(snapshot)) => {
+        while let Some(reply) = self.storage.poll() {
+            match reply {
+                ChunkStorageReply::Load(Ok(snapshot)) => {
                     println!("[SOURCE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
                     self.world.insert_chunk_snapshot(snapshot);
                 }
-                ChunkSourceEvent::Load(Err(err)) => {
+                ChunkStorageReply::Load(Err(err)) => {
                     println!("[SOURCE] Error while loading chunk: {err:?}");
                 }
                 _ => {}
@@ -456,7 +454,7 @@ impl ServerWorld {
         // FIXME: Temporary code.
         for cx in -5..=5 {
             for cz in -5..=5 {
-                assert!(self.chunk_source.request_chunk_load(cx, cz));
+                self.storage.request_load(cx, cz);
             }
         }
 

@@ -72,7 +72,7 @@ pub struct OverworldGenerator {
 
 /// This structure stores huge structures that should not be shared between workers.
 #[derive(Default, Clone)]
-pub struct OverworldCache {
+pub struct OverworldState {
     temperature: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
     humidity: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
     biome: NoiseCube<CHUNK_WIDTH, 1, CHUNK_WIDTH>,
@@ -182,13 +182,13 @@ impl OverworldGenerator {
     }
 
     /// Generate a biome map for the chunk and store it in the chunk data.
-    fn gen_biomes(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut OverworldCache) {
+    fn gen_biomes(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut OverworldState) {
 
         let offset = DVec2::new((cx * 16) as f64, (cz * 16) as f64);
 
-        let temperature = &mut cache.temperature;
-        let humidity = &mut cache.humidity;
-        let biome = &mut cache.biome;
+        let temperature = &mut state.temperature;
+        let humidity = &mut state.humidity;
+        let biome = &mut state.biome;
         
         self.temperature_noise.gen_weird_2d(temperature, offset,TEMPERATURE_SCALE, TEMPERATURE_FREQ_FACTOR);
         self.humidity_noise.gen_weird_2d(humidity, offset, HUMIDITY_SCALE, HUMIDITY_FREQ_FACTOR);
@@ -214,7 +214,7 @@ impl OverworldGenerator {
     }
 
     /// Generate the primitive terrain of the chunk.
-    fn gen_terrain(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut OverworldCache) {
+    fn gen_terrain(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut OverworldState) {
 
         const NOISE_STRIDE: usize = CHUNK_WIDTH / NOISE_WIDTH;
         const NOISE_REAL_WIDTH: usize = NOISE_WIDTH - 1;
@@ -224,14 +224,14 @@ impl OverworldGenerator {
 
         let offset = IVec3::new(cx * NOISE_REAL_WIDTH as i32, 0, cz * NOISE_REAL_WIDTH as i32);
 
-        let terrain = &mut cache.terrain;
-        let terrain0 = &mut cache.terrain0;
-        let terrain1 = &mut cache.terrain1;
-        let terrain2 = &mut cache.terrain2;
-        let terrain3 = &mut cache.terrain3;
-        let terrain4 = &mut cache.terrain4;
-        let temperature = &cache.temperature;
-        let humidity = &cache.humidity;
+        let terrain = &mut state.terrain;
+        let terrain0 = &mut state.terrain0;
+        let terrain1 = &mut state.terrain1;
+        let terrain2 = &mut state.terrain2;
+        let terrain3 = &mut state.terrain3;
+        let terrain4 = &mut state.terrain4;
+        let temperature = &state.temperature;
+        let humidity = &state.humidity;
 
         let offset_2d = offset.xz().as_dvec2();
         let offset_3d = offset.as_dvec3();
@@ -391,11 +391,11 @@ impl OverworldGenerator {
     }
 
     /// Generate the primitive terrain of the chunk.
-    fn gen_surface(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut OverworldCache, rand: &mut JavaRandom) {
+    fn gen_surface(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut OverworldState, rand: &mut JavaRandom) {
 
-        let sand = &mut cache.sand;
-        let gravel = &mut cache.gravel;
-        let thickness = &mut cache.thickness;
+        let sand = &mut state.sand;
+        let gravel = &mut state.gravel;
+        let thickness = &mut state.thickness;
 
         let offset = DVec3::new((cx * 16) as f64, (cz * 16) as f64, 0.0);
         let scale = 1.0 / 32.0;
@@ -507,9 +507,13 @@ impl OverworldGenerator {
 
 impl ChunkGenerator for OverworldGenerator {
 
-    type Cache = OverworldCache;
+    type State = OverworldState;
 
-    fn generate(&self, cx: i32, cz: i32, chunk: &mut Chunk, cache: &mut Self::Cache) {
+    fn gen_biomes(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut Self::State) {
+        // TODO:
+    }
+
+    fn gen_terrain(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut Self::State) {
 
         let chunk_seed = i64::wrapping_add(
             (cx as i64).wrapping_mul(341873128712), 
@@ -517,16 +521,16 @@ impl ChunkGenerator for OverworldGenerator {
         
         let mut rand = JavaRandom::new(chunk_seed);
 
-        self.gen_biomes(cx, cz, chunk, cache);
-        self.gen_terrain(cx, cz, chunk, cache);
-        self.gen_surface(cx, cz, chunk, cache, &mut rand);
+        self.gen_biomes(cx, cz, chunk, state);
+        self.gen_terrain(cx, cz, chunk, state);
+        self.gen_surface(cx, cz, chunk, state, &mut rand);
         self.gen_carving(cx, cz, chunk);
 
         chunk.recompute_all_height();
 
     }
 
-    fn populate(&self, cx: i32, cz: i32, world: &mut World, cache: &mut Self::Cache) {
+    fn gen_features(&self, cx: i32, cz: i32, world: &mut World, state: &mut Self::State) {
 
         let pos = IVec3::new(cx * 16, 0, cz * 16);
         let biome = self.get_biome(pos.x + 16, pos.z + 16);
@@ -847,8 +851,8 @@ impl ChunkGenerator for OverworldGenerator {
 
         // Finally add snow layer if cold enought.
         let offset = DVec2::new((pos.x + 8) as f64, (pos.y + 8) as f64);
-        let temperature = &mut cache.temperature;
-        let biome = &mut cache.biome;
+        let temperature = &mut state.temperature;
+        let biome = &mut state.biome;
         self.temperature_noise.gen_weird_2d(temperature, offset,TEMPERATURE_SCALE, TEMPERATURE_FREQ_FACTOR);
         self.biome_noise.gen_weird_2d(biome, offset, BIOME_SCALE, BIOME_FREQ_FACTOR);
 
