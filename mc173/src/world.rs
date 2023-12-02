@@ -602,6 +602,7 @@ impl World {
     #[inline(never)]
     fn set_block_entity_inner(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
 
+        // This is the future index where we insert the block entity.
         let block_entity_index = self.block_entities.len();
 
         if let Some(prev_index) = self.block_entities_pos_map.insert(pos, block_entity_index) {
@@ -1433,7 +1434,7 @@ struct ChunkComponent {
 }
 
 /// Internal type for storing a world entity and keep track of its current chunk.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct EntityComponent {
     /// The entity storage.
     inner: ComponentStorage<Box<Entity>>,
@@ -1453,7 +1454,7 @@ struct EntityComponent {
 }
 
 /// Internal type for storing a world block entity.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct BlockEntityComponent {
     /// The block entity storage.
     inner: ComponentStorage<Box<BlockEntity>>,
@@ -1464,7 +1465,7 @@ struct BlockEntityComponent {
 }
 
 /// State of a component storage.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum ComponentStorage<T> {
     /// The component is present and ready to update.
     Ready(T),

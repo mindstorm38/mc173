@@ -114,7 +114,8 @@ impl World {
         }
 
         for face in Face::HORIZONTAL {
-            if self.is_block_opaque_cube(pos + face.delta() + IVec3::Y) {
+            let face_pos = pos + face.delta();
+            if self.is_block(face_pos, block::CHEST) && self.is_block_opaque_cube(face_pos + IVec3::Y) {
                 return Interaction::Handled;
             }
         }

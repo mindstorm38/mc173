@@ -442,7 +442,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
                         self.chunks_populated.remove(&(current_cx, current_cz));
 
                         let snapshot = self.world.remove_chunk_snapshot(current_cx, current_cz)
-                            .expect("chunk should be existing so snapshot should be possible");
+                            .expect("chunk should be existing and snapshot possible");
 
                         // Finally return the chunk snapshot!
                         if self.storage_reply_sender.send(ChunkStorageReply::Load(Ok(snapshot))).is_err() {
