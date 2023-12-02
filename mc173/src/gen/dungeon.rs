@@ -2,11 +2,12 @@
 
 use glam::IVec3;
 
-use crate::block_entity::BlockEntity;
-use crate::block_entity::chest::ChestBlockEntity;
 use crate::block_entity::spawner::SpawnerBlockEntity;
+use crate::block_entity::chest::ChestBlockEntity;
+use crate::block_entity::BlockEntity;
 use crate::util::{JavaRandom, Face};
 use crate::item::{ItemStack, self};
+use crate::entity::EntityKind;
 use crate::world::World;
 use crate::block;
 
@@ -44,6 +45,15 @@ impl DungeonGenerator {
             }
             10 => ItemStack::new_single(item::DYE, 3),
             _ => ItemStack::EMPTY,
+        }
+    }
+
+    fn gen_spawner_entity(&self, rand: &mut JavaRandom) -> EntityKind {
+        match rand.next_int_bounded(4) {
+            0 => EntityKind::Skeleton,
+            1 | 2 => EntityKind::Zombie,
+            3 => EntityKind::Spider,
+            _ => unreachable!()
         }
     }
 
@@ -159,8 +169,8 @@ impl FeatureGenerator for DungeonGenerator {
 
         }
 
-        let spawner = SpawnerBlockEntity::default();
-        let _mob = rand.next_int_bounded(4); // TODO:
+        let mut spawner = SpawnerBlockEntity::default();
+        spawner.entity_kind = self.gen_spawner_entity(rand);
         world.set_block(pos, block::SPAWNER, 0);
         world.set_block_entity(pos, BlockEntity::Spawner(spawner));
 
