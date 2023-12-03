@@ -1,4 +1,6 @@
-//! Second try for a worker-based world source.
+//! A thread-based world storage manager with chunk generation support for non-existing
+//! chunks. The current implementation use a single worker for region or features 
+//! generation and many workers for terrain generation.
 
 use std::collections::hash_map::Entry;
 use std::sync::atomic::AtomicU64;
