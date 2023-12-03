@@ -20,7 +20,8 @@ on them. The priority of each feature is defined by its order in the list.
 
 - [x] World and chunk data structures
 - [ ] World serialization
-    - [ ] Chunk data
+    - [x] Chunk data
+    - [ ] Block entity data
     - [ ] Entity data (non-persistent support)
 - [ ] Blocks
     - [x] Definitions

@@ -275,8 +275,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
             Err(err) => return Err(StorageError::Region(err))
         };
 
-        let root = serde::nbt::from_reader(chunk)?;
-        let mut snapshot = serde::chunk::from_nbt(&root, true)?;
+        let mut snapshot = serde::chunk::from_reader(chunk)?;
         let chunk = Arc::get_mut(&mut snapshot.chunk).unwrap();
         
         // Biomes are not serialized in the chunk NBT, so we need to generate it on each

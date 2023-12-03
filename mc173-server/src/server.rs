@@ -320,7 +320,7 @@ impl ServerWorld {
         Self {
             name: name.into(),
             world: inner,
-            storage: ChunkStorage::new("region/", OverworldGenerator::new(SEED), 4),
+            storage: ChunkStorage::new(r"/home/theo/.minecraft-beta/saves/New World-/region", OverworldGenerator::new(SEED), 4),
             trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
