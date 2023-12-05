@@ -17,7 +17,6 @@ use crossbeam_channel::{select, bounded, Sender, Receiver, RecvError};
 
 use crate::serde::region::{RegionDir, RegionError};
 use crate::world::{ChunkSnapshot, World};
-use crate::serde::chunk::ChunkError;
 use crate::serde::nbt::NbtError;
 use crate::gen::ChunkGenerator;
 use crate::world::Dimension;
@@ -529,6 +528,4 @@ pub enum StorageError {
     Region(#[from] RegionError),
     #[error("Nbt: {0}")]
     Nbt(#[from] NbtError),
-    #[error("Chunk: {0}")]
-    Chunk(#[from] ChunkError),
 }

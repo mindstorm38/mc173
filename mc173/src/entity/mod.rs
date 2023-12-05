@@ -243,6 +243,8 @@ pub struct ProjectileData {
     pub block_hit: Option<(IVec3, u8, u8)>,
     /// Some entity id if this projectile was thrown by an entity.
     pub owner_id: Option<u32>,
+    /// Current shaking of the projectile.
+    pub shake: u8,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -321,7 +323,10 @@ impl Default for Player {
 pub struct Ghast { }
 
 #[derive(Debug, Clone, Default)]
-pub struct Slime { }
+pub struct Slime {
+    /// Size of the slime.
+    pub size: u8,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Pig {
@@ -340,6 +345,7 @@ pub struct Cow { }
 
 #[derive(Debug, Clone, Default)]
 pub struct Sheep {
+    pub sheared: bool,
     pub color: u8, // TODO: Color enumeration.
 }
 
@@ -348,18 +354,23 @@ pub struct Squid { }
 
 #[derive(Debug, Clone, Default)]
 pub struct Wolf {
-    /// Entity owning the wolf.
-    pub owner_id: u32,
+    pub angry: bool,
+    pub sitting: bool,
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Creeper { }
+pub struct Creeper { 
+    pub powered: bool,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Giant { }
 
 #[derive(Debug, Clone, Default)]
-pub struct PigZombie { }
+pub struct PigZombie { 
+    pub anger: bool,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Skeleton { }
@@ -433,13 +444,13 @@ impl Path {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaintingOrientation {
     #[default]
-    North,
-    East,
-    South,
-    West,
+    NegX,
+    PosX,
+    NegZ,
+    PosZ,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PaintingArt {
     #[default]
     Kebab,

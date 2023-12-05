@@ -21,7 +21,7 @@ const NBT_COMPOUND   : i8 = 10;
 
 
 /// Serialize a NBT tag to a writer.
-pub fn to_writer<S: ser::Serialize>(writer: impl Write, value: S) -> Result<(), NbtError> {
+pub fn to_writer<S: ser::Serialize>(writer: impl Write, value: &S) -> Result<(), NbtError> {
     
     let mut serializer = NbtSerializer {
         writer,

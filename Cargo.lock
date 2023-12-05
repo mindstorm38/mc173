@@ -141,7 +141,6 @@ dependencies = [
  "glam",
  "indexmap",
  "serde",
- "serde_bytes",
  "smallvec",
  "thiserror",
 ]
@@ -206,15 +205,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25dd9975e68d0cb5aa1120c288333fc98731bd1dd12f561e468ea4728c042b89"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab33ec92f677585af6d88c65593ae2375adde54efdbf16d597f2cbc7a6d368ff"
-dependencies = [
- "serde",
 ]
 
 [[package]]

@@ -21,8 +21,9 @@ on them. The priority of each feature is defined by its order in the list.
 - [x] World and chunk data structures
 - [ ] World serialization
     - [x] Chunk data
-    - [ ] Block entity data
-    - [ ] Entity data (non-persistent support)
+    - [x] Block entity data
+    - [x] Entity data (non-persistent support)
+        - [ ] Minecart
 - [ ] Blocks
     - [x] Definitions
     - [x] Item drop
