@@ -10,7 +10,7 @@ use serde::ser::{Serializer, SerializeSeq};
 use crate::entity::{self, Entity, PaintingOrientation, PaintingArt};
 use crate::item::ItemStack;
 
-use super::slot_nbt::SlotItemStackNbt;
+use super::slot_nbt::{SlotItemStackNbt, insert_slots, make_slots};
 use super::item_stack_nbt;
 
 
@@ -194,9 +194,9 @@ enum EntityKindNbt {
         #[serde(rename = "Type")]
         kind: i32,
         #[serde(flatten, default)]
-        furnace: Option<MinecartFurnaceEntityNbt>,
-        #[serde(flatten, default)]
         chest: Option<MinecartChestEntityNbt>,
+        #[serde(flatten, default)]
+        furnace: Option<MinecartFurnaceEntityNbt>,
     },
     Boat {},
 }
@@ -206,11 +206,11 @@ enum EntityKindNbt {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct ProjectileEntityNbt {
     #[serde(rename = "xTile")]
-    x_block: i16,
+    block_x: i16,
     #[serde(rename = "yTile")]
-    y_block: i16,
+    block_y: i16,
     #[serde(rename = "zTile")]
-    z_block: i16,
+    block_z: i16,
     #[serde(rename = "inTile")]
     in_block: u8,
     #[serde(rename = "inData")]
@@ -233,18 +233,18 @@ struct LivingEntityNbt {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct MinecartFurnaceEntityNbt {
-    #[serde(rename = "PushX")]
-    x_push: f64,
-    #[serde(rename = "PushZ")]
-    z_push: f64,
-    fuel: i16,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct MinecartChestEntityNbt {
     #[serde(rename = "Items")]
     slots: Vec<SlotItemStackNbt>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct MinecartFurnaceEntityNbt {
+    #[serde(rename = "PushX")]
+    push_x: f64,
+    #[serde(rename = "PushZ")]
+    push_z: f64,
+    fuel: i16,
 }
 
 /// Default value for health of living entities.
@@ -344,9 +344,32 @@ impl EntityNbt {
                 falling_block.kind.block_id = block;
                 Entity::FallingBlock(falling_block)
             }
-            EntityKindNbt::Minecart { kind, furnace, chest } => {
-                let _ = (kind, furnace, chest);
-                todo!()
+            EntityKindNbt::Minecart { kind, chest, furnace } => {
+                
+                let mut minecart: entity::MinecartEntity = Default::default();
+                
+                match kind {
+                    1 => { // Chest minecart
+                        if let Some(chest) = chest {
+                            let mut inv: Box<[ItemStack; 27]> = Box::default();
+                            insert_slots(chest.slots, &mut inv[..]);
+                            minecart.kind = entity::Minecart::Chest { inv };
+                        }
+                    }
+                    2 => { // Furnace minecart
+                        if let Some(furnace) = furnace {
+                            minecart.kind = entity::Minecart::Furnace { 
+                                fuel: furnace.fuel.max(0) as u32,
+                                push_x: furnace.push_x,
+                                push_z: furnace.push_z,
+                            }
+                        }
+                    }
+                    _ => {} // Normal minecart, no need to change default.
+                }
+
+                Entity::Minecart(minecart)
+
             }
             EntityKindNbt::Boat {  } => 
                 Entity::Boat(Default::default())
@@ -415,8 +438,25 @@ impl EntityNbt {
                 Entity::Boat(_) => {
                     EntityKindNbt::Boat { }
                 }
-                Entity::Minecart(_) => {
-                    todo!()
+                Entity::Minecart(minecart) => {
+                    match minecart.kind {
+                        entity::Minecart::Normal => {
+                            EntityKindNbt::Minecart { kind: 0, chest: None, furnace: None }
+                        }
+                        entity::Minecart::Chest { ref inv } => {
+                            EntityKindNbt::Minecart { kind: 1, chest: Some(MinecartChestEntityNbt { 
+                                slots: make_slots(&inv[..]),
+                            }), furnace: None }
+                        }
+                        entity::Minecart::Furnace { fuel, push_x, push_z } => {
+                            EntityKindNbt::Minecart { kind: 2, chest: None, furnace: Some(MinecartFurnaceEntityNbt { 
+                                push_x, 
+                                push_z, 
+                                fuel: fuel.min(i16::MAX as _) as i16,
+                            }) }
+                        }
+                    }
+                    
                 }
                 Entity::FallingBlock(falling_block) => {
                     EntityKindNbt::FallingBlock { block: falling_block.kind.block_id }
@@ -518,7 +558,7 @@ impl ProjectileEntityNbt {
 
         if self.in_ground {
             data.kind.block_hit = Some((
-                IVec3::new(self.x_block as i32, self.y_block as i32, self.z_block as i32),
+                IVec3::new(self.block_x as i32, self.block_y as i32, self.block_z as i32),
                 self.in_block,
                 self.in_metadata,
             ));
@@ -534,9 +574,9 @@ impl ProjectileEntityNbt {
     fn from_entity<I>(entity: &entity::ProjectileEntity<I>) -> Self {
         let (pos, block, metadata) = entity.kind.block_hit.unwrap_or_default();
         Self {
-            x_block: pos.x as i16,
-            y_block: pos.y as i16,
-            z_block: pos.z as i16,
+            block_x: pos.x as i16,
+            block_y: pos.y as i16,
+            block_z: pos.z as i16,
             in_block: block,
             in_metadata: metadata,
             in_ground: entity.kind.block_hit.is_some(),

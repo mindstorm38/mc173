@@ -269,7 +269,23 @@ pub struct Painting {
 pub struct Boat { }
 
 #[derive(Debug, Clone, Default)]
-pub struct Minecart { }
+pub enum Minecart { 
+    /// A normal minecart for living entity transportation.
+    #[default]
+    Normal,
+    /// A chest minecart for storing a single chest of items.
+    Chest {
+        /// The inventory storing the items.
+        inv: Box<[ItemStack; 27]>,
+    },
+    /// A furnace minecart that push when fueled.
+    Furnace {
+        push_x: f64,
+        push_z: f64,
+        /// Remaining fuel amount.
+        fuel: u32,
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Fish { }
@@ -302,21 +318,12 @@ pub struct Fireball { }
 #[derive(Debug, Clone, Default)]
 pub struct Snowball { }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Player {
     /// The player username.
     pub username: String,
     /// True when the player is sleeping.
     pub sleeping: bool,
-}
-
-impl Default for Player {
-    fn default() -> Self {
-        Self { 
-            username: Default::default(), 
-            sleeping: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
