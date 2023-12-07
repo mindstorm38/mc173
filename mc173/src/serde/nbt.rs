@@ -1,7 +1,7 @@
 //! NBT format serialization and deserialization.
 
-use std::io::{Read, self, Write};
-use std::fmt;
+use std::io::{self, Read, Write};
+use std::fmt::{self, Write as _};
 
 use serde::{ser, de};
 
@@ -24,15 +24,23 @@ const NBT_COMPOUND   : i8 = 10;
 pub fn to_writer<S: ser::Serialize>(mut writer: impl Write, value: &S) -> Result<(), NbtError> {
     
     let mut next_key = String::new();
+    let mut path = String::new();
 
-    value.serialize(NbtSerializer {
+    let res = value.serialize(NbtSerializer {
         writer: &mut writer,
+        path: &mut path,
         next_key: &mut next_key,
-        remaining_len: 0,
+        seq_remaining_len: 0,
         seq_element_type_id: None,
         seq_type_id: None,
         in_key: false,
-    })
+    });
+    
+    if let Err(kind) = res {
+        Err(NbtError { path, kind })
+    } else {
+        Ok(())
+    }
 
 }
 
@@ -45,6 +53,10 @@ pub fn from_reader<'de, D: de::Deserialize<'de>>(reader: impl Read) -> Result<D,
     };
 
     D::deserialize(&mut deserializer)
+        .map_err(|kind| NbtError { 
+            path: String::new(), // TODO:
+            kind 
+        })
 
 }
 
@@ -56,11 +68,13 @@ pub fn from_reader<'de, D: de::Deserialize<'de>>(reader: impl Read) -> Result<D,
 struct NbtSerializer<'a, W> {
     /// The inner writer.
     writer: &'a mut W,
+    /// The current path of the serializer, this is used for better diagnostic in errors.
+    path: &'a mut String,
     /// The key to write for the next serialized value.
     next_key: &'a mut String,
-    /// Length remaining in the sequence or map. When serializing the first sequence
-    /// element, this is also used to write the sequence header.
-    remaining_len: usize,
+    /// Length remaining in the sequence. When serializing the first sequence element, 
+    /// this is also used to write the sequence header.
+    seq_remaining_len: usize,
     /// If the current serializer is for a sequence element, then this should be set to
     /// a reference to the required sequence type id. If the sequence type is id is None
     /// then it should be set to the type, while also writing the sequence header.
@@ -84,11 +98,11 @@ impl<W: Write> NbtSerializer<'_, W> {
     }
 
     /// Write a value key and type just before writing the value.
-    fn write_key(&mut self, value_type_id: i8) -> Result<(), NbtError> {
+    fn write_key(&mut self, value_type_id: i8) -> Result<(), NbtErrorKind> {
         
         // We cannot write any key while serializing a key.
         if self.in_key {
-            return Err(NbtError::IllegalKeyType);
+            return Err(NbtErrorKind::IllegalKeyType);
         }
 
         self.writer.write_java_byte(value_type_id)?;
@@ -99,7 +113,7 @@ impl<W: Write> NbtSerializer<'_, W> {
 
             if let Some(seq_type_id) = **seq_element_type_id {
                 if seq_type_id != value_type_id {
-                    return Err(NbtError::IncoherentTagType);
+                    return Err(NbtErrorKind::IncoherentTagType);
                 }
             } else {
                 // This is the first element in the sequence, so remaining length
@@ -107,7 +121,7 @@ impl<W: Write> NbtSerializer<'_, W> {
                 // elements inserted after it.
                 // NOTE: Cast is safe because we checked it when creating sequence.
                 self.writer.write_java_byte(value_type_id)?;
-                self.writer.write_java_int(self.remaining_len as i32)?;
+                self.writer.write_java_int(self.seq_remaining_len as i32)?;
                 **seq_element_type_id = Some(value_type_id);
             }
 
@@ -122,7 +136,7 @@ impl<W: Write> NbtSerializer<'_, W> {
 impl<W: Write> ser::Serializer for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
     type SerializeSeq = Self;
     type SerializeTuple = Self;
     type SerializeTupleStruct = Self;
@@ -203,7 +217,7 @@ impl<W: Write> ser::Serializer for NbtSerializer<'_, W> {
 
     fn serialize_bytes(mut self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
         self.write_key(NBT_BYTE_ARRAY)?;
-        let len: i32 = v.len().try_into().map_err(|_| NbtError::IllegalLength)?;
+        let len: i32 = v.len().try_into().map_err(|_| NbtErrorKind::IllegalLength)?;
         self.writer.write_java_int(len)?;
         self.writer.write_all(v)?;
         Ok(())
@@ -281,15 +295,15 @@ impl<W: Write> ser::Serializer for NbtSerializer<'_, W> {
                 self.writer.write_java_byte(NBT_BYTE)?; 
                 self.writer.write_java_int(0)?;
             } else if len > i32::MAX as usize {
-                return Err(NbtError::IllegalLength);
+                return Err(NbtErrorKind::IllegalLength);
             }
 
             // Modify the current state to a sequence and return itself,
-            self.remaining_len = len as usize;
+            self.seq_remaining_len = len as usize;
             Ok(self)
 
         } else {
-            Err(NbtError::MissingSeqLength)
+            Err(NbtErrorKind::MissingSeqLength)
         }
     }
 
@@ -320,22 +334,9 @@ impl<W: Write> ser::Serializer for NbtSerializer<'_, W> {
         self.serialize_seq(Some(len))
     }
 
-    fn serialize_map(mut self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        if let Some(len) = len {
-
-            self.write_key(NBT_COMPOUND)?;
-
-            if len > i32::MAX as usize {
-                return Err(NbtError::IllegalLength);
-            }
-
-            // Modify the state and return itself.
-            self.remaining_len = len as usize;
-            Ok(self)
-
-        } else {
-            Err(NbtError::MissingMapLength)
-        }
+    fn serialize_map(mut self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        self.write_key(NBT_COMPOUND)?;
+        Ok(self)
     }
 
     fn serialize_struct(
@@ -366,36 +367,42 @@ impl<W: Write> ser::Serializer for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeSeq for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: serde::Serialize 
     {
 
-        let remaining_len = self.remaining_len;
+        let remaining_len = self.seq_remaining_len;
         if remaining_len == 0 {
-            return Err(NbtError::IncoherentSeqLength(0));
+            return Err(NbtErrorKind::IncoherentSeqLength(0));
         }
+        
+        let path_len = self.path.len();
+        write!(self.path, "[-{remaining_len}]").unwrap();
 
         // We also pass the next key to avoid reallocation.
         value.serialize(NbtSerializer {
             writer: &mut *self.writer,
+            path: &mut *self.path,
             next_key: &mut *self.next_key,
+            seq_remaining_len: remaining_len, // This is only used for first element.
             seq_element_type_id: Some(&mut self.seq_type_id),
             seq_type_id: None,
-            remaining_len: 0,
             in_key: false,
         })?;
 
-        self.remaining_len = remaining_len - 1;
+        // Revert path.
+        self.path.truncate(path_len);
+        self.seq_remaining_len = remaining_len - 1;
         Ok(())
 
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        if self.remaining_len != 0 {
-            Err(NbtError::IncoherentSeqLength(self.remaining_len))
+        if self.seq_remaining_len != 0 {
+            Err(NbtErrorKind::IncoherentSeqLength(self.seq_remaining_len))
         } else {
             Ok(())
         }
@@ -406,7 +413,7 @@ impl<W: Write> ser::SerializeSeq for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeTuple for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -424,7 +431,7 @@ impl<W: Write> ser::SerializeTuple for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeTupleStruct for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -442,7 +449,7 @@ impl<W: Write> ser::SerializeTupleStruct for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeTupleVariant for NbtSerializer<'_, W> {
     
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -462,7 +469,7 @@ impl<W: Write> ser::SerializeTupleVariant for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeMap for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
     where
@@ -473,8 +480,9 @@ impl<W: Write> ser::SerializeMap for NbtSerializer<'_, W> {
 
         key.serialize(NbtSerializer {
             writer: &mut *self.writer,
+            path: &mut *self.path,
             next_key: &mut *self.next_key,
-            remaining_len: 0,
+            seq_remaining_len: 0,
             seq_element_type_id: None,
             seq_type_id: None,
             in_key: true,  // Important!
@@ -493,16 +501,15 @@ impl<W: Write> ser::SerializeMap for NbtSerializer<'_, W> {
     {
 
         assert!(self.in_key, "missing call to serialize_key");
-        
-        let remaining_len = self.remaining_len;
-        if remaining_len == 0 {
-            return Err(NbtError::IncoherentMapLength(0));
-        }
+
+        let path_len = self.path.len();
+        write!(self.path, "/{}", self.next_key).unwrap();
 
         value.serialize(NbtSerializer {
             writer: &mut *self.writer,
             next_key: &mut *self.next_key,
-            remaining_len: 0,
+            path: &mut *self.path,
+            seq_remaining_len: 0,
             seq_element_type_id: None,
             seq_type_id: None,
             in_key: false,
@@ -511,19 +518,16 @@ impl<W: Write> ser::SerializeMap for NbtSerializer<'_, W> {
         // Mark that the value has been serialized, key can be serialized again.
         self.in_key = false;
 
-        self.remaining_len = remaining_len - 1;
+        // Revert path.
+        self.path.truncate(path_len);
         Ok(())
 
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        if self.remaining_len != 0 {
-            Err(NbtError::IncoherentMapLength(self.remaining_len))
-        } else {
-            // Zero should be written after last element of a compound.
-            self.writer.write_java_byte(0)?;
-            Ok(())
-        }
+        // Zero should be written after last element of a compound.
+        self.writer.write_java_byte(0)?;
+        Ok(())
     }
 
 }
@@ -531,7 +535,7 @@ impl<W: Write> ser::SerializeMap for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeStruct for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_field<T: ?Sized>(
         &mut self,
@@ -553,7 +557,7 @@ impl<W: Write> ser::SerializeStruct for NbtSerializer<'_, W> {
 impl<W: Write> ser::SerializeStructVariant for NbtSerializer<'_, W> {
 
     type Ok = ();
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn serialize_field<T: ?Sized>(
         &mut self,
@@ -575,6 +579,8 @@ impl<W: Write> ser::SerializeStructVariant for NbtSerializer<'_, W> {
 
 
 /// A NBT deserializer around an arbitrary I/O reader.
+/// 
+/// TODO: Change the deserializer to work by value instead of by mutable reference.
 struct NbtDeserializer<R> {
     /// Inner reader.
     reader: R,
@@ -626,7 +632,7 @@ impl<R: Read> NbtDeserializer<R> {
     /// Internal helper function to deserialize any value, much like serde 
     /// `deserialize_any` but with a hint about the expected sign of the value, only 
     /// relevant if the is an integer.
-    fn deserialize_any_unsigned<'de, V>(&mut self, visitor: V, hint: NbtDeserializerHint) -> Result<V::Value, NbtError>
+    fn deserialize_any_unsigned<'de, V>(&mut self, visitor: V, hint: NbtDeserializerHint) -> Result<V::Value, NbtErrorKind>
     where
         V: de::Visitor<'de> 
     {
@@ -638,7 +644,7 @@ impl<R: Read> NbtDeserializer<R> {
                 type_id = self.reader.read_java_byte()?;
                 if type_id == 0 {
                     // Root value cannot be of the end type.
-                    return Err(NbtError::IllegalTagType);
+                    return Err(NbtErrorKind::IllegalTagType);
                 }
 
                 let _key = self.reader.read_java_string8()?;
@@ -693,7 +699,7 @@ impl<R: Read> NbtDeserializer<R> {
 
                 let len = self.reader.read_java_int()?;
                 if len < 0 {
-                    return Err(NbtError::IllegalLength);
+                    return Err(NbtErrorKind::IllegalLength);
                 }
 
                 let mut buf = vec![0u8; len as usize];
@@ -708,7 +714,7 @@ impl<R: Read> NbtDeserializer<R> {
                 let type_id = self.reader.read_java_byte()?;
                 let len = self.reader.read_java_int()?;
                 if len < 0 {
-                    return Err(NbtError::IllegalLength);
+                    return Err(NbtErrorKind::IllegalLength);
                 }
 
                 visitor.visit_seq(NbtSeqDeserializer {
@@ -726,7 +732,7 @@ impl<R: Read> NbtDeserializer<R> {
                 })
 
             }
-            _ => return Err(NbtError::IllegalTagType)
+            _ => return Err(NbtErrorKind::IllegalTagType)
         }
 
     }
@@ -735,7 +741,7 @@ impl<R: Read> NbtDeserializer<R> {
 
 impl<'de, 'a, R: Read> de::Deserializer<'de> for &'a mut NbtDeserializer<R> {
 
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -789,7 +795,7 @@ impl<'de, 'a, R: Read> de::Deserializer<'de> for &'a mut NbtDeserializer<R> {
 
 impl<'de, 'a, R: Read> de::SeqAccess<'de> for NbtSeqDeserializer<'a, R> {
 
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where
@@ -813,7 +819,7 @@ impl<'de, 'a, R: Read> de::SeqAccess<'de> for NbtSeqDeserializer<'a, R> {
 
 impl<'de, 'a, R: Read> de::MapAccess<'de> for NbtMapDeserializer<'a, R> {
 
-    type Error = NbtError;
+    type Error = NbtErrorKind;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
     where
@@ -852,9 +858,17 @@ impl<'de, 'a, R: Read> de::MapAccess<'de> for NbtMapDeserializer<'a, R> {
 }
 
 
+#[derive(thiserror::Error, Debug)]
+#[error("{kind} ({path})")]
+pub struct NbtError {
+    pub path: String,
+    pub kind: NbtErrorKind,
+}
+
+
 /// Error type used together with `RegionResult` for every call on region file methods.
 #[derive(thiserror::Error, Debug)]
-pub enum NbtError {
+pub enum NbtErrorKind {
     #[error("io: {0}")]
     Io(#[from] io::Error),
     #[error("{0}")]
@@ -867,23 +881,19 @@ pub enum NbtError {
     IncoherentTagType,
     #[error("sequence length must be known ahead of time")]
     MissingSeqLength,
-    #[error("map length must be known ahead of time")]
-    MissingMapLength,
     #[error("incoherent amount of items added to sequence, remaining {0}")]
     IncoherentSeqLength(usize),
-    #[error("incoherent amount of items added to map, remaining {0}")]
-    IncoherentMapLength(usize),
     #[error("illegal type for map key")]
     IllegalKeyType,
 }
 
-impl ser::Error for NbtError {
+impl ser::Error for NbtErrorKind {
     fn custom<T: fmt::Display>(msg: T) -> Self {
         Self::Custom(msg.to_string())
     }
 }
 
-impl de::Error for NbtError {
+impl de::Error for NbtErrorKind {
     fn custom<T: fmt::Display>(msg: T) -> Self {
         Self::Custom(msg.to_string())
     }
