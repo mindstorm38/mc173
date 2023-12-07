@@ -21,7 +21,6 @@ use crate::serde::nbt::NbtError;
 use crate::gen::ChunkGenerator;
 use crate::world::Dimension;
 use crate::chunk::Chunk;
-use crate::serde;
 
 
 const POPULATED_NEG_NEG: u8 = 0b0001;
@@ -218,8 +217,8 @@ impl<G: ChunkGenerator> StorageWorker<G> {
         match request {
             StorageRequest::Load { cx, cz } => 
                 self.load_or_gen(cx, cz),
-            StorageRequest::Save { #[allow(unused)] snapshot } => 
-                todo!("storage save"),
+            StorageRequest::Save { snapshot } => 
+                self.save(snapshot),
         }
     }
 
@@ -235,7 +234,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
     /// is returned by the region file then an error is returned. This avoid overwriting
     /// the chunk later and ruining a possibly recoverable error.
     fn load_or_gen(&mut self, cx: i32, cz: i32) -> bool {
-        match self.load(cx, cz) {
+        match self.try_load(cx, cz) {
             Err(err) => {
                 // Immediately send error, we don't want to load the chunk if there is
                 // an error in the region file, in order to avoid overwriting the error.
@@ -254,7 +253,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
     }
 
     /// Try loading a chunk from region file.
-    fn load(&mut self, cx: i32, cz: i32) -> Result<Option<ChunkSnapshot>, StorageError> {
+    fn try_load(&mut self, cx: i32, cz: i32) -> Result<Option<ChunkSnapshot>, StorageError> {
 
         // Get the region file but do not create it if not already existing, returning
         // unsupported if not existing.
@@ -268,13 +267,13 @@ impl<G: ChunkGenerator> StorageWorker<G> {
         
         // Read the chunk, if it is empty then we return unsupported because we don't
         // have the chunk but it's not really an error.
-        let chunk = match region.read_chunk(cx, cz) {
+        let reader = match region.read_chunk(cx, cz) {
             Ok(chunk) => chunk,
             Err(RegionError::EmptyChunk) => return Ok(None),
             Err(err) => return Err(StorageError::Region(err))
         };
 
-        let mut snapshot = serde::chunk::from_reader(chunk)?;
+        let mut snapshot = crate::serde::chunk::from_reader(reader)?;
         let chunk = Arc::get_mut(&mut snapshot.chunk).unwrap();
         
         // Biomes are not serialized in the chunk NBT, so we need to generate it on each
@@ -469,6 +468,38 @@ impl<G: ChunkGenerator> StorageWorker<G> {
 
     }
 
+    /// Save a chunk snapshot. Returning false if the reply channel is broken.
+    fn save(&mut self, snapshot: ChunkSnapshot) -> bool {
+
+        let (cx, cz) = (snapshot.cx, snapshot.cz);
+
+        match self.try_save(snapshot) {
+            Err(err) => {
+                // Immediately send the save error.
+                self.storage_reply_sender.send(ChunkStorageReply::Save(Err(err))).is_ok()
+            }
+            Ok(()) => {
+                // Send the 
+                self.storage_reply_sender.send(ChunkStorageReply::Save(Ok((cx, cz)))).is_ok()
+            }
+        }
+
+    }
+
+    /// Save a chunk snapshot and return result about success.
+    fn try_save(&mut self, snapshot: ChunkSnapshot) -> Result<(), StorageError> {
+
+        let (cx, cz) = (snapshot.cx, snapshot.cz);
+        let region = self.region_dir.ensure_region_file(cx, cz, true)?;
+
+        let mut writer = region.write_chunk(cx, cz);
+        crate::serde::chunk::to_writer(&mut writer, &snapshot)?;
+        writer.flush_chunk()?;
+
+        Ok(())
+
+    }
+
 }
 
 impl<G: ChunkGenerator> TerrainWorker<G> {
@@ -507,6 +538,8 @@ enum StorageRequest {
 }
 
 /// A reply from the storage for a previously requested chunk loading or saving.
+/// 
+/// TODO: Add chunk coordinate to error.
 pub enum ChunkStorageReply {
     Load(Result<ChunkSnapshot, StorageError>),
     Save(Result<(i32, i32), StorageError>),
@@ -524,8 +557,8 @@ enum TerrainReply {
 /// Error type used together with `RegionResult` for every call on region file methods.
 #[derive(thiserror::Error, Debug)]
 pub enum StorageError {
-    #[error("Region: {0}")]
+    #[error("region: {0}")]
     Region(#[from] RegionError),
-    #[error("Nbt: {0}")]
+    #[error("nbt: {0}")]
     Nbt(#[from] NbtError),
 }

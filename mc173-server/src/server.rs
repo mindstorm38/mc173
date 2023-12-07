@@ -320,7 +320,7 @@ impl ServerWorld {
         Self {
             name: name.into(),
             world: inner,
-            storage: ChunkStorage::new(r"/home/theo/.minecraft-beta/saves/New World-/region", OverworldGenerator::new(SEED), 4),
+            storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(SEED), 4),
             trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
@@ -347,13 +347,19 @@ impl ServerWorld {
         while let Some(reply) = self.storage.poll() {
             match reply {
                 ChunkStorageReply::Load(Ok(snapshot)) => {
-                    println!("[SOURCE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
+                    println!("[STORAGE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
+                    self.storage.request_save(snapshot.clone());
                     self.world.insert_chunk_snapshot(snapshot);
                 }
                 ChunkStorageReply::Load(Err(err)) => {
-                    println!("[SOURCE] Error while loading chunk: {err:?}");
+                    println!("[STORAGE] Error while loading chunk: {err}");
                 }
-                _ => {}
+                ChunkStorageReply::Save(Ok((cx, cz))) => {
+                    println!("[STORAGE] Saved chunk {cx}/{cz}");
+                }
+                ChunkStorageReply::Save(Err(err)) => {
+                    println!("[STORAGE] Error while saving chunk: {err}");
+                }
             }
         }
 

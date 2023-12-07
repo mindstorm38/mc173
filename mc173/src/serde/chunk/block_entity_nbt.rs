@@ -32,7 +32,7 @@ pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<HashMap
         type Value = HashMap<IVec3, Box<BlockEntity>>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(formatter, "a map")
+            write!(formatter, "a sequence")
         }
 
         fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -49,7 +49,7 @@ pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<HashMap
 
     }
 
-    deserializer.deserialize_map(SeqVisitor)
+    deserializer.deserialize_seq(SeqVisitor)
 
 }
 

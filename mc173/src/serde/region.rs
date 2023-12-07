@@ -77,6 +77,14 @@ impl RegionFile {
     /// and retry is wanted.
     pub fn open<P: AsRef<Path>>(path: P, create: bool) -> Result<Self, RegionError> {
 
+        let path: &Path = path.as_ref();
+
+        if create {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
         let mut file = File::options()
             .read(true)
             .write(true)
@@ -84,7 +92,7 @@ impl RegionFile {
             .open(path)?;
 
         // Start by querying the file length.
-        let file_len = file.seek(SeekFrom::End(0))?;
+        let mut file_len = file.seek(SeekFrom::End(0))?;
 
         // A region file should have a length of at least 8K in order to store each chunk
         // metadata, we fix the file if this is not already the case.
@@ -94,6 +102,7 @@ impl RegionFile {
             for _ in 0..2 {
                 file.write_all(EMPTY_SECTOR)?;
             }
+            file_len = 8192;
         } else if file_len < 8192 {
             return Err(RegionError::FileTooSmall(file_len));
         } else if file_len % 4096 != 0 {
@@ -407,18 +416,18 @@ impl SectorRange {
 /// Error type used together with `RegionResult` for every call on region file methods.
 #[derive(thiserror::Error, Debug)]
 pub enum RegionError {
-    #[error("{0}")]
+    #[error("io: {0}")]
     Io(#[from] io::Error),
-    #[error("The region file size ({0}) is too short to store the two 4K header sectors.")]
+    #[error("the region file size ({0}) is too short to store the two 4K header sectors")]
     FileTooSmall(u64),
-    #[error("The region file size ({0}) is not a multiple of 4K.")]
+    #[error("the region file size ({0}) is not a multiple of 4K")]
     FileNotPadded(u64),
-    #[error("The region file has an invalid chunk range, likely out of range or colliding with another one.")]
+    #[error("the region file has an invalid chunk range, likely out of range or colliding with another one")]
     IllegalRange,
-    #[error("The required chunk is empty, it has no sector allocated in the region file.")]
+    #[error("the required chunk is empty, it has no sector allocated in the region file")]
     EmptyChunk,
-    #[error("The compression method in the chunk header is illegal.")]
+    #[error("the compression method in the chunk header is illegal")]
     IllegalCompression,
-    #[error("No more sectors are available in the region file, really unlikely to happen.")]
+    #[error("no more sectors are available in the region file, really unlikely to happen")]
     OutOfSector,
 }
