@@ -348,7 +348,6 @@ impl ServerWorld {
             match reply {
                 ChunkStorageReply::Load(Ok(snapshot)) => {
                     println!("[STORAGE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
-                    self.storage.request_save(snapshot.clone());
                     self.world.insert_chunk_snapshot(snapshot);
                 }
                 ChunkStorageReply::Load(Err(err)) => {

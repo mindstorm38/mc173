@@ -179,6 +179,7 @@ impl ChunkStorage {
             .expect("worker should not disconnect while this handle exists");
     }
 
+    /// Request saving of the given chunk snapshot.
     pub fn request_save(&self, snapshot: ChunkSnapshot) {
         self.storage_request_sender.send(StorageRequest::Save { snapshot })
             .expect("worker should not disconnect while this handle exists");
@@ -218,7 +219,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
             StorageRequest::Load { cx, cz } => 
                 self.load_or_gen(cx, cz),
             StorageRequest::Save { snapshot } => 
-                self.save(snapshot),
+                self.save(&snapshot),
         }
     }
 
@@ -443,6 +444,11 @@ impl<G: ChunkGenerator> StorageWorker<G> {
                         let snapshot = self.world.remove_chunk_snapshot(current_cx, current_cz)
                             .expect("chunk should be existing and snapshot possible");
 
+                        // Immediately save the chunk into its region file!
+                        if !self.save(&snapshot) {
+                            return false
+                        }
+
                         // Finally return the chunk snapshot!
                         if self.storage_reply_sender.send(ChunkStorageReply::Load(Ok(snapshot))).is_err() {
                             // Directly abort to stop the thread because the handle is dropped.
@@ -469,7 +475,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
     }
 
     /// Save a chunk snapshot. Returning false if the reply channel is broken.
-    fn save(&mut self, snapshot: ChunkSnapshot) -> bool {
+    fn save(&mut self, snapshot: &ChunkSnapshot) -> bool {
 
         let (cx, cz) = (snapshot.cx, snapshot.cz);
 
@@ -479,7 +485,6 @@ impl<G: ChunkGenerator> StorageWorker<G> {
                 self.storage_reply_sender.send(ChunkStorageReply::Save(Err(err))).is_ok()
             }
             Ok(()) => {
-                // Send the 
                 self.storage_reply_sender.send(ChunkStorageReply::Save(Ok((cx, cz)))).is_ok()
             }
         }
@@ -487,13 +492,13 @@ impl<G: ChunkGenerator> StorageWorker<G> {
     }
 
     /// Save a chunk snapshot and return result about success.
-    fn try_save(&mut self, snapshot: ChunkSnapshot) -> Result<(), StorageError> {
+    fn try_save(&mut self, snapshot: &ChunkSnapshot) -> Result<(), StorageError> {
 
         let (cx, cz) = (snapshot.cx, snapshot.cz);
         let region = self.region_dir.ensure_region(cx, cz, true)?;
 
         let mut writer = region.write_chunk(cx, cz);
-        crate::serde::chunk::to_writer(&mut writer, &snapshot)?;
+        crate::serde::chunk::to_writer(&mut writer, snapshot)?;
         writer.flush_chunk()?;
 
         Ok(())
