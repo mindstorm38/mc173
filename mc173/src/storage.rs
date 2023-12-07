@@ -257,7 +257,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
 
         // Get the region file but do not create it if not already existing, returning
         // unsupported if not existing.
-        let region = match self.region_dir.ensure_region_file(cx, cz, false) {
+        let region = match self.region_dir.ensure_region(cx, cz, false) {
             Ok(region) => region,
             Err(RegionError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
                 return Ok(None);
@@ -490,7 +490,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
     fn try_save(&mut self, snapshot: ChunkSnapshot) -> Result<(), StorageError> {
 
         let (cx, cz) = (snapshot.cx, snapshot.cz);
-        let region = self.region_dir.ensure_region_file(cx, cz, true)?;
+        let region = self.region_dir.ensure_region(cx, cz, true)?;
 
         let mut writer = region.write_chunk(cx, cz);
         crate::serde::chunk::to_writer(&mut writer, &snapshot)?;

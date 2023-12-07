@@ -32,7 +32,7 @@ pub struct RegionDir {
     /// Path of the region directory.
     path: PathBuf,
     /// Cache of already loaded region files.
-    cache: HashMap<(i32, i32), RegionFile>,
+    cache: HashMap<(i32, i32), Region<File>>,
 }
 
 impl RegionDir {
@@ -47,12 +47,12 @@ impl RegionDir {
     /// Ensure that a region file exists for the given chunk coordinates. If false is
     /// given as the 'create' argument, then the file will not be created and initialized
     /// if not existing.
-    pub fn ensure_region_file(&mut self, cx: i32, cz: i32, create: bool) -> Result<&mut RegionFile, RegionError> {
+    pub fn ensure_region(&mut self, cx: i32, cz: i32, create: bool) -> Result<&mut Region<File>, RegionError> {
         let (rx, rz) = (cx >> 5, cz >> 5);
         match self.cache.entry((rx, rz)) {
             Entry::Occupied(o) => Ok(o.into_mut()),
             Entry::Vacant(v) => {
-                Ok(v.insert(RegionFile::open(self.path.join(format!("r.{rx}.{rz}.mcr")), create)?))
+                Ok(v.insert(Region::open(self.path.join(format!("r.{rx}.{rz}.mcr")), create)?))
             }
         }
     }
@@ -61,16 +61,18 @@ impl RegionDir {
 
 /// A handle to a region file. This is an implementation of ".mcr" region files following
 /// the same algorithms as the Notchian server, first developed by Scaevolus (legend!).
-pub struct RegionFile {
-    /// Underlying region file. 
-    file: File,
+/// 
+/// Being generic over `I` allows us to use a mockup inner for tests.
+pub struct Region<I> {
+    /// Underlying read/writer with seek. 
+    inner: I,
     /// Stores the metadata of each chunks
     chunks: Box<[Chunk; 1024]>,
     /// Bit mapping of sectors that are allocated.
     sectors: Vec<u64>,
 }
 
-impl RegionFile {
+impl Region<File> {
 
     /// Open a region file, this constructor report every possible error with the region
     /// file without altering it in such case, it's up to the caller to delete the file
@@ -85,14 +87,29 @@ impl RegionFile {
             }
         }
 
-        let mut file = File::options()
+        let file = File::options()
             .read(true)
             .write(true)
             .create(create)
             .open(path)?;
 
+        Self::new(file, create)
+        
+    }
+
+}
+
+impl<I> Region<I>
+where
+    I: Read + Write + Seek,
+{
+
+    /// Create a new region around a inner reader/writer with seek. This constructor
+    /// also reads initial data and also check for file integrity.
+    pub fn new(mut inner: I, create: bool) -> Result<Self, RegionError> {
+
         // Start by querying the file length.
-        let mut file_len = file.seek(SeekFrom::End(0))?;
+        let mut file_len = inner.seek(SeekFrom::End(0))?;
 
         // A region file should have a length of at least 8K in order to store each chunk
         // metadata, we fix the file if this is not already the case.
@@ -100,7 +117,7 @@ impl RegionFile {
             // We write all first 8K to zero to initialize the file, only if it was meant
             // to be created, if not then we fall through and return too small error.
             for _ in 0..2 {
-                file.write_all(EMPTY_SECTOR)?;
+                inner.write_all(EMPTY_SECTOR)?;
             }
             file_len = 8192;
         } else if file_len < 8192 {
@@ -115,12 +132,12 @@ impl RegionFile {
         // First two sectors are reserved for headers.
         sectors[0] |= 0b11;
 
-        file.seek(SeekFrom::Start(0))?;
+        inner.seek(SeekFrom::Start(0))?;
 
         // Start by reading each offset, 4 bytes each for 1024 chunks, so 4K.
         for i in 0..1024 {
 
-            let range_raw = file.read_java_int()? as u32;
+            let range_raw = inner.read_java_int()? as u32;
             let range = SectorRange {
                 offset: range_raw >> 8,
                 count: range_raw & 0xFF,
@@ -140,11 +157,11 @@ impl RegionFile {
 
         // Then we read the timestamps, same format as offsets.
         for i in 0..1024 {
-            chunks[i].timestamp = file.read_java_int()? as u32;
+            chunks[i].timestamp = inner.read_java_int()? as u32;
         }
 
         Ok(Self {
-            file,
+            inner,
             chunks,
             sectors,
         })
@@ -161,17 +178,18 @@ impl RegionFile {
         self.chunks[index] = chunk;
         // Synchronize range.
         let range_raw = chunk.range.offset << 8 | chunk.range.count & 0xFF;
-        self.file.seek(SeekFrom::Start(index as u64 * 4))?;
-        self.file.write_java_int(range_raw as i32)?;
+        let header_offset = index as u64 * 4;
+        self.inner.seek(SeekFrom::Start(header_offset))?;
+        self.inner.write_java_int(range_raw as i32)?;
         // Synchronize timestamp.
-        self.file.seek(SeekFrom::Current(4096))?;
-        self.file.write_java_int(chunk.timestamp as i32)?;
+        self.inner.seek(SeekFrom::Start(header_offset + 4096))?;
+        self.inner.write_java_int(chunk.timestamp as i32)?;
         Ok(())
     }
 
     /// Read the chunk at the given position, the chunk position is at modulo 32 in order
     /// to respect the limitations of the region size, caller don't have to do it.
-    pub fn read_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkReader<'_>, RegionError> {
+    pub fn read_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkReader<'_, I>, RegionError> {
 
         let chunk = self.get_chunk(cx, cz);
         if chunk.is_empty() {
@@ -183,16 +201,18 @@ impl RegionFile {
         }
 
         // Seek to the start of the chunk where the header is present.
-        self.file.seek(SeekFrom::Start(chunk.range.offset as u64 * 4096))?;
+        self.inner.seek(SeekFrom::Start(chunk.range.offset as u64 * 4096))?;
 
-        let chunk_size = self.file.read_java_int()?;
-        if chunk_size < 0 || chunk_size as u32 + 4 > chunk.range.count * 4096 {
+        let chunk_size = self.inner.read_java_int()?;
+        if chunk_size <= 0 || chunk_size as u32 + 4 > chunk.range.count * 4096 {
             return Err(RegionError::IllegalRange);
         }
 
-        let compression_id = self.file.read_u8()?;
+        let compression_id = self.inner.read_u8()?;
         let chunk_size = chunk_size as u64 - 1; // Subtract one for compression id.
-        let chunk_data = Read::take(&mut self.file, chunk_size);
+        let chunk_data = Read::take(&mut self.inner, chunk_size);
+
+        // println!("reading chunk {cx}/{cz}, offset = {}, count = {}, size = {}, compression = {}", chunk.range.offset, chunk.range.count, chunk_size, compression_id);
 
         let inner = match compression_id {
             1 => ChunkReaderInner::Gz(GzDecoder::new(chunk_data)),
@@ -206,8 +226,8 @@ impl RegionFile {
 
     /// Write a chunk at the given position, the chunk position is at modulo 32 in order
     /// to respect the limitations of the region size, caller don't have to do it.
-    pub fn write_chunk(&mut self, cx: i32, cz: i32) -> ChunkWriter<'_> {
-        ChunkWriter { 
+    pub fn write_chunk(&mut self, cx: i32, cz: i32) -> ChunkWriter<'_, I> {
+        ChunkWriter {
             cx, 
             cz, 
             encoder: ZlibEncoder::new(Vec::new(), Compression::best()), 
@@ -225,13 +245,16 @@ impl RegionFile {
 
         let mut chunk = self.get_chunk(cx, cz);
 
+        // println!("writing chunk {cx}/{cz}, offset = {}, count = {}, needed = {sector_count}, size = {}", chunk.range.offset, chunk.range.count, data.len());
+
         // If the current chunk count doesn't match, we try to extend the current one or
         // allocate a new available range.
         if sector_count != chunk.range.count {
 
             let mut clear_range = chunk.range;
 
-            // We just need to shrink sectors.
+            // We just need to shrink sectors. If count was zero then nothing is cleared
+            // and this cause no problem.
             if sector_count < chunk.range.count {
                 clear_range.offset += sector_count;
                 clear_range.count -= sector_count;
@@ -239,11 +262,11 @@ impl RegionFile {
             }
 
             // Clear the previous range.
-            self.file.seek(SeekFrom::Start(clear_range.offset as u64 * 4096))?;
+            self.inner.seek(SeekFrom::Start(clear_range.offset as u64 * 4096))?;
             for offset in clear_range.offset..clear_range.offset + clear_range.count {
                 let slot = &mut self.sectors[offset as usize / 64];
                 *slot &= !(1u64 << (offset % 64));
-                self.file.write_all(EMPTY_SECTOR)?;
+                self.inner.write_all(EMPTY_SECTOR)?;
             }
 
             // If we did not shrink, we have deallocated everything so we need to alloc.
@@ -279,7 +302,7 @@ impl RegionFile {
                         *slot |= 1u64 << (offset % 64);
                     } else {
                         debug_assert_eq!(slot_index, self.sectors.len());
-                        self.sectors.push(1);
+                        self.sectors.push(1u64 << (offset % 64));
                     }
                 }
 
@@ -291,10 +314,20 @@ impl RegionFile {
 
         self.set_chunk_and_sync(cx, cz, chunk)?;
 
-        self.file.seek(SeekFrom::Start(chunk.range.offset as u64 * 4096))?;
-        self.file.write_java_int(data.len() as i32 + 1)?; // Adding the compression id.
-        self.file.write_u8(compression_id)?;
-        self.file.write_all(data)?;
+        // println!("=> offset = {}, count = {}", chunk.range.offset, chunk.range.count);
+
+        self.inner.seek(SeekFrom::Start(chunk.range.offset as u64 * 4096))?;
+        self.inner.write_java_int(data.len() as i32 + 1)?; // Counting the compression id.
+        self.inner.write_u8(compression_id)?;
+        self.inner.write_all(data)?;
+
+        // Calculate the zero padding to write at the end in order to have a file that
+        // is 4K aligned, and also to clear old data.
+        let total_len = data.len() + 4 + 1;
+        let padding_len = 4096 - total_len;
+        self.inner.write_all(&EMPTY_SECTOR[..padding_len])?;
+
+        self.inner.flush()?;
 
         Ok(())
 
@@ -304,18 +337,21 @@ impl RegionFile {
 
 
 /// A handle for reading a chunk from a region file.
-pub struct ChunkReader<'region> {
+pub struct ChunkReader<'region, I> {
     /// Inner implementation depending on compression.
-    inner: ChunkReaderInner<'region>,
+    inner: ChunkReaderInner<'region, I>,
 }
 
 /// The actual implementation of the chunk reader depending on the compression type.
-enum ChunkReaderInner<'region> {
-    Gz(GzDecoder<Take<&'region mut File>>),
-    Zlib(ZlibDecoder<Take<&'region mut File>>),
+enum ChunkReaderInner<'region, I> {
+    Gz(GzDecoder<Take<&'region mut I>>),
+    Zlib(ZlibDecoder<Take<&'region mut I>>),
 }
 
-impl Read for ChunkReader<'_> {
+impl<I> Read for ChunkReader<'_, I>
+where
+    I: Read + Write + Seek,
+{
 
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -337,7 +373,7 @@ impl Read for ChunkReader<'_> {
 
 
 /// A handle for writing a chunk in a region file.
-pub struct ChunkWriter<'region> {
+pub struct ChunkWriter<'region, I> {
     /// The chunk X coordinate.
     cx: i32,
     /// The chunk Z coordinate.
@@ -345,22 +381,25 @@ pub struct ChunkWriter<'region> {
     /// The internal zlib encoder, we force using zlib when writing (id 2).
     encoder: ZlibEncoder<Vec<u8>>,
     /// The underlying region file used to finally write chunk data.
-    region: &'region mut RegionFile,
+    region: &'region mut Region<I>,
 }
 
-impl ChunkWriter<'_> {
+impl<I> ChunkWriter<'_, I> 
+where
+    I: Read + Write + Seek,
+{
 
     /// A more costly variant of the regular IO's flush function, because this one also
     /// flush the inner encoded buffer to the region file, therefore searching available
     /// sectors and writing data.
-    pub fn flush_chunk(&mut self) -> Result<(), RegionError> {
-        self.flush()?;
-        self.region.write_chunk_data(self.cx, self.cz, 2, &self.encoder.get_ref())
+    pub fn flush_chunk(self) -> Result<(), RegionError> {
+        let inner = self.encoder.flush_finish()?;
+        self.region.write_chunk_data(self.cx, self.cz, 2, &inner)
     }
 
 }
 
-impl Write for ChunkWriter<'_> {
+impl<I> Write for ChunkWriter<'_, I> {
 
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
@@ -369,7 +408,8 @@ impl Write for ChunkWriter<'_> {
 
     #[inline]
     fn flush(&mut self) -> io::Result<()> {
-        self.encoder.flush()
+        // We are not flushing here because it's only relevant to flush in `flush_chunk`.
+        Ok(())
     }
 
 }
