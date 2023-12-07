@@ -105,12 +105,10 @@ impl<W: Write> NbtSerializer<'_, W> {
             return Err(NbtErrorKind::IllegalKeyType);
         }
 
-        self.writer.write_java_byte(value_type_id)?;
-        self.writer.write_java_string8(&self.next_key)?;
-
         // If we are serializing a sequence element, check its type or set it.
         if let Some(seq_element_type_id) = &mut self.seq_element_type_id {
 
+            // If we are writing sequence element, this require no header.
             if let Some(seq_type_id) = **seq_element_type_id {
                 if seq_type_id != value_type_id {
                     return Err(NbtErrorKind::IncoherentTagType);
@@ -125,6 +123,10 @@ impl<W: Write> NbtSerializer<'_, W> {
                 **seq_element_type_id = Some(value_type_id);
             }
 
+        } else {
+            // If we are not writing sequence element, just write regular header.
+            self.writer.write_java_byte(value_type_id)?;
+            self.writer.write_java_string8(&self.next_key)?;
         }
 
         Ok(())
@@ -897,4 +899,88 @@ impl de::Error for NbtErrorKind {
     fn custom<T: fmt::Display>(msg: T) -> Self {
         Self::Custom(msg.to_string())
     }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+
+    use std::fmt::Debug;
+    use std::io::Cursor;
+    use super::*;
+
+    fn test_value<'de, V>(value: V, bytes: &[u8])
+    where
+        V: serde::Serialize,
+        V: serde::Deserialize<'de>,
+        V: PartialEq + Debug,
+    {
+        
+        let mut data = Vec::new();
+        to_writer(&mut data, &value).expect("failed to write");
+        assert_eq!(data, bytes, "invalid written value");
+
+        let mut cursor = Cursor::new(bytes);
+        let read_value: V = from_reader(&mut cursor).expect("failed to read");
+        assert_eq!(value, read_value, "invalid read value");
+        assert_eq!(cursor.position(), bytes.len() as u64, "not all data has been read");
+
+    }
+
+    #[test]
+    fn primitives() {
+        test_value(0x12u8,                  &[NBT_BYTE as u8,   0, 0, 0x12]);
+        test_value(0x1234u16,               &[NBT_SHORT as u8,  0, 0, 0x12, 0x34]);
+        test_value(0x12345678u32,           &[NBT_INT as u8,    0, 0, 0x12, 0x34, 0x56, 0x78]);
+        test_value(0x123456789ABCDEF0u64,   &[NBT_LONG as u8,   0, 0, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
+        test_value(3141592.5f32,            &[NBT_FLOAT as u8,  0, 0, 0x4A, 0x3F, 0xBF, 0x62]);
+        test_value(3141592.5f64,            &[NBT_DOUBLE as u8, 0, 0, 0x41, 0x47, 0xF7, 0xEC, 0x40, 0x00, 0x00, 0x00]);
+        test_value(format!("hello"),        &[NBT_STRING as u8, 0, 0, 0, 5, 0x68, 0x65, 0x6C, 0x6C, 0x6F]);
+    }
+
+    #[test]
+    fn lists() {
+        test_value([0u8; 0],                &[NBT_LIST as u8,   0, 0, NBT_BYTE as u8,   0, 0, 0, 0]);
+        test_value([0x12u8; 3],             &[NBT_LIST as u8,   0, 0, NBT_BYTE as u8,   0, 0, 0, 3, 0x12, 0x12, 0x12]);
+        test_value([0x1234u16; 2],          &[NBT_LIST as u8,   0, 0, NBT_SHORT as u8,  0, 0, 0, 2, 0x12, 0x34, 0x12, 0x34]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn lists_err() {
+        test_value((0, format!("hello")), &[]);
+    }
+
+    #[test]
+    fn compounds() {
+
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+        struct EmptyCompound {}
+
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+        struct Compound {
+            key0: String,
+            key1: bool,
+            key2: f32,
+        }
+
+        test_value(EmptyCompound {},        &[NBT_COMPOUND as u8, 0, 0, 0]);
+
+        let comp = Compound {
+            key0: format!("hello"),
+            key1: true,
+            key2: 3141592.5f32,
+        };
+
+        test_value(comp, &[
+            NBT_COMPOUND as u8, 0, 0, // Compound header.
+            NBT_STRING as u8,   0, 4, 0x6B, 0x65, 0x79, 0x30, 0, 5, 0x68, 0x65, 0x6C, 0x6C, 0x6F, // key0 header + value
+            NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x31, 0x01, // key1 header + value
+            NBT_FLOAT as u8,    0, 4, 0x6B, 0x65, 0x79, 0x32, 0x4A, 0x3F, 0xBF, 0x62, // key2 header + value
+            0 // terminating byte
+        ]);
+
+    }
+
 }
