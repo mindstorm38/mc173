@@ -140,7 +140,7 @@ impl Server {
             ClientState::Playing { world_index, player_index } => {
                 let world = &mut self.worlds[world_index];
                 let player = &mut world.players[player_index];
-                player.handle(&mut world.world, packet);
+                player.handle(&mut world.world, &mut world.state, packet);
             }
         }
 
@@ -179,7 +179,7 @@ impl Server {
             .or_insert_with(|| {
                 let spawn_world = &self.worlds[0];
                 OfflinePlayer {
-                    world: spawn_world.name.clone(),
+                    world: spawn_world.state.name.clone(),
                     pos: spawn_world.world.get_spawn_pos(),
                     look: Vec2::ZERO,
                 }
@@ -187,7 +187,7 @@ impl Server {
 
         let (world_index, world) = self.worlds.iter_mut()
             .enumerate()
-            .filter(|(_, world)| world.name == offline_player.world)
+            .filter(|(_, world)| world.state.name == offline_player.world)
             .next()
             .expect("invalid offline player world name");
 
@@ -288,10 +288,22 @@ enum ClientState {
 /// A single world in the server, this structure keep tracks of players and entities
 /// tracked by players.
 struct ServerWorld {
-    /// World name.
-    name: String,
     /// The inner world data structure.
     world: World,
+    /// Players currently in the world.
+    players: Vec<ServerPlayer>,
+    /// The remaining world state, this is put is a separate struct in order to facilitate
+    /// borrowing when handling player packets.
+    state: ServerWorldState,
+}
+
+/// Represent the whole state of a world.
+struct ServerWorldState {
+    /// World name.
+    name: String,
+    /// The server-side time, that is not necessarily in-sync with the world time in case
+    /// of tick freeze or stepping. This avoids running in socket timeout issues.
+    time: u64,
     /// The chunk source used to load and save the world's chunk.
     storage: ChunkStorage,
     /// A set of chunks that have been modified and needs to be saved at some point. This
@@ -301,10 +313,6 @@ struct ServerWorld {
     chunk_trackers: HashMap<(i32, i32), ChunkTracker>,
     /// Entity tracker, each is associated to the entity id.
     entity_trackers: HashMap<u32, EntityTracker>,
-    /// Players currently in the world.
-    players: Vec<ServerPlayer>,
-    /// True when the world has been ticked once.
-    init: bool,
     /// True when world ticking is frozen, events are still processed by the world no 
     /// longer runs.
     tick_mode: TickMode,
@@ -337,18 +345,20 @@ impl ServerWorld {
         inner.swap_events(Some(Vec::new()));
 
         Self {
-            name: name.into(),
             world: inner,
-            storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(SEED), 4),
-            dirty_chunks: HashSet::new(),
-            chunk_trackers: HashMap::new(),
-            entity_trackers: HashMap::new(),
             players: Vec::new(),
-            init: false,
-            tick_mode: TickMode::Auto,
-            tick_duration: 0.0,
-            tick_interval: 0.0,
-            tick_last: Instant::now(),
+            state: ServerWorldState {
+                name: name.into(),
+                time: 0,
+                storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(SEED), 4),
+                dirty_chunks: HashSet::new(),
+                chunk_trackers: HashMap::new(),
+                entity_trackers: HashMap::new(),
+                tick_mode: TickMode::Auto,
+                tick_duration: 0.0,
+                tick_interval: 0.0,
+                tick_last: Instant::now(),
+            },
         }
 
     }
@@ -357,16 +367,18 @@ impl ServerWorld {
     fn tick(&mut self) {
 
         let start = Instant::now();
-        self.tick_interval = (self.tick_interval * 0.98) + (start - self.tick_last).as_secs_f32() * 0.02;
-        self.tick_last = start;
+        self.state.tick_interval = (self.state.tick_interval * 0.98) + (start - self.state.tick_last).as_secs_f32() * 0.02;
+        self.state.tick_last = start;
 
-        if !self.init {
+        // Get server-side time and increment it.
+        let time = self.state.time;
+        if time == 0 {
             self.handle_init();
-            self.init = true;
         }
+        self.state.time += 1;
 
         // Poll all chunks to load in the world.
-        while let Some(reply) = self.storage.poll() {
+        while let Some(reply) = self.state.storage.poll() {
             match reply {
                 ChunkStorageReply::Load(Ok(snapshot)) => {
                     println!("[STORAGE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
@@ -385,7 +397,7 @@ impl ServerWorld {
         }
 
         // Only run if no tick freeze.
-        match self.tick_mode {
+        match self.state.tick_mode {
             TickMode::Auto => {
                 self.world.tick()
             }
@@ -442,22 +454,22 @@ impl ServerWorld {
         self.world.swap_events(Some(events));
 
         // Send time to every playing clients every second.
-        let time = self.world.get_time();
         if time % 20 == 0 {
+            let world_time = self.world.get_time();
             for player in &self.players {
                 player.send(OutPacket::UpdateTime(proto::UpdateTimePacket {
-                    time,
+                    time: world_time,
                 }));
             }
         }
 
         // After we collected every block change, update all players accordingly.
-        for (&(cx, cz), tracker) in &mut self.chunk_trackers {
+        for (&(cx, cz), tracker) in &mut self.state.chunk_trackers {
             tracker.update_players(cx, cz, &mut self.players, &self.world);
         }
 
         // After world events are processed, tick entity trackers.
-        for tracker in self.entity_trackers.values_mut() {
+        for tracker in self.state.entity_trackers.values_mut() {
 
             if time % 60 == 0 {
                 tracker.update_tracking_players(&mut self.players, &self.world);
@@ -472,16 +484,16 @@ impl ServerWorld {
 
         // Every 10 second, save each modified chunks.
         if time % 200 == 0 {
-            for (cx, cz) in self.dirty_chunks.drain() {
+            for (cx, cz) in self.state.dirty_chunks.drain() {
                 if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
-                    self.storage.request_save(snapshot);
+                    self.state.storage.request_save(snapshot);
                 }
             }
         }
 
         // Update tick duration metric.
         let tick_duration = start.elapsed();
-        self.tick_duration = (self.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
+        self.state.tick_duration = (self.state.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
 
     }
     
@@ -491,7 +503,7 @@ impl ServerWorld {
 
         // Ensure that every entity has a tracker.
         for (id, entity) in self.world.iter_entities() {
-            self.entity_trackers.entry(id).or_insert_with(|| {
+            self.state.entity_trackers.entry(id).or_insert_with(|| {
                 let tracker = EntityTracker::new(id, entity);
                 tracker.update_tracking_players(&mut self.players, &self.world);
                 tracker
@@ -501,7 +513,7 @@ impl ServerWorld {
         // FIXME: Temporary code.
         for cx in -5..=5 {
             for cz in -5..=5 {
-                self.storage.request_load(cx, cz);
+                self.state.storage.request_load(cx, cz);
             }
         }
 
@@ -511,7 +523,7 @@ impl ServerWorld {
     fn handle_player_join(&mut self, mut player: ServerPlayer) -> usize {
 
         // Initial tracked entities.
-        for tracker in self.entity_trackers.values() {
+        for tracker in self.state.entity_trackers.values() {
             tracker.update_tracking_player(&mut player, &self.world);
         }
 
@@ -549,7 +561,7 @@ impl ServerWorld {
 
             // Untrack all its entities.
             for entity_id in tracked_entities {
-                let tracker = self.entity_trackers.get(&entity_id).expect("incoherent tracked entity");
+                let tracker = self.state.entity_trackers.get(&entity_id).expect("incoherent tracked entity");
                 tracker.kill_player_entity(&mut player);
             }
 
@@ -563,10 +575,10 @@ impl ServerWorld {
     fn handle_block_set(&mut self, pos: IVec3, id: u8, metadata: u8, prev_id: u8, _prev_metadata: u8) {
         
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.dirty_chunks.insert((cx, cz));
+        self.state.dirty_chunks.insert((cx, cz));
 
         // Ensure that we have a chunk tracker and register the block change in it.
-        let chunk_tracker = self.chunk_trackers.entry((cx, cz)).or_default();
+        let chunk_tracker = self.state.chunk_trackers.entry((cx, cz)).or_default();
         chunk_tracker.set_block(pos, id, metadata);
 
         // If the block was a crafting table, if any player has a crafting table
@@ -602,7 +614,7 @@ impl ServerWorld {
     /// Handle an entity spawn world event.
     fn handle_entity_spawn(&mut self, id: u32) {
         let entity = self.world.get_entity(id).expect("incoherent event entity");
-        self.entity_trackers.entry(id).or_insert_with(|| {
+        self.state.entity_trackers.entry(id).or_insert_with(|| {
             let tracker = EntityTracker::new(id, entity);
             tracker.update_tracking_players(&mut self.players, &self.world);
             tracker
@@ -611,23 +623,23 @@ impl ServerWorld {
 
     /// Handle an entity kill world event.
     fn handle_entity_remove(&mut self, id: u32) {
-        let tracker = self.entity_trackers.remove(&id).expect("incoherent event entity");
+        let tracker = self.state.entity_trackers.remove(&id).expect("incoherent event entity");
         tracker.untrack_players(&mut self.players);
     }
 
     /// Handle an entity position world event.
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
-        self.entity_trackers.get_mut(&id).unwrap().set_pos(pos);
+        self.state.entity_trackers.get_mut(&id).unwrap().set_pos(pos);
     }
 
     /// Handle an entity look world event.
     fn handle_entity_look(&mut self, id: u32, look: Vec2) {
-        self.entity_trackers.get_mut(&id).unwrap().set_look(look);
+        self.state.entity_trackers.get_mut(&id).unwrap().set_look(look);
     }
 
     /// Handle an entity look world event.
     fn handle_entity_velocity(&mut self, id: u32, vel: DVec3) {
-        self.entity_trackers.get_mut(&id).unwrap().set_vel(vel);
+        self.state.entity_trackers.get_mut(&id).unwrap().set_vel(vel);
     }
 
     /// Handle an entity pickup world event.
@@ -675,13 +687,13 @@ impl ServerWorld {
 
     /// HAndle a block entity set event.
     fn handle_block_entity_set(&mut self, pos: IVec3) {
-        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(pos));
+        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(pos));
     }
 
     /// Handle a block entity remove event.
     fn handle_block_entity_remove(&mut self, target_pos: IVec3) {
 
-        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
         
         // Close the inventory of all entities that had a window opened for this block.
         for player in &mut self.players {
@@ -706,7 +718,7 @@ impl ServerWorld {
     /// Handle a storage event for a block entity.
     fn handle_block_entity_storage(&mut self, target_pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
 
-        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
 
         for player in &mut self.players {
             match player.window.kind {
@@ -762,7 +774,7 @@ impl ServerWorld {
 
     fn handle_block_entity_progress(&mut self, target_pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
-        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
         
         for player in &mut self.players {
             if let WindowKind::Furnace { pos } = player.window.kind {
@@ -933,7 +945,7 @@ impl ServerPlayer {
     }
 
     /// Handle an incoming packet from this player.
-    fn handle(&mut self, world: &mut World, packet: InPacket) {
+    fn handle(&mut self, world: &mut World, state: &mut ServerWorldState, packet: InPacket) {
         
         match packet {
             InPacket::KeepAlive => {}
@@ -941,7 +953,7 @@ impl ServerPlayer {
             InPacket::Disconnect(_) =>
                 self.handle_disconnect(),
             InPacket::Chat(packet) =>
-                self.handle_chat(world, packet.message),
+                self.handle_chat(world, state, packet.message),
             InPacket::Position(packet) => 
                 self.handle_position(world, packet),
             InPacket::Look(packet) => 
@@ -971,17 +983,17 @@ impl ServerPlayer {
     }
 
     /// Handle a chat message packet.
-    fn handle_chat(&mut self, world: &mut World, message: String) {
+    fn handle_chat(&mut self, world: &mut World, state: &mut ServerWorldState, message: String) {
         if message.starts_with('/') {
             let parts = message.split_whitespace().collect::<Vec<_>>();
-            if let Err(message) = self.handle_chat_command(world, &parts) {
+            if let Err(message) = self.handle_chat_command(world, state, &parts) {
                 self.send_chat(message);
             }
         }
     }
 
     /// Handle a chat command, parsed from a chat message packet starting with '/'.
-    fn handle_chat_command(&mut self, world: &mut World, parts: &[&str]) -> Result<(), String> {
+    fn handle_chat_command(&mut self, world: &mut World, state: &mut ServerWorldState, parts: &[&str]) -> Result<(), String> {
 
         match *parts {
             ["/give", item_raw, _] |
@@ -1063,8 +1075,31 @@ impl ServerPlayer {
                 Ok(())
             }
             ["/tick", "freeze"] => {
-                todo!()
+                self.send_chat(format!("§aWorld ticking: freeze"));
+                state.tick_mode = TickMode::Manual(0);
+                Ok(())
             }
+            ["/tick", "auto"] => {
+                self.send_chat(format!("§aWorld ticking: auto"));
+                state.tick_mode = TickMode::Auto;
+                Ok(())
+            }
+            ["/tick", "step"] => {
+                self.send_chat(format!("§aWorld ticking: step"));
+                state.tick_mode = TickMode::Manual(1);
+                Ok(())
+            }
+            ["/tick", "step", step_count] => {
+
+                let step_count = step_count.parse::<u32>()
+                    .map_err(|_| format!("§cError: invalid step count:§r {step_count}"))?;
+
+                    self.send_chat(format!("§aWorld ticking: {step_count} steps"));
+                state.tick_mode = TickMode::Manual(step_count);
+                Ok(())
+
+            }
+            ["/tick", ..] => Err(format!("§eUsage: /tick [freeze|auto|step <n>]")),
             _ => Err(format!("§eUnknown command!"))
         }
     }
@@ -1995,18 +2030,18 @@ impl ChunkTracker {
 
             let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
 
-            println!("sending chunk data for {cx}/{cz}");
+            // println!("sending chunk data for {cx}/{cz}");
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(packet.clone());
                 }
             }
 
-        }/* else if self.set_blocks.len() == 1 {
+        } else if self.set_blocks.len() == 1 {
 
             let set_block = self.set_blocks[0];
 
-            println!("sending single block change for {cx}/{cz}");
+            // println!("sending single block change for {cx}/{cz}");
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(OutPacket::BlockSet(proto::BlockSetPacket {
@@ -2019,7 +2054,7 @@ impl ChunkTracker {
                 }
             }
 
-        }*/ else if !self.set_blocks.is_empty() {
+        } else if !self.set_blocks.is_empty() {
 
             let set_blocks = self.set_blocks.iter()
                 .map(|set_block| proto::ChunkBlockSet {
@@ -2036,7 +2071,8 @@ impl ChunkTracker {
                 cz,
                 blocks: Arc::new(set_blocks),
             });
-            println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
+
+            // println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
 
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
