@@ -304,7 +304,7 @@ impl Chunk {
         }
 
         // After check start point, we check that size if a multiple of 2.
-        size.y &= !1;
+        size.y = (size.y + 1) & !1;
 
         debug_assert!(from.y % 2 == 0);
         debug_assert!(size.y % 2 == 0);

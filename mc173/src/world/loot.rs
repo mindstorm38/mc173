@@ -24,6 +24,7 @@ impl World {
             .add((1.0 - spread as f64) * 0.5);
 
         let mut entity = ItemEntity::default();
+        entity.persistent = true;
         entity.pos = pos.as_dvec3() + delta;
         entity.vel.x = self.rand.next_double() * 0.2 - 0.1;
         entity.vel.y = 0.2;

@@ -144,12 +144,14 @@ impl World {
             } else {
 
                 let mut item_base = ItemEntity::default();
-                item_base.kind.stack = dispense_stack;
+                item_base.persistent = true;
                 item_base.pos = origin_pos - DVec3::Y * 0.3;
-
+                
                 let rand_vel = self.rand.next_double() * 0.1 + 0.2;
                 item_base.vel = face.delta().as_dvec3() * rand_vel;
                 item_base.vel += self.rand.next_gaussian_dvec3() * 0.0075 * 6.0;
+                
+                item_base.kind.stack = dispense_stack;
 
                 self.spawn_entity(Entity::Item(item_base));
 

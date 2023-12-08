@@ -1,17 +1,27 @@
 //! NBT serialization and deserialization for `Vec<Box<Entity>>` type.
 
+use std::cell::RefCell;
 use std::borrow::Cow;
 
 use glam::IVec3;
 
 use serde::de::{Deserializer, Visitor, SeqAccess};
-use serde::ser::{Serializer, SerializeSeq};
+use serde::ser::Serializer;
 
 use crate::entity::{self, Entity, PaintingOrientation, PaintingArt};
 use crate::item::ItemStack;
 
 use super::slot_nbt::{SlotItemStackNbt, insert_slots, make_slots};
 use super::item_stack_nbt;
+
+
+// Various thread local vectors that are used to avoid frequent reallocation of 
+// temporary vector used in the logic code.
+thread_local! {
+    /// This thread local vector is used to temporally store entities or block entities 
+    /// indices that should be removed just after the update loop.
+    static SERIALIZE_ENTITIES: RefCell<Vec<EntityNbt>> = const { RefCell::new(Vec::new()) };
+}
 
 
 pub fn deserialize<'a, 'de, D: Deserializer<'de>>(deserializer: D) -> Result<Cow<'a, [Box<Entity>]>, D::Error> {
@@ -44,15 +54,10 @@ pub fn deserialize<'a, 'de, D: Deserializer<'de>>(deserializer: D) -> Result<Cow
 }
 
 pub fn serialize<'a, S: Serializer>(value: &Cow<'a, [Box<Entity>]>, serializer: S) -> Result<S::Ok, S::Error> {
-
-    let mut seq = serializer.serialize_seq(Some(value.len()))?;
-
-    for entity in &**value {
-        seq.serialize_element(&EntityNbt::from_entity(&entity))?;
-    }
-
-    seq.end()
-
+    SERIALIZE_ENTITIES.with_borrow_mut(move |entities_nbt| {
+        entities_nbt.extend(value.iter().filter_map(|entity| EntityNbt::from_entity(&entity)));
+        serializer.collect_seq(entities_nbt.drain(..))
+    })
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -71,6 +76,7 @@ struct EntityNbt {
     air_ticks: i16,
     #[serde(rename = "OnGround", default)]
     on_ground: bool,
+    #[serde(flatten)]
     kind: EntityKindNbt,
 }
 
@@ -92,7 +98,7 @@ enum EntityKindNbt {
         health: i16,
         #[serde(rename = "Age", default)]
         lifetime: u32,
-        #[serde(with = "item_stack_nbt", flatten)]
+        #[serde(rename = "Item", with = "item_stack_nbt")]
         stack: ItemStack,
     },
     Painting {
@@ -376,6 +382,8 @@ impl EntityNbt {
         });
 
         let base = entity.base_mut();
+        // Deserialized entities are persistent by definition.
+        base.persistent = true;
         // Position.
         base.pos.x = self.pos.0;
         base.pos.y = self.pos.1;

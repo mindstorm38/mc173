@@ -80,7 +80,7 @@ struct NbtSerializer<'a, W> {
     /// then it should be set to the type, while also writing the sequence header.
     seq_element_type_id: Option<&'a mut Option<i8>>,
     /// If the current serializer is on a sequence, then this represent the current type
-    /// of the 
+    /// of the sequence being serialized.
     seq_type_id: Option<i8>,
     /// Set to true when the serializer should set the next_key from a serialized str, 
     /// any other serialized value should produce an error because only str key are
@@ -627,6 +627,9 @@ enum NbtDeserializerHint {
     Bool,
     /// Unsigned variant of the number should be returned.
     Unsigned,
+    /// An option should be deserialized.
+    /// TODO: Improve support for options when deserializing!
+    Option,
 }
 
 impl<R: Read> NbtDeserializer<R> {
@@ -634,7 +637,7 @@ impl<R: Read> NbtDeserializer<R> {
     /// Internal helper function to deserialize any value, much like serde 
     /// `deserialize_any` but with a hint about the expected sign of the value, only 
     /// relevant if the is an integer.
-    fn deserialize_any_unsigned<'de, V>(&mut self, visitor: V, hint: NbtDeserializerHint) -> Result<V::Value, NbtErrorKind>
+    fn deserialize_any_hint<'de, V>(&mut self, visitor: V, hint: NbtDeserializerHint) -> Result<V::Value, NbtErrorKind>
     where
         V: de::Visitor<'de> 
     {
@@ -671,6 +674,7 @@ impl<R: Read> NbtDeserializer<R> {
                 match hint {
                     NbtDeserializerHint::Unsigned => visitor.visit_u8(val as u8),
                     NbtDeserializerHint::Bool => visitor.visit_bool(val != 0),
+                    NbtDeserializerHint::Option if val == 0 => visitor.visit_none(),
                     _ => visitor.visit_i8(val)
                 }
             }
@@ -749,47 +753,54 @@ impl<'de, 'a, R: Read> de::Deserializer<'de> for &'a mut NbtDeserializer<R> {
     where
         V: de::Visitor<'de> 
     {
-        self.deserialize_any_unsigned(visitor, NbtDeserializerHint::Default)
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Default)
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        self.deserialize_any_unsigned(visitor, NbtDeserializerHint::Bool)
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Bool)
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de> 
     {
-        self.deserialize_any_unsigned(visitor, NbtDeserializerHint::Unsigned)
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Unsigned)
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de> 
     {
-        self.deserialize_any_unsigned(visitor, NbtDeserializerHint::Unsigned)
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Unsigned)
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de> 
     {
-        self.deserialize_any_unsigned(visitor, NbtDeserializerHint::Unsigned)
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Unsigned)
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de> 
     {
-        self.deserialize_any_unsigned(visitor, NbtDeserializerHint::Unsigned)
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Unsigned)
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de> 
+    {
+        self.deserialize_any_hint(visitor, NbtDeserializerHint::Option)
     }
 
     serde::forward_to_deserialize_any! {
         i8 i16 i32 i64 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct seq tuple
+        bytes byte_buf unit unit_struct newtype_struct seq tuple
         tuple_struct map struct enum identifier ignored_any
     }
 
@@ -941,9 +952,22 @@ mod tests {
 
     #[test]
     fn lists() {
+
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone, Copy)]
+        struct Compound {
+            key0: bool,
+        }
+
         test_value([0u8; 0],                &[NBT_LIST as u8,   0, 0, NBT_BYTE as u8,   0, 0, 0, 0]);
         test_value([0x12u8; 3],             &[NBT_LIST as u8,   0, 0, NBT_BYTE as u8,   0, 0, 0, 3, 0x12, 0x12, 0x12]);
         test_value([0x1234u16; 2],          &[NBT_LIST as u8,   0, 0, NBT_SHORT as u8,  0, 0, 0, 2, 0x12, 0x34, 0x12, 0x34]);
+
+        test_value([Compound { key0: true }; 2], &[
+            NBT_LIST as u8,     0, 0, NBT_COMPOUND as u8, 0, 0, 0, 2, // List header
+            NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x30, 0x01, 0, // key0 header + value + terminating byte
+            NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x30, 0x01, 0, // key0 header + value + terminating byte
+        ]);
+
     }
 
     #[test]
@@ -974,7 +998,7 @@ mod tests {
         };
 
         test_value(comp, &[
-            NBT_COMPOUND as u8, 0, 0, // Compound header.
+            NBT_COMPOUND as u8, 0, 0, // Compound header
             NBT_STRING as u8,   0, 4, 0x6B, 0x65, 0x79, 0x30, 0, 5, 0x68, 0x65, 0x6C, 0x6C, 0x6F, // key0 header + value
             NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x31, 0x01, // key1 header + value
             NBT_FLOAT as u8,    0, 4, 0x6B, 0x65, 0x79, 0x32, 0x4A, 0x3F, 0xBF, 0x62, // key2 header + value

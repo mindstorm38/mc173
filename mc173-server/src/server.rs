@@ -376,7 +376,7 @@ impl ServerWorld {
         // Swap events out in order to proceed them.
         let mut events = self.world.swap_events(None).expect("events should be enabled");
         for event in events.drain(..) {
-            println!("[WORLD] Event: {event:?}");
+            // println!("[WORLD] Event: {event:?}");
             match event {
                 Event::Block { pos, inner } => match inner {
                     BlockEvent::Set { id, metadata, prev_id, prev_metadata } =>
@@ -1793,6 +1793,7 @@ impl ServerPlayer {
         let base = entity.base_mut();
 
         let mut item_entity = ItemEntity::default();
+        item_entity.persistent = true;
         item_entity.pos = base.pos;
         item_entity.pos.y += 1.3;  // TODO: Adjust depending on eye height.
 
@@ -1963,7 +1964,7 @@ impl ChunkTracker {
 
             let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
 
-            println!("sending chunk data for {cx}/{cz}");
+            // println!("sending chunk data for {cx}/{cz}");
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(packet.clone());
@@ -1974,7 +1975,7 @@ impl ChunkTracker {
 
             let set_block = self.set_blocks[0];
 
-            println!("sending single block change for {cx}/{cz}");
+            // println!("sending single block change for {cx}/{cz}");
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(OutPacket::BlockSet(proto::BlockSetPacket {
@@ -2005,7 +2006,7 @@ impl ChunkTracker {
                 cz,
                 blocks: Arc::new(set_blocks),
             });
-            println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
+            // println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
 
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
@@ -2502,8 +2503,12 @@ fn new_chunk_data_packet(chunk: &Chunk, mut from: IVec3, mut size: IVec3) -> pro
     use flate2::write::ZlibEncoder;
     use flate2::Compression;
     
+    debug_assert!(size.x != 0 && size.y != 0 && size.z != 0);
+    
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
     chunk.write_data(&mut encoder, &mut from, &mut size).unwrap();
+
+    debug_assert!(size.x != 0 && size.y != 0 && size.z != 0);
     
     proto::ChunkDataPacket {
         x: from.x,
