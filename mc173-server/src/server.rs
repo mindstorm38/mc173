@@ -4,27 +4,29 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use std::net::SocketAddr;
 use std::ops::{Mul, Div};
+use std::sync::Arc;
 use std::io;
 
 use anyhow::Result as AnyResult;
 
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
-
 use glam::{DVec3, Vec2, IVec3};
 
-use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
-use mc173::chunk::{calc_entity_chunk_pos, calc_chunk_pos_unchecked, CHUNK_WIDTH, CHUNK_HEIGHT};
-use mc173::entity::{Entity, PlayerEntity, ItemEntity};
+use mc173::chunk::{self, Chunk};
+use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, 
+    BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
 use mc173::world::interact::Interaction;
-use mc173::inventory::InventoryHandle;
+
+use mc173::entity::{Entity, PlayerEntity, ItemEntity};
 use mc173::block_entity::BlockEntity;
-use mc173::gen::OverworldGenerator;
 use mc173::item::{self, ItemStack};
+use mc173::block;
+
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
+use mc173::gen::OverworldGenerator;
+
+use mc173::inventory::InventoryHandle;
 use mc173::craft::CraftTracker;
 use mc173::util::Face;
-use mc173::block;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 
@@ -292,8 +294,13 @@ struct ServerWorld {
     world: World,
     /// The chunk source used to load and save the world's chunk.
     storage: ChunkStorage,
+    /// A set of chunks that have been modified and needs to be saved at some point. This
+    /// includes modification to any chunk, entity or block entity data.
+    dirty_chunks: HashSet<(i32, i32)>,
+
+    chunk_trackers: HashMap<(i32, i32), ChunkTracker>,
     /// Entity tracker, each is associated to the entity id.
-    trackers: HashMap<u32, EntityTracker>,
+    entity_trackers: HashMap<u32, EntityTracker>,
     /// Players currently in the world.
     players: Vec<ServerPlayer>,
     /// True when the world has been ticked once.
@@ -321,7 +328,9 @@ impl ServerWorld {
             name: name.into(),
             world: inner,
             storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(SEED), 4),
-            trackers: HashMap::new(),
+            dirty_chunks: HashSet::new(),
+            chunk_trackers: HashMap::new(),
+            entity_trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
             tick_duration: 0.0,
@@ -364,19 +373,10 @@ impl ServerWorld {
 
         self.world.tick();
 
-        // Send time to every playing clients every second.
-        let time = self.world.get_time();
-        if time % 20 == 0 {
-            for player in &self.players {
-                player.send(OutPacket::UpdateTime(proto::UpdateTimePacket {
-                    time,
-                }));
-            }
-        }
-
         // Swap events out in order to proceed them.
         let mut events = self.world.swap_events(None).expect("events should be enabled");
         for event in events.drain(..) {
+            println!("[WORLD] Event: {event:?}");
             match event {
                 Event::Block { pos, inner } => match inner {
                     BlockEvent::Set { id, metadata, prev_id, prev_metadata } =>
@@ -413,14 +413,28 @@ impl ServerWorld {
                 Event::Weather { new, .. } =>
                     self.handle_weather_change(new),
             }
-            // println!("[WORLD] Event: {event:?}");
         }
 
         // Reinsert events after processing.
         self.world.swap_events(Some(events));
 
+        // Send time to every playing clients every second.
+        let time = self.world.get_time();
+        if time % 20 == 0 {
+            for player in &self.players {
+                player.send(OutPacket::UpdateTime(proto::UpdateTimePacket {
+                    time,
+                }));
+            }
+        }
+
+        // After we collected every block change, update all players accordingly.
+        for (&(cx, cz), tracker) in &mut self.chunk_trackers {
+            tracker.update_players(cx, cz, &mut self.players, &self.world);
+        }
+
         // After world events are processed, tick entity trackers.
-        for tracker in self.trackers.values_mut() {
+        for tracker in self.entity_trackers.values_mut() {
 
             if time % 60 == 0 {
                 tracker.update_tracking_players(&mut self.players, &self.world);
@@ -433,13 +447,18 @@ impl ServerWorld {
 
         }
 
+        // Every 10 second, save each modified chunks.
+        if time % 200 == 0 {
+            for (cx, cz) in self.dirty_chunks.drain() {
+                if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
+                    self.storage.request_save(snapshot);
+                }
+            }
+        }
+
+        // Update tick duration metric.
         let tick_duration = start.elapsed();
         self.tick_duration = (self.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
-
-        // if time % 20 == 0 {
-        //     println!("Tick duration: {:.2} ms", self.tick_duration * 1000.0);
-        //     println!("Tick interval: {:.2} ms", self.tick_interval * 1000.0);
-        // }
 
     }
     
@@ -449,7 +468,7 @@ impl ServerWorld {
 
         // Ensure that every entity has a tracker.
         for (id, entity) in self.world.iter_entities() {
-            self.trackers.entry(id).or_insert_with(|| {
+            self.entity_trackers.entry(id).or_insert_with(|| {
                 let tracker = EntityTracker::new(id, entity);
                 tracker.update_tracking_players(&mut self.players, &self.world);
                 tracker
@@ -469,7 +488,7 @@ impl ServerWorld {
     fn handle_player_join(&mut self, mut player: ServerPlayer) -> usize {
 
         // Initial tracked entities.
-        for tracker in self.trackers.values() {
+        for tracker in self.entity_trackers.values() {
             tracker.update_tracking_player(&mut player, &self.world);
         }
 
@@ -507,7 +526,7 @@ impl ServerWorld {
 
             // Untrack all its entities.
             for entity_id in tracked_entities {
-                let tracker = self.trackers.get(&entity_id).expect("incoherent tracked entity");
+                let tracker = self.entity_trackers.get(&entity_id).expect("incoherent tracked entity");
                 tracker.kill_player_entity(&mut player);
             }
 
@@ -520,38 +539,30 @@ impl ServerWorld {
     /// Handle a block change world event.
     fn handle_block_set(&mut self, pos: IVec3, id: u8, metadata: u8, prev_id: u8, _prev_metadata: u8) {
         
-        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
+        self.dirty_chunks.insert((cx, cz));
+
+        // Ensure that we have a chunk tracker and register the block change in it.
+        let chunk_tracker = self.chunk_trackers.entry((cx, cz)).or_default();
+        chunk_tracker.set_block(pos, id, metadata);
+
+        // If the block was a crafting table, if any player has a crafting table
+        // window referencing this block then we force close it.
         let break_crafting_table = id != prev_id && prev_id == block::CRAFTING_TABLE;
-
-        for player in &mut self.players {
-            
-            // Send the block change event to all players that have the chunk loaded.
-            if player.tracked_chunks.contains(&(cx, cz)) {
-                player.send(OutPacket::BlockChange(proto::BlockChangePacket {
-                    x: pos.x,
-                    y: pos.y as i8,
-                    z: pos.z,
-                    block: id,
-                    metadata,
-                }));
-            }
-
-            // If the block was a crafting table, if any player has a crafting table
-            // window referencing this block then we force close it.
-            if break_crafting_table {
+        if break_crafting_table {
+            for player in &mut self.players {
                 if let WindowKind::CraftingTable { pos: check_pos } = player.window.kind {
                     if check_pos == pos {
                         player.close_window(&mut self.world, None, true);
                     }
                 }
             }
-
         }
 
     }
 
     fn handle_block_sound(&mut self, pos: IVec3, _block: u8, _metadata: u8) {
-        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
         for player in &self.players {
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
@@ -568,7 +579,7 @@ impl ServerWorld {
     /// Handle an entity spawn world event.
     fn handle_entity_spawn(&mut self, id: u32) {
         let entity = self.world.get_entity(id).expect("incoherent event entity");
-        self.trackers.entry(id).or_insert_with(|| {
+        self.entity_trackers.entry(id).or_insert_with(|| {
             let tracker = EntityTracker::new(id, entity);
             tracker.update_tracking_players(&mut self.players, &self.world);
             tracker
@@ -577,23 +588,23 @@ impl ServerWorld {
 
     /// Handle an entity kill world event.
     fn handle_entity_remove(&mut self, id: u32) {
-        let tracker = self.trackers.remove(&id).expect("incoherent event entity");
+        let tracker = self.entity_trackers.remove(&id).expect("incoherent event entity");
         tracker.untrack_players(&mut self.players);
     }
 
     /// Handle an entity position world event.
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
-        self.trackers.get_mut(&id).unwrap().set_pos(pos);
+        self.entity_trackers.get_mut(&id).unwrap().set_pos(pos);
     }
 
     /// Handle an entity look world event.
     fn handle_entity_look(&mut self, id: u32, look: Vec2) {
-        self.trackers.get_mut(&id).unwrap().set_look(look);
+        self.entity_trackers.get_mut(&id).unwrap().set_look(look);
     }
 
     /// Handle an entity look world event.
     fn handle_entity_velocity(&mut self, id: u32, vel: DVec3) {
-        self.trackers.get_mut(&id).unwrap().set_vel(vel);
+        self.entity_trackers.get_mut(&id).unwrap().set_vel(vel);
     }
 
     /// Handle an entity pickup world event.
@@ -640,12 +651,14 @@ impl ServerWorld {
     }
 
     /// HAndle a block entity set event.
-    fn handle_block_entity_set(&mut self, _pos: IVec3) {
-
+    fn handle_block_entity_set(&mut self, pos: IVec3) {
+        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(pos));
     }
 
     /// Handle a block entity remove event.
     fn handle_block_entity_remove(&mut self, target_pos: IVec3) {
+
+        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
         
         // Close the inventory of all entities that had a window opened for this block.
         for player in &mut self.players {
@@ -1818,7 +1831,7 @@ impl ServerPlayer {
     /// Update the chunks sent to this player.
     fn update_chunks(&mut self, world: &mut World) {
 
-        let (ocx, ocz) = calc_entity_chunk_pos(self.pos);
+        let (ocx, ocz) = chunk::calc_entity_chunk_pos(self.pos);
         let view_range = 3;
 
         for cx in (ocx - view_range)..(ocx + view_range) {
@@ -1831,27 +1844,179 @@ impl ServerPlayer {
                             cx, cz, init: true
                         }));
 
-                        let mut compressed_data = Vec::new();
+                        let from = IVec3 {
+                            x: cx * 16,
+                            y: 0,
+                            z: cz * 16,
+                        };
 
-                        let mut encoder = ZlibEncoder::new(&mut compressed_data, Compression::fast());
-                        chunk.write_data_to(&mut encoder).unwrap();
-                        encoder.finish().unwrap();
+                        let size = IVec3 { 
+                            x: 16, 
+                            y: 128, 
+                            z: 16,
+                        };
 
-                        self.send(OutPacket::ChunkData(proto::ChunkDataPacket {
-                            x: cx * CHUNK_WIDTH as i32,
-                            y: 0, 
-                            z: cz * CHUNK_WIDTH as i32, 
-                            x_size: CHUNK_WIDTH as u8, 
-                            y_size: CHUNK_HEIGHT as u8, 
-                            z_size: CHUNK_WIDTH as u8,
-                            compressed_data,
-                        }));
+                        self.send(OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size)));
 
                     }
                 }
 
             }
         }
+
+    }
+
+}
+
+/// This structure tracks a chunk and record every block set in the chunk, this is used
+/// to track blocks being set.
+#[derive(Debug, Default)]
+struct ChunkTracker {
+    /// A list of block set in this chunk, if the number of set blocks go above a given
+    /// threshold, the vector can be cleared and `set_blocks_full` set to true in order
+    /// to resend only the modified range.
+    set_blocks: Vec<ChunkSetBlock>,
+    /// Set to true when the whole chunk area can be resent instead of all blocks one by
+    /// one.
+    set_blocks_full: bool,
+    /// The minimum position where blocks have been set in the chunk (inclusive).
+    set_blocks_min: ChunkLocalPos,
+    /// The maximum position where blocks have been set in the chunk (inclusive).
+    set_blocks_max: ChunkLocalPos,
+}
+
+/// A position structure to store chunk-local coordinates to save space.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ChunkLocalPos {
+    x: u8,
+    y: u8,
+    z: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChunkSetBlock {
+    pos: ChunkLocalPos,
+    block: u8,
+    metadata: u8,
+}
+
+impl ChunkTracker {
+
+    /// Internally register the given set block, depending on the internal state the 
+    /// change may be discarded and the whole modified area may be resent instead.
+    fn set_block(&mut self, pos: IVec3, block: u8, metadata: u8) {
+
+        // This is the Notchian implementation threshold.
+        const FULL_THRESHOLD: usize = 10;
+
+        let pos = ChunkLocalPos {
+            x: (pos.x as u32 & 0b1111) as u8,
+            y: (pos.y as u32 & 0b1111111) as u8,
+            z: (pos.z as u32 & 0b1111) as u8,
+        };
+
+        if !self.set_blocks_full {
+            // If the number of set blocks go above a threshold, then we abort and set
+            // the full state.
+            if self.set_blocks.len() >= FULL_THRESHOLD {
+                self.set_blocks_full = true;
+                self.set_blocks_min = pos;
+                self.set_blocks_max = pos;
+                self.set_blocks.clear(); // Can be cleared because useless now.
+                return; // Early return to avoid min/max recomputation.
+            } else {
+                self.set_blocks.push(ChunkSetBlock { pos, block, metadata });
+            }
+        }
+
+        self.set_blocks_min.x = self.set_blocks_min.x.min(pos.x);
+        self.set_blocks_min.y = self.set_blocks_min.x.min(pos.y);
+        self.set_blocks_min.z = self.set_blocks_min.x.min(pos.z);
+        self.set_blocks_max.x = self.set_blocks_max.x.max(pos.x);
+        self.set_blocks_max.y = self.set_blocks_max.x.max(pos.y);
+        self.set_blocks_max.z = self.set_blocks_max.x.max(pos.z);
+
+    }
+
+    /// Update the given players by sending them the correct packets to update the player
+    /// client side. If the chunk is full of set blocks then the whole area is resent, 
+    /// else only individual changes are sent to the players loading the chunk.
+    /// 
+    /// Once this function has updated all players, all modifications are forgot.
+    fn update_players(&mut self, cx: i32, cz: i32, players: &mut [ServerPlayer], world: &World) {
+
+        if self.set_blocks_full {
+
+            let chunk = world.get_chunk(cx, cz).expect("chunk has been removed");
+            
+            let from = IVec3 { 
+                x: cx * 16 + self.set_blocks_min.x as i32, 
+                y: self.set_blocks_min.y as i32, 
+                z: cz * 16 + self.set_blocks_min.z as i32,
+            };
+
+            let size = IVec3 { 
+                x: (self.set_blocks_max.x - self.set_blocks_min.x + 1) as i32, 
+                y: (self.set_blocks_max.y - self.set_blocks_min.y + 1) as i32, 
+                z: (self.set_blocks_max.z - self.set_blocks_min.z + 1) as i32, 
+            };
+
+            let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
+
+            println!("sending chunk data for {cx}/{cz}");
+            for player in players {
+                if player.tracked_chunks.contains(&(cx, cz)) {
+                    player.send(packet.clone());
+                }
+            }
+
+        } else if self.set_blocks.len() == 1 {
+
+            let set_block = self.set_blocks[0];
+
+            println!("sending single block change for {cx}/{cz}");
+            for player in players {
+                if player.tracked_chunks.contains(&(cx, cz)) {
+                    player.send(OutPacket::BlockSet(proto::BlockSetPacket {
+                        x: cx * 16 + set_block.pos.x as i32,
+                        y: set_block.pos.y as i8,
+                        z: cz * 16 + set_block.pos.z as i32,
+                        block: set_block.block,
+                        metadata: set_block.metadata,
+                    }));
+                }
+            }
+
+        } else if !self.set_blocks.is_empty() {
+
+            let mut set_blocks = Vec::new();
+            for set_block in &self.set_blocks {
+                set_blocks.push(proto::ChunkBlockSet {
+                    x: set_block.pos.x,
+                    y: set_block.pos.y,
+                    z: set_block.pos.z,
+                    block: set_block.block,
+                    metadata: set_block.metadata,
+                });
+            }
+
+            let packet = OutPacket::ChunkBlockSet(proto::ChunkBlockSetPacket {
+                cx,
+                cz,
+                blocks: Arc::new(set_blocks),
+            });
+            println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
+
+            for player in players {
+                if player.tracked_chunks.contains(&(cx, cz)) {
+                    player.send(packet.clone());
+                }
+            }
+
+        }
+
+        self.set_blocks_full = false;
+        self.set_blocks.clear();
 
     }
 
@@ -2326,4 +2491,28 @@ impl SlotAccess {
         }
     }
 
+}
+
+/// Create a new chunk data packet for the given chunk. This only works for a single 
+/// chunk and the given coordinate should be part of that chunk. The two arguments "from"
+/// and "to" are inclusive but might be modified to include more blocks if ths reduces
+/// computation.
+fn new_chunk_data_packet(chunk: &Chunk, mut from: IVec3, mut size: IVec3) -> proto::ChunkDataPacket {
+
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+    chunk.write_data(&mut encoder, &mut from, &mut size).unwrap();
+    
+    proto::ChunkDataPacket {
+        x: from.x,
+        y: from.y as i16, 
+        z: from.z, 
+        x_size: size.x as u8, 
+        y_size: size.y as u8, 
+        z_size: size.z as u8,
+        compressed_data: Arc::new(encoder.finish().unwrap()),
+    }
+    
 }

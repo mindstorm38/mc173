@@ -2,8 +2,9 @@
 //! This  module only provides low-level data structures, refer to the [`mc173::world`] 
 //! module for world manipulation methods.
 
-use std::io::{self, Write};
+use std::io::Write;
 use std::sync::Arc;
+use std::io;
 
 use glam::{IVec3, DVec3};
 
@@ -19,6 +20,7 @@ pub const CHUNK_HEIGHT: usize = 128;
 const CHUNK_2D_SIZE: usize = CHUNK_WIDTH * CHUNK_WIDTH;
 /// Internal chunk 3D size, in number of block per chunk.
 const CHUNK_3D_SIZE: usize = CHUNK_HEIGHT * CHUNK_2D_SIZE;
+
 
 /// Calculate the index in the chunk's arrays for the given position (local or not). This
 /// is the same layout used by Minecraft's code `_xxx xzzz zyyy yyyy`. Only firsts 
@@ -193,15 +195,13 @@ impl Chunk {
 
     /// Fill the given chunk area with given block id and metadata.
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
-    pub fn fill_block(&mut self, start: IVec3, size: IVec3, id: u8, metadata: u8) {
-        for x in start.x..start.x + size.x {
-            for z in start.z..start.z + size.z {
-                let mut index = calc_3d_index(IVec3::new(x, start.y, z));
-                for _ in start.y..start.y + size.y {
+    pub fn fill_block(&mut self, from: IVec3, size: IVec3, id: u8, metadata: u8) {
+        for x in from.x..from.x + size.x {
+            for z in from.z..from.z + size.z {
+                for y in from.y..from.y + size.y {
+                    let index = calc_3d_index(IVec3::new(x, y, z));
                     self.block[index] = id;
                     self.metadata.set(index, metadata);
-                    // Increment Y component.
-                    index += 1;
                 }
             }
         }
@@ -209,15 +209,13 @@ impl Chunk {
 
     /// Fill the given chunk area with given block and sky light values.
     /// Panics if Y component of the position is not between 0 and 128 (excluded).
-    pub fn fill_light(&mut self, start: IVec3, size: IVec3, block_light: u8, sky_light: u8)  {
-        for x in start.x..start.x + size.x {
-            for z in start.z..start.z + size.z {
-                let mut index = calc_3d_index(IVec3::new(x, start.y, z));
-                for _ in start.y..start.y + size.y {
+    pub fn fill_light(&mut self, from: IVec3, size: IVec3, block_light: u8, sky_light: u8)  {
+        for x in from.x..from.x + size.x {
+            for z in from.z..from.z + size.z {
+                for y in from.y..from.y + size.y {
+                    let index = calc_3d_index(IVec3::new(x, y, z));
                     self.block_light.set(index, block_light);
                     self.sky_light.set(index, sky_light);
-                    // Increment Y component.
-                    index += 1;
                 }
             }
         }
@@ -294,13 +292,71 @@ impl Chunk {
         }
     }
 
-    /// Write the chunk's data to the given writer.
-    pub fn write_data_to(&self, mut writer: impl Write) -> io::Result<()> {
-        writer.write_all(&self.block)?;
-        writer.write_all(&self.metadata.inner)?;
-        writer.write_all(&self.block_light.inner)?;
-        writer.write_all(&self.sky_light.inner)?;
+    /// Write this chunk's data to the given writer, the data is copied from the start
+    /// point for the given size. Note that this function may change the start and size
+    /// of the area to be more efficient while while writing data.
+    pub fn write_data(&self, mut writer: impl Write, from: &mut IVec3, size: &mut IVec3) -> io::Result<()> {
+
+        // If the Y component is not properly aligned for copying nibble bytes, adjust it.
+        if from.y % 2 != 0 {
+            from.y -= 1;
+            size.y += 1;
+        }
+
+        // After check start point, we check that size if a multiple of 2.
+        size.y &= !1;
+
+        debug_assert!(from.y % 2 == 0);
+        debug_assert!(size.y % 2 == 0);
+        debug_assert!(size.x <= 16 && size.y <= 128 && size.z <= 16);
+
+        let height = size.y as usize;
+        let half_height = height / 2; // Used for nibble arrays.
+
+        let from = *from;
+        let to = from + *size; // Exclusive
+
+        // If we want a full chunk
+        if size.x == 16 && size.z == 16 && size.y == 128 {
+            writer.write_all(&self.block)?;
+            writer.write_all(&self.metadata.inner)?;
+            writer.write_all(&self.block_light.inner)?;
+            writer.write_all(&self.sky_light.inner)?;
+        } else {
+    
+            for x in from.x..to.x {
+                for z in from.z..to.z {
+                    // Start index, Y component is first so we can copy the whole column.
+                    let index = calc_3d_index(IVec3::new(x, from.y, z));
+                    writer.write_all(&self.block[index..index + height])?;
+                }
+            }
+    
+            for x in from.x..to.x {
+                for z in from.z..to.z {
+                    let index = calc_3d_index(IVec3::new(x, from.y, z)) / 2;
+                    writer.write_all(&self.metadata.inner[index..index + half_height])?;
+                }
+            }
+    
+            for x in from.x..to.x {
+                for z in from.z..to.z {
+                    let index = calc_3d_index(IVec3::new(x, from.y, z)) / 2;
+                    writer.write_all(&self.block_light.inner[index..index + half_height])?;
+                }
+            }
+    
+            for x in from.x..to.x {
+                for z in from.z..to.z {
+                    let index = calc_3d_index(IVec3::new(x, from.y, z)) / 2;
+                    writer.write_all(&self.sky_light.inner[index..index + half_height])?;
+                }
+            }
+    
+        }
+
         Ok(())
+
     }
 
 }

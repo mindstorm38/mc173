@@ -324,7 +324,7 @@ where
         // Calculate the zero padding to write at the end in order to have a file that
         // is 4K aligned, and also to clear old data.
         let total_len = data.len() + 4 + 1;
-        let padding_len = 4096 - total_len;
+        let padding_len = 4096 - total_len % 4096;
         self.inner.write_all(&EMPTY_SECTOR[..padding_len])?;
 
         self.inner.flush()?;

@@ -2,6 +2,7 @@
 
 use std::io::{Read, self, Write};
 use std::fmt::Arguments;
+use std::sync::Arc;
 
 use glam::{DVec3, Vec2, IVec3};
 
@@ -135,9 +136,9 @@ pub enum OutPacket {
     /// A bulk send of chunk data.
     ChunkData(ChunkDataPacket),
     /// Many block changed at the same time.
-    BlockMultiChange(BlockMultiChangePacket),
+    ChunkBlockSet(ChunkBlockSetPacket),
     /// A single block changed.
-    BlockChange(BlockChangePacket),
+    BlockSet(BlockSetPacket),
     /// An action to apply to a block, currently only note block and pistons.
     BlockAction(BlockActionPacket),
     /// Sent when an explosion happen, from TNT or creeper.
@@ -502,20 +503,30 @@ pub struct ChunkDataPacket {
     pub x_size: u8,
     pub y_size: u8,
     pub z_size: u8,
-    pub compressed_data: Vec<u8>,
+    pub compressed_data: Arc<Vec<u8>>,
 }
 
 /// Packet 52
 #[derive(Debug, Clone)]
-pub struct BlockMultiChangePacket {
+pub struct ChunkBlockSetPacket {
     pub cx: i32,
     pub cz: i32,
-    pub blocks: Vec<()>,
+    pub blocks: Arc<Vec<ChunkBlockSet>>,
+}
+
+/// Represent a block change local to a chunk, 
+#[derive(Debug, Clone)]
+pub struct ChunkBlockSet {
+    pub x: u8,
+    pub y: u8,
+    pub z: u8,
+    pub block: u8,
+    pub metadata: u8,
 }
 
 /// Packet 53
 #[derive(Debug, Clone)]
-pub struct BlockChangePacket {
+pub struct BlockSetPacket {
     pub x: i32,
     pub y: i8,
     pub z: i32,
@@ -1073,13 +1084,23 @@ impl net::OutPacket for OutPacket {
                 write.write_java_int(packet.compressed_data.len() as i32)?;
                 write.write_all(&packet.compressed_data)?;
             }
-            OutPacket::BlockMultiChange(packet) => {
+            OutPacket::ChunkBlockSet(packet) => {
                 write.write_u8(52)?;
                 write.write_java_int(packet.cx)?;
                 write.write_java_int(packet.cz)?;
-                // TODO: write packet.blocks
+                write.write_java_short(packet.blocks.len() as i16)?;
+                for block in &packet.blocks[..] {
+                    let raw_pos = ((block.x as u16 & 15) << 12) | ((block.z as u16 & 15) << 8) | (block.y as u16 & 255);
+                    write.write_java_short(raw_pos as i16)?;
+                }
+                for block in &packet.blocks[..] {
+                    write.write_u8(block.block)?;
+                }
+                for block in &packet.blocks[..] {
+                    write.write_u8(block.metadata)?;
+                }
             }
-            OutPacket::BlockChange(packet) => {
+            OutPacket::BlockSet(packet) => {
                 write.write_u8(53)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_byte(packet.y)?;
