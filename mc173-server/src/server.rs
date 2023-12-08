@@ -297,7 +297,7 @@ struct ServerWorld {
     /// A set of chunks that have been modified and needs to be saved at some point. This
     /// includes modification to any chunk, entity or block entity data.
     dirty_chunks: HashSet<(i32, i32)>,
-
+    /// Chunks trackers used to send proper block changes packets.
     chunk_trackers: HashMap<(i32, i32), ChunkTracker>,
     /// Entity tracker, each is associated to the entity id.
     entity_trackers: HashMap<u32, EntityTracker>,
@@ -305,12 +305,24 @@ struct ServerWorld {
     players: Vec<ServerPlayer>,
     /// True when the world has been ticked once.
     init: bool,
+    /// True when world ticking is frozen, events are still processed by the world no 
+    /// longer runs.
+    tick_mode: TickMode,
     /// Sliding average tick duration, in seconds.
     tick_duration: f32,
     /// Sliding average interval between two ticks.
     tick_interval: f32,
     /// Instant of the last tick.
     tick_last: Instant,
+}
+
+/// Indicate the current mode for ticking the world.
+enum TickMode {
+    /// The world is ticked on each server tick (20 TPS).
+    Auto,
+    /// The world if ticked on each server tick (20 TPS), but the counter decrease and
+    /// it is no longer ticked when reaching 0.
+    Manual(u32),
 }
 
 impl ServerWorld {
@@ -333,6 +345,7 @@ impl ServerWorld {
             entity_trackers: HashMap::new(),
             players: Vec::new(),
             init: false,
+            tick_mode: TickMode::Auto,
             tick_duration: 0.0,
             tick_interval: 0.0,
             tick_last: Instant::now(),
@@ -371,7 +384,17 @@ impl ServerWorld {
             }
         }
 
-        self.world.tick();
+        // Only run if no tick freeze.
+        match self.tick_mode {
+            TickMode::Auto => {
+                self.world.tick()
+            }
+            TickMode::Manual(0) => {}
+            TickMode::Manual(ref mut n) => {
+                self.world.tick();
+                *n -= 1;
+            }
+        }
 
         // Swap events out in order to proceed them.
         let mut events = self.world.swap_events(None).expect("events should be enabled");
@@ -1038,6 +1061,9 @@ impl ServerPlayer {
                 }
 
                 Ok(())
+            }
+            ["/tick", "freeze"] => {
+                todo!()
             }
             _ => Err(format!("§eUnknown command!"))
         }
