@@ -683,6 +683,8 @@ impl ServerWorld {
     /// Handle a storage event for a block entity.
     fn handle_block_entity_storage(&mut self, target_pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
 
+        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+
         for player in &mut self.players {
             match player.window.kind {
                 WindowKind::Chest { ref pos } => {
@@ -737,6 +739,8 @@ impl ServerWorld {
 
     fn handle_block_entity_progress(&mut self, target_pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
+        self.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        
         for player in &mut self.players {
             if let WindowKind::Furnace { pos } = player.window.kind {
                 if pos == target_pos {
