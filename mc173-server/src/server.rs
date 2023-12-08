@@ -1891,14 +1891,14 @@ struct ChunkTracker {
 }
 
 /// A position structure to store chunk-local coordinates to save space.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 struct ChunkLocalPos {
     x: u8,
     y: u8,
     z: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ChunkSetBlock {
     pos: ChunkLocalPos,
     block: u8,
@@ -1935,11 +1935,12 @@ impl ChunkTracker {
         }
 
         self.set_blocks_min.x = self.set_blocks_min.x.min(pos.x);
-        self.set_blocks_min.y = self.set_blocks_min.x.min(pos.y);
-        self.set_blocks_min.z = self.set_blocks_min.x.min(pos.z);
+        self.set_blocks_min.y = self.set_blocks_min.y.min(pos.y);
+        self.set_blocks_min.z = self.set_blocks_min.z.min(pos.z);
+        
         self.set_blocks_max.x = self.set_blocks_max.x.max(pos.x);
-        self.set_blocks_max.y = self.set_blocks_max.x.max(pos.y);
-        self.set_blocks_max.z = self.set_blocks_max.x.max(pos.z);
+        self.set_blocks_max.y = self.set_blocks_max.y.max(pos.y);
+        self.set_blocks_max.z = self.set_blocks_max.z.max(pos.z);
 
     }
 
@@ -1968,18 +1969,18 @@ impl ChunkTracker {
 
             let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
 
-            // println!("sending chunk data for {cx}/{cz}");
+            println!("sending chunk data for {cx}/{cz}");
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(packet.clone());
                 }
             }
 
-        } else if self.set_blocks.len() == 1 {
+        }/* else if self.set_blocks.len() == 1 {
 
             let set_block = self.set_blocks[0];
 
-            // println!("sending single block change for {cx}/{cz}");
+            println!("sending single block change for {cx}/{cz}");
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(OutPacket::BlockSet(proto::BlockSetPacket {
@@ -1992,25 +1993,24 @@ impl ChunkTracker {
                 }
             }
 
-        } else if !self.set_blocks.is_empty() {
+        }*/ else if !self.set_blocks.is_empty() {
 
-            let mut set_blocks = Vec::new();
-            for set_block in &self.set_blocks {
-                set_blocks.push(proto::ChunkBlockSet {
+            let set_blocks = self.set_blocks.iter()
+                .map(|set_block| proto::ChunkBlockSet {
                     x: set_block.pos.x,
                     y: set_block.pos.y,
                     z: set_block.pos.z,
                     block: set_block.block,
                     metadata: set_block.metadata,
-                });
-            }
+                })
+                .collect();
 
             let packet = OutPacket::ChunkBlockSet(proto::ChunkBlockSetPacket {
                 cx,
                 cz,
                 blocks: Arc::new(set_blocks),
             });
-            // println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
+            println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
 
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {

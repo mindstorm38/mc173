@@ -514,7 +514,7 @@ pub struct ChunkBlockSetPacket {
     pub blocks: Arc<Vec<ChunkBlockSet>>,
 }
 
-/// Represent a block change local to a chunk, 
+/// Represent a block change local to a chunk.
 #[derive(Debug, Clone)]
 pub struct ChunkBlockSet {
     pub x: u8,
