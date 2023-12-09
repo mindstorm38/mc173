@@ -3,6 +3,7 @@
 use glam::IVec3;
 
 use crate::world::World;
+use crate::util::Face;
 use crate::block;
 
 use super::{ItemEntity, Size};
@@ -29,6 +30,37 @@ impl ItemEntity {
             self.vel.y = 0.2;
             self.vel.x = ((self.rand.next_float() - self.rand.next_float()) * 0.2) as f64;
             self.vel.z = ((self.rand.next_float() - self.rand.next_float()) * 0.2) as f64;
+        }
+
+        // If the item is in an opaque block.
+        let block_pos = self.pos.floor().as_ivec3();
+        if world.is_block_opaque_cube(block_pos) {
+
+            let delta = self.pos - block_pos.as_dvec3();
+
+            // Find a block face where we can bump the item.
+            let bump_face = Face::ALL.into_iter()
+                .filter(|face| !world.is_block_opaque_cube(block_pos + face.delta()))
+                .map(|face| {
+                    let mut delta = delta[face.axis_index()];
+                    if face.is_pos() {
+                        delta = 1.0 - delta;
+                    }
+                    (face, delta)
+                })
+                .min_by(|&(_, delta1), &(_, delta2)| delta1.total_cmp(&delta2))
+                .map(|(face, _)| face);
+
+            // If we found a non opaque face then we bump the item to that face.
+            if let Some(bump_face) = bump_face {
+                let accel = (self.rand.next_float() * 0.2 + 0.1) as f64;
+                if bump_face.is_neg() {
+                    self.vel[bump_face.axis_index()] = -accel;
+                } else {
+                    self.vel[bump_face.axis_index()] = accel;
+                }
+            }
+            
         }
     
         // TODO: Item motion if stuck in a block.

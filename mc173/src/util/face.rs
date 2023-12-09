@@ -71,6 +71,19 @@ impl Face {
         matches!(self, Face::NegZ | Face::PosZ)
     }
 
+    /// Get the axis (X, Y, Z) index for that face when using `glam` vectors.
+    #[inline]
+    pub fn axis_index(self) -> usize {
+        match self {
+            Face::NegY |
+            Face::PosY => 1,
+            Face::NegZ |
+            Face::PosZ => 2,
+            Face::NegX |
+            Face::PosX => 0,
+        }
+    }
+
     /// Get the opposite face.
     #[inline]
     pub fn opposite(self) -> Self {
@@ -203,4 +216,16 @@ impl FaceSet {
         self.inner & MASK != 0
     }
 
+}
+
+impl FromIterator<Face> for FaceSet {
+
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = Face>>(iter: T) -> Self {
+        let mut set = FaceSet::new();
+        for face in iter {
+            set.insert(face);
+        }
+        set
+    }
 }
