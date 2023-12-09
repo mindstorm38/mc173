@@ -5,11 +5,12 @@ use std::ops::Sub;
 
 use glam::{DVec3, Vec2};
 
+use crate::world::{World, Event, EntityEvent};
 use crate::block::{self, Material};
 use crate::util::BoundingBox;
-use crate::world::{World, Event, EntityEvent};
+use crate::item::ItemStack;
 
-use super::{Base, Size, Entity};
+use super::{Base, Size, Entity, ItemEntity};
 
 
 thread_local! {
@@ -242,6 +243,22 @@ impl<I> Base<I> {
         let yaw = f64::atan2(delta.z, delta.x) as f32 - std::f32::consts::FRAC_PI_2;
         let pitch = -f64::atan2(delta.y, horizontal_dist) as f32;
         self.update_look_by_step(Vec2::new(yaw, pitch), step);
+    }
+
+    /// Internal function to drop an item at this entity position.
+    pub fn drop_stack(&mut self, world: &mut World, offset: DVec3, stack: ItemStack) {
+
+        let mut item = ItemEntity::default();
+        item.persistent = true;
+        item.pos = self.pos + offset;
+        item.vel.x = self.rand.next_double() * 0.2 - 0.1;
+        item.vel.y = 0.2;
+        item.vel.z = self.rand.next_double() * 0.2 - 0.1;
+        item.kind.frozen_ticks = 10;
+        item.kind.stack = stack;
+        
+        world.spawn_entity(Entity::Item(item));
+
     }
 
 }

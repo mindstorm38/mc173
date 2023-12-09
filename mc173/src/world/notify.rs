@@ -52,6 +52,8 @@ impl World {
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM => self.notify_mushroom(pos),
             block::CACTUS => self.notify_cactus(pos),
+            block::SAND |
+            block::GRAVEL => self.schedule_tick(pos, id, 3),
             _ => {}
         }
     }
@@ -93,6 +95,8 @@ impl World {
             block::REPEATER_LIT => self.notify_repeater(pos, to_id, from_metadata),
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, to_id),
+            block::SAND |
+            block::GRAVEL => self.schedule_tick(pos, to_id, 3),
             // Break the cactus when it grows.
             block::CACTUS => self.notify_cactus(pos),
             _ => {}

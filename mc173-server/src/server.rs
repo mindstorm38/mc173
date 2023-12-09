@@ -1257,7 +1257,7 @@ impl ServerPlayer {
                     stack: stack.to_non_empty(),
                 }));
 
-                self.drop_item(world, stack.with_size(1), false);
+                self.drop_stack(world, stack.with_size(1), false);
 
             }
 
@@ -1349,7 +1349,7 @@ impl ServerPlayer {
                 }
 
                 cursor_stack.size -= drop_stack.size;
-                self.drop_item(world, drop_stack, false);
+                self.drop_stack(world, drop_stack, false);
 
             }
         } else if packet.shift_click {
@@ -1652,7 +1652,7 @@ impl ServerPlayer {
         }
 
         for drop_stack in drop_stacks {
-            self.drop_item(world, drop_stack, false);
+            self.drop_stack(world, drop_stack, false);
         }
 
         // Closing the player inventory so we clear the crafting matrix.
@@ -1902,7 +1902,7 @@ impl ServerPlayer {
 
     /// Drop an item from the player's entity, items are drop in front of the player, but
     /// the `on_ground` argument can be set to true in order to drop item on the ground.
-    fn drop_item(&mut self, world: &mut World, stack: ItemStack, on_ground: bool) {
+    fn drop_stack(&mut self, world: &mut World, stack: ItemStack, on_ground: bool) {
 
         let entity = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
         let base = entity.base_mut();

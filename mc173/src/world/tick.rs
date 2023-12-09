@@ -2,7 +2,7 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::entity::{Entity, ItemEntity};
+use crate::entity::{Entity, ItemEntity, FallingBlockEntity};
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
 use crate::gen::tree::TreeGenerator;
@@ -46,6 +46,8 @@ impl World {
             block::RED_MUSHROOM |
             block::BROWN_MUSHROOM => self.tick_mushroom(pos, id),
             block::SAPLING => self.tick_sapling(pos, metadata),
+            block::SAND |
+            block::GRAVEL if !random => self.tick_falling_block(pos, id),
             block::GRASS => {}, // Spread
             block::ICE => {}, // Melt
             block::LEAVES => {}, // Decay
@@ -299,6 +301,18 @@ impl World {
                     self.set_block_notify(pos, block::SAPLING, metadata);
                 }
             }
+        }
+    }
+
+    fn tick_falling_block(&mut self, pos: IVec3, id: u8) {
+        let (below_block, _) = self.get_block(pos - IVec3::Y).unwrap_or_default();
+        if below_block == 0 || below_block == block::FIRE || block::material::is_fluid(below_block) {
+            let mut falling_block = FallingBlockEntity::default();
+            falling_block.persistent = true;
+            falling_block.pos = pos.as_dvec3() + 0.5;
+            falling_block.kind.block_id = id;
+            self.spawn_entity(Entity::FallingBlock(falling_block));
+            self.set_block_notify(pos, block::AIR, 0);
         }
     }
 
