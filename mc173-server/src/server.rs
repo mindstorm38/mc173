@@ -11,12 +11,12 @@ use anyhow::Result as AnyResult;
 
 use glam::{DVec3, Vec2, IVec3};
 
-use mc173::chunk::{self, Chunk};
 use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent, 
     BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
-use mc173::world::interact::Interaction;
+    use mc173::world::interact::Interaction;
+    use mc173::chunk::{self, Chunk};
 
-use mc173::entity::{Entity, PlayerEntity, ItemEntity};
+use mc173::entity::{self, Entity, PlayerEntity, ItemEntity};
 use mc173::block_entity::BlockEntity;
 use mc173::item::{self, ItemStack};
 use mc173::block;
@@ -370,7 +370,7 @@ impl ServerWorld {
         self.state.tick_interval = (self.state.tick_interval * 0.98) + (start - self.state.tick_last).as_secs_f32() * 0.02;
         self.state.tick_last = start;
 
-        // Get server-side time and increment it.
+        // Get server-side time.
         let time = self.state.time;
         if time == 0 {
             self.init();
@@ -502,6 +502,7 @@ impl ServerWorld {
         let tick_duration = start.elapsed();
         self.state.tick_duration = (self.state.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
 
+        // Finally increase server-side tick time.
         self.state.time += 1;
 
     }
@@ -1063,6 +1064,35 @@ impl ServerPlayer {
 
             }
             ["/give", ..] => Err(format!("§eUsage: /give <item>[:<damage>] [<size>]")),
+            ["/spawn", entity_kind, ..] => {
+
+                // Entity spawning params depends on the entity
+                let mut entity = match entity_kind {
+                    "item" => {
+                        let mut item: ItemEntity = Default::default();
+                        item.kind.stack = ItemStack::new_block(block::STONE, 0);
+                        Entity::Item(item)
+                    }
+                    "boat" => Entity::Boat(Default::default()),
+                    "minecart" => Entity::Minecart(Default::default()),
+                    "pig" => Entity::Pig(Default::default()),
+                    "chicken" => Entity::Chicken(Default::default()),
+                    "cow" => Entity::Cow(Default::default()),
+                    "sheep" => Entity::Sheep(Default::default()),
+                    _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind}"))
+                };
+
+                let base = entity.base_mut();
+                base.persistent = true;
+                base.pos = self.pos;
+
+                let entity_id = world.spawn_entity(entity);
+                self.send_chat(format!("§aEntity spawned:§r {entity_id}"));
+
+                Ok(())
+
+            }
+            ["/spawn", ..] => Err(format!("§eUsage: /spawn <entity_kind> [params...]")),
             ["/time", ..] => {
                 self.send_chat(format!("§aTime:§r {}", world.get_time()));
                 Ok(())
@@ -2363,54 +2393,102 @@ impl EntityTracker {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
         let Some(entity) = world.get_entity(self.id) else { return };
-
-        let x = self.sent_pos.0;
-        let y = self.sent_pos.1;
-        let z = self.sent_pos.2;
-        let yaw = self.sent_look.0;
-        let pitch = self.sent_look.1;
         
         match entity {
-            Entity::Player(base) => {
-                player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
-                    entity_id: self.id,
-                    username: base.kind.kind.username.clone(),
-                    x, 
-                    y, 
-                    z, 
-                    yaw,
-                    pitch,
-                    current_item: 0, // TODO:
-                }));
+            Entity::Player(base) => self.spawn_player_entity_player(player, base),
+            Entity::Item(base) => self.spawn_player_entity_item(player, base),
+            Entity::Minecart(base) => {
+                match base.kind {
+                    entity::Minecart::Normal => self.spawn_player_entity_object(player, 10, false),
+                    entity::Minecart::Chest { .. } => self.spawn_player_entity_object(player, 11, false),
+                    entity::Minecart::Furnace { .. } => self.spawn_player_entity_object(player, 12, false),
+                }
             }
-            Entity::Item(base) => {
-                let vel = base.vel.mul(128.0).as_ivec3();
-                player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
-                    entity_id: self.id, 
-                    stack: base.kind.stack, 
-                    x, 
-                    y, 
-                    z, 
-                    vx: vel.x as i8,
-                    vy: vel.y as i8,
-                    vz: vel.z as i8,
-                }));
+            Entity::Boat(_) => self.spawn_player_entity_object(player, 1, false),
+            Entity::Painting(_) => todo!(),  // TODO:
+            Entity::Fish(_) => self.spawn_player_entity_object(player, 90, false),
+            Entity::LightningBolt(_) => (),
+            Entity::FallingBlock(base) => {
+                // NOTE: We use sand for any block id that is unsupported.
+                match base.kind.block_id {
+                    block::GRAVEL => self.spawn_player_entity_object(player, 71, false),
+                    _ => self.spawn_player_entity_object(player, 70, false),
+                }
             }
-            Entity::Pig(_base) => {
-                player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
-                    entity_id: self.id,
-                    kind: 90,
-                    x, 
-                    y, 
-                    z, 
-                    yaw,
-                    pitch,
-                    metadata: Vec::new(), // TODO:
-                }));
-            }
-            _ => unimplemented!("unsupported entity to spawn")
+            Entity::Tnt(_) => self.spawn_player_entity_object(player, 50, false),
+            Entity::Arrow(_) => self.spawn_player_entity_object(player, 60, true),
+            Entity::Egg(_) => self.spawn_player_entity_object(player, 62, false),
+            Entity::Fireball(_) => self.spawn_player_entity_object(player, 63, true),
+            Entity::Snowball(_) => self.spawn_player_entity_object(player, 61, false),
+            Entity::Ghast(_) => self.spawn_player_entity_mob(player, 56),
+            Entity::Slime(_) => self.spawn_player_entity_mob(player, 55),
+            Entity::Pig(_) => self.spawn_player_entity_mob(player, 90),
+            Entity::Chicken(_) => self.spawn_player_entity_mob(player, 93),
+            Entity::Cow(_) => self.spawn_player_entity_mob(player, 92),
+            Entity::Sheep(_) => self.spawn_player_entity_mob(player, 91),
+            Entity::Squid(_) => self.spawn_player_entity_mob(player, 94),
+            Entity::Wolf(_) => self.spawn_player_entity_mob(player, 95),
+            Entity::Creeper(_) => self.spawn_player_entity_mob(player, 50),
+            Entity::Giant(_) => self.spawn_player_entity_mob(player, 53),
+            Entity::PigZombie(_) => self.spawn_player_entity_mob(player, 57),
+            Entity::Skeleton(_) => self.spawn_player_entity_mob(player, 51),
+            Entity::Spider(_) => self.spawn_player_entity_mob(player, 52),
+            Entity::Zombie(_) => self.spawn_player_entity_mob(player, 54),
         }
 
+    }
+
+    fn spawn_player_entity_player(&self, player: &ServerPlayer, base: &PlayerEntity) {
+        player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
+            entity_id: self.id,
+            username: base.kind.kind.username.clone(),
+            x: self.sent_pos.0, 
+            y: self.sent_pos.1, 
+            z: self.sent_pos.2, 
+            yaw: self.sent_look.0,
+            pitch: self.sent_look.1,
+            current_item: 0, // TODO:
+        }));
+    }
+
+    fn spawn_player_entity_item(&self, player: &ServerPlayer, base: &ItemEntity) {
+        let vel = base.vel.mul(128.0).as_ivec3();
+        player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
+            entity_id: self.id, 
+            stack: base.kind.stack, 
+            x: self.sent_pos.0, 
+            y: self.sent_pos.1, 
+            z: self.sent_pos.2, 
+            vx: vel.x as i8,
+            vy: vel.y as i8,
+            vz: vel.z as i8,
+        }));
+    }
+
+    fn spawn_player_entity_object(&self, player: &ServerPlayer, kind: u8, vel: bool) {
+        player.send(OutPacket::ObjectSpawn(proto::ObjectSpawnPacket {
+            entity_id: self.id,
+            kind,
+            x: self.sent_pos.0, 
+            y: self.sent_pos.1, 
+            z: self.sent_pos.2, 
+            velocity: vel.then(|| {
+                self.vel.as_ref().expect("expected velocity to be tracked").sent_vel
+            })
+        }));
+    }
+
+    fn spawn_player_entity_mob(&self, player: &ServerPlayer, kind: u8) {
+        player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
+            entity_id: self.id,
+            kind,
+            x: self.sent_pos.0, 
+            y: self.sent_pos.1, 
+            z: self.sent_pos.2, 
+            yaw: self.sent_look.0,
+            pitch: self.sent_look.1,
+            metadata: vec![], // TODO:
+        }));
     }
 
     /// Kill the entity on the player side.

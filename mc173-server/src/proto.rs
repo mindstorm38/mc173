@@ -373,6 +373,19 @@ pub struct EntityPickupPacket {
 #[derive(Debug, Clone)]
 pub struct ObjectSpawnPacket {
     pub entity_id: u32,
+    /// Supported by Notchian impl:
+    /// - 01: Boat
+    /// - 10: Normal minecart
+    /// - 11: Chest minecart
+    /// - 12: Furnace minecart
+    /// - 50: Tnt
+    /// - 60: Arrow
+    /// - 61: Snowball
+    /// - 62: Egg
+    /// - 63: Fireball
+    /// - 70: Falling sand
+    /// - 71: Falling gravel
+    /// - 90: Fishing rod hook
     pub kind: u8,
     pub x: i32,
     pub y: i32,
@@ -979,7 +992,8 @@ impl net::OutPacket for OutPacket {
                 write.write_java_int(packet.x)?;
                 write.write_java_int(packet.y)?;
                 write.write_java_int(packet.z)?;
-                write.write_java_boolean(packet.velocity.is_some())?;
+                // PARITY: Notchian client use the owner entity id here.
+                write.write_java_int(packet.velocity.is_some() as i32)?;
                 if let Some((vx, vy, vz)) = packet.velocity {
                     write.write_java_short(vx)?;
                     write.write_java_short(vy)?;
