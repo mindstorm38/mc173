@@ -373,9 +373,8 @@ impl ServerWorld {
         // Get server-side time and increment it.
         let time = self.state.time;
         if time == 0 {
-            self.handle_init();
+            self.init();
         }
-        self.state.time += 1;
 
         // Poll all chunks to load in the world.
         while let Some(reply) = self.state.storage.poll() {
@@ -483,23 +482,33 @@ impl ServerWorld {
         }
 
         // Every 10 second, save each modified chunks.
-        if time % 200 == 0 {
-            for (cx, cz) in self.state.dirty_chunks.drain() {
+        self.state.dirty_chunks.retain(|&(cx, cz)| {
+            // Unwrap should be safe because tracker should exists if chunk is dirty.
+            let tracker = self.state.chunk_trackers.get_mut(&(cx, cz)).unwrap();
+            // Save the chunk after 2 seconds not being modified OR if th chunk has not 
+            // been saved for 10 seconds.
+            if time - tracker.dirty_time > 20 || time - tracker.save_time > 200 {
+                tracker.save_time = time;
                 if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
                     self.state.storage.request_save(snapshot);
                 }
+                false
+            } else {
+                true
             }
-        }
+        });
 
         // Update tick duration metric.
         let tick_duration = start.elapsed();
         self.state.tick_duration = (self.state.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
 
+        self.state.time += 1;
+
     }
     
     /// Initialize the world by ensuring that every entity is currently tracked. This
     /// method can be called multiple time and should be idempotent.
-    fn handle_init(&mut self) {
+    fn init(&mut self) {
 
         // Ensure that every entity has a tracker.
         for (id, entity) in self.world.iter_entities() {
@@ -517,6 +526,13 @@ impl ServerWorld {
             }
         }
 
+    }
+
+    /// Internal function ot mark a chunk dirty, in order to be saved later.
+    fn mark_chunk_dirty(&mut self, cx: i32, cz: i32) {
+        self.state.dirty_chunks.insert((cx, cz));
+        let tracker = self.state.chunk_trackers.entry((cx, cz)).or_default();
+        tracker.dirty_time = self.state.time;
     }
 
     /// Handle a player joining this world.
@@ -575,7 +591,7 @@ impl ServerWorld {
     fn handle_block_set(&mut self, pos: IVec3, id: u8, metadata: u8, prev_id: u8, _prev_metadata: u8) {
         
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.state.dirty_chunks.insert((cx, cz));
+        self.mark_chunk_dirty(cx, cz);
 
         // Ensure that we have a chunk tracker and register the block change in it.
         let chunk_tracker = self.state.chunk_trackers.entry((cx, cz)).or_default();
@@ -687,13 +703,15 @@ impl ServerWorld {
 
     /// HAndle a block entity set event.
     fn handle_block_entity_set(&mut self, pos: IVec3) {
-        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(pos));
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
+        self.mark_chunk_dirty(cx, cz);
     }
 
     /// Handle a block entity remove event.
     fn handle_block_entity_remove(&mut self, target_pos: IVec3) {
 
-        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(target_pos);
+        self.mark_chunk_dirty(cx, cz);
         
         // Close the inventory of all entities that had a window opened for this block.
         for player in &mut self.players {
@@ -718,7 +736,8 @@ impl ServerWorld {
     /// Handle a storage event for a block entity.
     fn handle_block_entity_storage(&mut self, target_pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
 
-        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(target_pos);
+        self.mark_chunk_dirty(cx, cz);
 
         for player in &mut self.players {
             match player.window.kind {
@@ -774,7 +793,8 @@ impl ServerWorld {
 
     fn handle_block_entity_progress(&mut self, target_pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
-        self.state.dirty_chunks.insert(chunk::calc_chunk_pos_unchecked(target_pos));
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(target_pos);
+        self.mark_chunk_dirty(cx, cz);
         
         for player in &mut self.players {
             if let WindowKind::Furnace { pos } = player.window.kind {
@@ -1949,6 +1969,10 @@ struct ChunkTracker {
     set_blocks_min: ChunkLocalPos,
     /// The maximum position where blocks have been set in the chunk (inclusive).
     set_blocks_max: ChunkLocalPos,
+    /// The last time the chunk was marked dirty, this is kept even after save.
+    dirty_time: u64,
+    /// Last save time of this chunk.
+    save_time: u64,
 }
 
 /// A position structure to store chunk-local coordinates to save space.
