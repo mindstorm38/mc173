@@ -510,7 +510,7 @@ impl ChunkGenerator for OverworldGenerator {
     type State = OverworldState;
 
     fn gen_biomes(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut Self::State) {
-        // TODO:
+        self.gen_biomes(cx, cz, chunk, state);
     }
 
     fn gen_terrain(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut Self::State) {
