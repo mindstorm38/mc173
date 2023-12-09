@@ -1,7 +1,5 @@
 //! Fluid block special functions (mostly for water).
 
-use crate::block;
-
 
 /// Return true if this still/moving fluid block acts like a source.
 #[inline]
@@ -51,24 +49,5 @@ pub fn get_actual_distance(metadata: u8) -> u8 {
         0
     } else {
         get_distance(metadata)
-    }
-}
-
-pub fn is_fluid_block(block_id: u8) -> bool {
-    matches!(block_id, 
-        block::WATER_MOVING | block::WATER_STILL | 
-        block::LAVA_MOVING | block::LAVA_STILL)
-}
-
-/// Return true if a fluid block can replace 
-pub fn is_fluid_blocked(block_id: u8) -> bool {
-    match block_id {
-        block::AIR => false,
-        block::WOOD_DOOR |
-        block::IRON_DOOR |
-        block::SIGN |
-        block::LADDER |
-        block::SUGAR_CANES => true,
-        _ => block::from_id(block_id).material.is_solid()
     }
 }

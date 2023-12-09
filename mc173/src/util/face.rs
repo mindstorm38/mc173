@@ -162,6 +162,11 @@ impl FaceSet {
     }
 
     #[inline]
+    pub fn clear(&mut self) {
+        self.inner = 0;
+    }
+
+    #[inline]
     pub fn insert(&mut self, face: Face) -> bool {
         let prev = self.inner;
         self.inner |= 1 << face as u8;

@@ -7,6 +7,7 @@ use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
 use crate::gen::tree::TreeGenerator;
 use crate::util::{Face, FaceSet};
+use crate::block::Material;
 use crate::{block, item};
 
 use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage};
@@ -310,6 +311,7 @@ impl World {
 
         // +1 to get still fluid id.
         let still_id = flowing_id + 1;
+        let material = block::from_id(flowing_id).material;
 
         // Default distance to decrement on each block unit.
         let dist_drop = match flowing_id {
@@ -319,7 +321,7 @@ impl World {
 
         // The id below is used many time after, so we query it here.
         let below_pos = pos - IVec3::Y;
-        let (below_id, below_metadata) = self.get_block(below_pos).unwrap_or((block::AIR, 0));
+        let (below_id, below_metadata) = self.get_block(below_pos).unwrap_or_default();
 
         // Update this fluid state.
         if !block::fluid::is_source(metadata) {
@@ -392,45 +394,119 @@ impl World {
             return;
         }
 
-        let blocked_below = block::fluid::is_fluid_blocked(below_id);
-        if !block::fluid::is_fluid_block(below_id) && !blocked_below {
-            // The block below is not a fluid block and do not block fluids, the fluid below
-            // is set to a falling version of the current block.
+        // Check if we can flow below.
+        let blocked_below = block::material::is_fluid_proof(below_id);
+
+        if !block::material::is_fluid(below_id) && !blocked_below {
+            // The block below is not a fluid block and do not block fluids, the fluid 
+            // below is set to a falling version of the current block.
             block::fluid::set_falling(&mut metadata, true);
             self.set_block_notify(below_pos, flowing_id, metadata);
         } else if block::fluid::is_source(metadata) || blocked_below {
 
             // The block is a source or is blocked below, we spread it horizontally.
-            // let open_faces = FaceSet::new();
-            // for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
-            //     if let Some((face_id, face_metadata)) = world.block(pos + face.delta()) {
-            //         if !block::fluid::is_fluid_blocked(face_id) {
-            //             if block::fluid::is_source(face_metadata) || (face_id != moving_id && face_id != still_id) {
-
-            //             }
-            //         }
-            //     }
-            // }
-
-            // TODO: Algorithm to determine the flow direction.
+            let flow_faces = self.calc_fluid_flow_faces(pos, material);
 
             let new_dist = block::fluid::get_actual_distance(metadata) + dist_drop;
             if new_dist > 7 {
                 return;
             }
 
-            for face in [Face::NegX, Face::PosX, Face::NegZ, Face::PosZ] {
-                let face_pos = pos + face.delta();
-                if let Some((face_id, _)) = self.get_block(face_pos) {
-                    if !block::fluid::is_fluid_block(face_id) && !block::fluid::is_fluid_blocked(face_id) {
-                        // TODO: Break only for water.
-                        self.break_block(face_pos);
-                        self.set_block_notify(face_pos, flowing_id, new_dist);
+            for face in Face::HORIZONTAL {
+                if flow_faces.contains(face) {
+                    let face_pos = pos + face.delta();
+                    if let Some((face_id, _)) = self.get_block(face_pos) {
+                        if !block::material::is_fluid(face_id) && !block::material::is_fluid_proof(face_id) {
+                            // TODO: Break only for water.
+                            self.break_block(face_pos);
+                            self.set_block_notify(face_pos, flowing_id, new_dist);
+                        }
                     }
                 }
             }
 
         }
+
+    }
+
+    fn calc_fluid_flow_faces(&mut self, pos: IVec3, material: Material) -> FaceSet {
+
+        let mut lowest_cost = u8::MAX;
+        let mut set = FaceSet::new();
+
+        for face in Face::HORIZONTAL {
+
+            let face_pos = pos + face.delta();
+            let (face_block, face_metadata) = self.get_block(face_pos).unwrap_or_default();
+
+            if !block::material::is_fluid_proof(face_block) {
+                if block::from_id(face_block).material != material || !block::fluid::is_source(face_metadata) {
+
+                    let face_below_pos = face_pos - IVec3::Y;
+                    let (face_below_block, _) = self.get_block(face_below_pos).unwrap_or_default();
+                    
+                    let face_cost;
+                    if !block::material::is_fluid_proof(face_below_block) {
+                        face_cost = 0;
+                    } else {
+                        face_cost = self.calc_fluid_flow_cost(face_pos, material, face, 1);
+                    }
+
+                    // If this face has the lowest cost, that means that all previous face
+                    // are no longer of the lowest cost so we clear.
+                    if face_cost < lowest_cost {
+                        set.clear();
+                        lowest_cost = face_cost;
+                    }
+
+                    // If our face has the lowest cost, we insert it. 
+                    if face_cost == lowest_cost {
+                        set.insert(face);
+                    }
+
+                }
+            }
+
+        }
+
+        set
+
+    }
+
+    /// Internal function to calculate the flow cost of a fluid toward the given face. If
+    /// the face is not given, all faces are checked, and the recursive calls have the 
+    /// face set to all four horizontal faces.
+    fn calc_fluid_flow_cost(&mut self, pos: IVec3, material: Material, origin_face: Face, cost: u8) -> u8 {
+        
+        let mut lowest_cost = u8::MAX;
+
+        for face in Face::HORIZONTAL {
+            // Do not check the face from where the check come.
+            if face != origin_face.opposite() {
+
+                let face_pos = pos + face.delta();
+                let (face_block, face_metadata) = self.get_block(face_pos).unwrap_or_default();
+
+                if !block::material::is_fluid_proof(face_block) {
+                    if block::from_id(face_block).material != material || !block::fluid::is_source(face_metadata) {
+
+                        let face_below_pos = face_pos - IVec3::Y;
+                        let (face_below_block, _) = self.get_block(face_below_pos).unwrap_or_default();
+                        if !block::material::is_fluid_proof(face_below_block) {
+                            return cost;
+                        }
+
+                        if cost < 4 {
+                            lowest_cost = lowest_cost.min(self.calc_fluid_flow_cost(face_pos, material, origin_face, cost + 1));
+                        }
+
+                    }
+                }
+
+            }
+        }
+
+        lowest_cost
 
     }
 

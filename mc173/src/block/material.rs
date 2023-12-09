@@ -4,8 +4,8 @@ use crate::block;
 
 
 /// Return true if a block is a full cube.
-pub fn is_cube(id: u8) -> bool {
-    match id {
+pub fn is_cube(block: u8) -> bool {
+    match block {
         block::AIR |
         block::BED |
         block::PORTAL |
@@ -59,9 +59,9 @@ pub fn is_cube(id: u8) -> bool {
 }
 
 /// Return true if a block is a full opaque cube.
-pub fn is_opaque_cube(id: u8) -> bool {
-    if is_cube(id) {
-        match id {
+pub fn is_opaque_cube(block: u8) -> bool {
+    if is_cube(block) {
+        match block {
             block::LEAVES |
             block::GLASS |
             block::ICE => false,
@@ -69,6 +69,26 @@ pub fn is_opaque_cube(id: u8) -> bool {
         }
     } else {
         false
+    }
+}
+
+/// Return true if the given block is a fluid.
+pub fn is_fluid(block: u8) -> bool {
+    matches!(block, 
+        block::WATER_MOVING | block::WATER_STILL | 
+        block::LAVA_MOVING | block::LAVA_STILL)
+}
+
+/// Return true if the given block can block fluid.
+pub fn is_fluid_proof(block: u8) -> bool {
+    match block {
+        block::AIR => false,
+        block::WOOD_DOOR |
+        block::IRON_DOOR |
+        block::SIGN |
+        block::LADDER |
+        block::SUGAR_CANES => true,
+        _ => block::from_id(block).material.is_solid()
     }
 }
 
