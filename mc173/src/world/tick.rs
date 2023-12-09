@@ -407,6 +407,7 @@ impl World {
             // The block is a source or is blocked below, we spread it horizontally.
             let flow_faces = self.calc_fluid_flow_faces(pos, material);
 
+            // FIXME: Dist drop is always 1 if source block
             let new_dist = block::fluid::get_actual_distance(metadata) + dist_drop;
             if new_dist > 7 {
                 return;

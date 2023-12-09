@@ -1986,12 +1986,15 @@ impl ChunkTracker {
             // the full state.
             if self.set_blocks.len() >= FULL_THRESHOLD {
                 self.set_blocks_full = true;
-                self.set_blocks_min = pos;
-                self.set_blocks_max = pos;
                 self.set_blocks.clear(); // Can be cleared because useless now.
-                return; // Early return to avoid min/max recomputation.
             } else {
                 self.set_blocks.push(ChunkSetBlock { pos, block, metadata });
+                // If the list was previously empty, we set min/max to initial pos.
+                if self.set_blocks.len() == 1 {
+                    self.set_blocks_min = pos;
+                    self.set_blocks_max = pos;
+                    return;
+                }
             }
         }
 
