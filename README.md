@@ -63,7 +63,7 @@ on them. The priority of each feature is defined by its order in the list.
         - [x] Furnace
         - [x] Dispenser
         - [ ] Shift-click on items
-    - [ ] Entity tracking
-        - [ ] Client-side spawn (partial) 
+    - [x] Entity tracking
+        - [x] Client-side spawn
 - [x] Lighting engine
 - [ ] World generation
