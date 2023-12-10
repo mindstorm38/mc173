@@ -26,6 +26,7 @@ use mc173::gen::OverworldGenerator;
 
 use mc173::inventory::InventoryHandle;
 use mc173::craft::CraftTracker;
+use mc173::path::PathFinder;
 use mc173::util::Face;
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
@@ -1164,6 +1165,32 @@ impl ServerPlayer {
                 
             }
             ["/effect", ..] => Err(format!("§eUsage: /effect <id> [<data>]")),
+            ["/pathfinder", x_raw, y_raw, z_raw] => {
+
+                // This command is used to debug the pathfinder from the player to the
+                // given position.
+
+                let from = self.pos.floor().as_ivec3();
+                let to = IVec3 {
+                    x: x_raw.parse::<i32>().map_err(|_| format!("§cError: invalid x:§r {x_raw}"))?,
+                    y: y_raw.parse::<i32>().map_err(|_| format!("§cError: invalid y:§r {y_raw}"))?,
+                    z: z_raw.parse::<i32>().map_err(|_| format!("§cError: invalid z:§r {z_raw}"))?,
+                };
+
+                if let Some(path) = PathFinder::new(world).find_path(from, to, IVec3::ONE, 20.0) {
+                    
+                    for pos in path {
+                        world.set_block(pos, block::DEAD_BUSH, 0);
+                    }
+
+                    Ok(())
+
+                } else {
+                    Err(format!("§cError: path not found"))
+                }
+
+            }
+            ["/pathfinder", ..] => Err(format!("§eUsage: /pathfinder <x> <y> <z>")),
             ["/tick", "freeze"] => {
                 self.send_chat(format!("§aWorld ticking:§r freeze"));
                 state.tick_mode = TickMode::Manual(0);
