@@ -578,8 +578,6 @@ impl<W: Write> ser::SerializeStructVariant for NbtSerializer<'_, W> {
 
 
 /// A NBT deserializer around an arbitrary I/O reader.
-/// 
-/// TODO: Change the deserializer to work by value instead of by mutable reference.
 struct NbtDeserializer<'a, R> {
     /// Inner reader.
     reader: &'a mut R,
