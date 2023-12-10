@@ -570,6 +570,9 @@ pub struct ExplosionPacket {
 /// Packet 61
 #[derive(Debug, Clone)]
 pub struct EffectPlayPacket {
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
     /// The effect id, the Notchian client support the following effects:
     /// - 1000: Play sound 'random.click' with pitch 1.0
     /// - 1001: Play sound 'random.click' with pitch 1.2
@@ -583,9 +586,6 @@ pub struct EffectPlayPacket {
     /// - 2001: Play and show block break sound and particles, the block id is given in
     ///         effect data.
     pub effect_id: u32,
-    pub x: i32,
-    pub y: i8,
-    pub z: i32,
     pub effect_data: u32,
 }
 

@@ -1092,7 +1092,7 @@ impl ServerPlayer {
                 Ok(())
 
             }
-            ["/spawn", ..] => Err(format!("§eUsage: /spawn <entity_kind> [params...]")),
+            ["/spawn", ..] => Err(format!("§eUsage: /spawn <entity_kind> [<params>...]")),
             ["/time", ..] => {
                 self.send_chat(format!("§aTime:§r {}", world.get_time()));
                 Ok(())
@@ -1123,19 +1123,59 @@ impl ServerPlayer {
                 }
 
                 Ok(())
+
             }
+            ["/effect", effect_raw] |
+            ["/effect", effect_raw, _] => {
+
+                let (effect_id, mut effect_data) = match effect_raw {
+                    "click" => (1000, 0),
+                    "click2" => (1001, 0),
+                    "bow" => (1002, 0),
+                    "door" => (1003, 0),
+                    "fizz" => (1004, 0),
+                    "record_13" => (1005, 2000),
+                    "record_cat" => (1005, 2001),
+                    "smoke" => (2000, 0),
+                    "break" => (2001, 0),
+                    _ => {
+                        let id = effect_raw.parse::<u32>()
+                            .map_err(|_| format!("§cError: invalid effect id:§r {effect_raw}"))?;
+                        (id, 0)
+                    }
+                };
+
+                if let Some(effect_data_raw) = parts.get(2) {
+                    effect_data = effect_data_raw.parse::<u32>()
+                        .map_err(|_| format!("§cError: invalid effect data:§r {effect_data_raw}"))?;
+                }
+
+                let pos = self.pos.floor().as_ivec3();
+                self.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
+                    x: pos.x,
+                    y: pos.y as i8,
+                    z: pos.z,
+                    effect_id,
+                    effect_data,
+                }));
+
+                self.send_chat(format!("§aPlayed effect:§r {effect_id}/{effect_data}"));
+                Ok(())
+                
+            }
+            ["/effect", ..] => Err(format!("§eUsage: /effect <id> [<data>]")),
             ["/tick", "freeze"] => {
-                self.send_chat(format!("§aWorld ticking: freeze"));
+                self.send_chat(format!("§aWorld ticking:§r freeze"));
                 state.tick_mode = TickMode::Manual(0);
                 Ok(())
             }
             ["/tick", "auto"] => {
-                self.send_chat(format!("§aWorld ticking: auto"));
+                self.send_chat(format!("§aWorld ticking:§r auto"));
                 state.tick_mode = TickMode::Auto;
                 Ok(())
             }
             ["/tick", "step"] => {
-                self.send_chat(format!("§aWorld ticking: step"));
+                self.send_chat(format!("§aWorld ticking:§r step"));
                 state.tick_mode = TickMode::Manual(1);
                 Ok(())
             }
@@ -1144,7 +1184,7 @@ impl ServerPlayer {
                 let step_count = step_count.parse::<u32>()
                     .map_err(|_| format!("§cError: invalid step count:§r {step_count}"))?;
 
-                    self.send_chat(format!("§aWorld ticking: {step_count} steps"));
+                    self.send_chat(format!("§aWorld ticking:§r {step_count} steps"));
                 state.tick_mode = TickMode::Manual(step_count);
                 Ok(())
 
