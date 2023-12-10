@@ -2,8 +2,6 @@
 
 use crate::block;
 
-pub mod using;
-
 
 /// Internal macro to easily define blocks registry.
 macro_rules! items {

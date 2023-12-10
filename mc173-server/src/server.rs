@@ -1362,7 +1362,7 @@ impl ServerPlayer {
                 match world.interact_block(pos) {
                     Interaction::None => {
                         // No interaction, use the item at that block.
-                        new_hand_stack = item::using::use_at(world, pos, face, self.entity_id, hand_stack);
+                        new_hand_stack = world.use_stack(hand_stack, pos, face, self.entity_id);
                     }
                     Interaction::CraftingTable { pos } => {
                         self.open_window(world, WindowKind::CraftingTable { pos });
@@ -1379,7 +1379,7 @@ impl ServerPlayer {
                     Interaction::Handled => {}
                 }
             } else {
-                new_hand_stack = item::using::use_raw(world, self.entity_id, hand_stack);
+                new_hand_stack = world.use_raw_stack(hand_stack, self.entity_id);
             }
         }
 

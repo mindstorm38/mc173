@@ -112,7 +112,6 @@ impl World {
         self.is_block_opaque_cube(pos - IVec3::Y) && self.is_block_replaceable(pos + IVec3::Y)
     }
 
-
     /// Place the block at the given position in the world oriented toward given face. Note
     /// that this function do not check if this is legal, it will do what's asked. Also, the
     /// given metadata may be modified to account for the placement.

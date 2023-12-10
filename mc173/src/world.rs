@@ -31,6 +31,7 @@ pub mod loot;
 pub mod interact;
 pub mod place;
 pub mod r#break;
+pub mod r#use;
 pub mod tick;
 pub mod notify;
 
