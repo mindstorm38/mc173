@@ -19,7 +19,7 @@ use crate::chunk::{Chunk,
 use crate::util::{JavaRandom, BoundingBox, Face};
 use crate::block_entity::BlockEntity;
 use crate::item::ItemStack;
-use crate::entity::Entity;
+use crate::entity_new::Entity;
 use crate::block;
 
 
@@ -256,7 +256,7 @@ impl World {
         self.set_chunk(snapshot.cx, snapshot.cz, snapshot.chunk);
         
         for entity in snapshot.entities {
-            debug_assert_eq!(calc_entity_chunk_pos(entity.base().pos), (snapshot.cx, snapshot.cz), "incoherent entity in chunk snapshot");
+            debug_assert_eq!(calc_entity_chunk_pos(entity.0.pos), (snapshot.cx, snapshot.cz), "incoherent entity in chunk snapshot");
             self.spawn_entity_inner(entity);
         }
 
@@ -499,6 +499,14 @@ impl World {
 
     }
 
+    /// Compute the client-side brightness of a block, based on its block light level.
+    pub fn get_brightness(&self, pos: IVec3) -> Option<f32> {
+        let block_light = self.get_light(pos, false)?.block;
+        let base = 1.0 - block_light as f32 / 15.0;
+        let brightness = (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - 0.05) + 0.05;
+        Some(brightness)
+    }
+
     /// Get the biome at some position (Y component is ignored).
     pub fn get_biome(&self, pos: IVec3) -> Option<Biome> {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
@@ -512,7 +520,6 @@ impl World {
     fn spawn_entity_inner(&mut self, mut entity: Box<Entity>) -> u32 {
 
         // Initial position is used to known in which chunk to cache it.
-        let entity_base = entity.base_mut();
         let entity_index = self.entities.len();
 
         // Get the next unique entity id.
@@ -520,7 +527,7 @@ impl World {
         self.entities_count = self.entities_count.checked_add(1)
             .expect("entity count overflow");
 
-        let (cx, cz) = calc_entity_chunk_pos(entity_base.pos);
+        let (cx, cz) = calc_entity_chunk_pos(entity.0.pos);
 
         // NOTE: Entities should always be stored in a world chunk.
         let chunk_comp = self.chunks.entry((cx, cz)).or_default();
@@ -903,8 +910,7 @@ impl World {
         for entity_comp in &mut self.entities {
             // Ignore removed entities.
             if let ComponentStorage::Ready(entity) = &entity_comp.inner {
-                let entity_base = entity.base();
-                entity_comp.bb = entity_base.coherent.then_some(entity_base.bb);
+                entity_comp.bb = entity.0.coherent.then_some(entity.0.bb);
             }
         }
 
@@ -955,25 +961,22 @@ impl World {
                 ComponentStorage::Updated => {}
             }
 
-            // Before re-adding the entity, check dirty flags to send proper events.
-            let entity_base = entity.base_mut();
-
             // Take all dirty flags.
-            let pos_dirty = mem::take(&mut entity_base.pos_dirty);
-            let look_dirty = mem::take(&mut entity_base.look_dirty);
-            let vel_dirty = mem::take(&mut entity_base.vel_dirty);
+            let pos_dirty = mem::take(&mut entity.0.pos_dirty);
+            let look_dirty = mem::take(&mut entity.0.look_dirty);
+            let vel_dirty = mem::take(&mut entity.0.vel_dirty);
             
-            let new_chunk = pos_dirty.then_some(calc_entity_chunk_pos(entity_base.pos));
+            let new_chunk = pos_dirty.then_some(calc_entity_chunk_pos(entity.0.pos));
 
             if let Some(events) = &mut self.events {
                 if pos_dirty {
-                    events.push(Event::Entity { id, inner: EntityEvent::Position { pos: entity_base.pos } });
+                    events.push(Event::Entity { id, inner: EntityEvent::Position { pos: entity.0.pos } });
                 }
                 if look_dirty {
-                    events.push(Event::Entity { id, inner: EntityEvent::Look { look: entity_base.look } });
+                    events.push(Event::Entity { id, inner: EntityEvent::Look { look: entity.0.look } });
                 }
                 if vel_dirty {
-                    events.push(Event::Entity { id, inner: EntityEvent::Velocity { vel: entity_base.vel } });
+                    events.push(Event::Entity { id, inner: EntityEvent::Velocity { vel: entity.0.vel } });
                 }
             }
 

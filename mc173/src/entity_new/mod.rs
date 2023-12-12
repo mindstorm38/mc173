@@ -2,14 +2,57 @@
 
 use glam::{DVec3, Vec2, IVec3};
 
-use crate::item::ItemStack;
 use crate::util::{BoundingBox, JavaRandom};
+use crate::item::ItemStack;
+
+pub mod base;
+pub mod projectile;
+pub mod living;
+
+pub mod tick;
 
 
-/// Base type that contains all entity types.
+/// Kind of entity, without actual data. This enumeration can be used to construct a
+/// real entity instance with default values, to be modified later.
+#[derive(Debug, Clone, Copy)]
+pub enum EntityKind {
+    Item,
+    Painting,
+    Boat,
+    Minecart,
+    Fish,
+    LightningBolt,
+    FallingBlock,
+    Tnt,
+    Arrow,
+    Egg,
+    Fireball,
+    Snowball,
+    Player,
+    Ghast,
+    Slime,
+    Pig,
+    Chicken,
+    Cow,
+    Sheep,
+    Squid,
+    Wolf,
+    Creeper,
+    Giant,
+    PigZombie,
+    Skeleton,
+    Spider,
+    Zombie,
+}
+
+/// Base type that contains all entity types, this is composed of the entity base data,
+/// which is common to all entities, and the base kind that is the first sub division in
+/// entities. Each subdivision in the entity family tree is composed of the family's
+/// common data as the first tuple element, and the kind of entity as the second element.
 #[derive(Debug, Clone)]
 pub struct Entity(pub Base, pub BaseKind);
 
+/// Kind of base entity.
 #[derive(Debug, Clone)]
 pub enum BaseKind {
     Item(Item),
@@ -24,6 +67,7 @@ pub enum BaseKind {
     Living(Living, LivingKind),
 }
 
+/// Kind of projectile entity.
 #[derive(Debug, Clone)]
 pub enum ProjectileKind {
     Arrow(Arrow),
@@ -32,6 +76,7 @@ pub enum ProjectileKind {
     Snowball(Snowball),
 }
 
+/// Kind of living entity, this include animals and mobs.
 #[derive(Debug, Clone)]
 pub enum LivingKind {
     // Not categorized
@@ -58,11 +103,12 @@ pub enum LivingKind {
 pub struct Base {
     /// Tell if this entity is persistent or not. A persistent entity is saved with its
     /// chunk, but non-persistent entities are no saved. For example, all player entities
-    /// are typically non-persistent because these are not real entities.
+    /// are typically non-persistent because these are not real entities. Some entities
+    /// cannot be persistent as they are not supported by the Notchian serialization.
     pub persistent: bool,
     /// Tell if the position of this entity and its bounding box are coherent, if false
     /// (the default value), this will recompute the bounding box from the center position
-    /// and the size given to `tick_base` method.
+    /// and the size of the entity.
     pub coherent: bool,
     /// The last size that was used when recomputing the bounding box based on the 
     /// position, we keep it in order to check that the bounding box don't shift too far
@@ -114,12 +160,14 @@ pub struct Base {
     pub in_water: bool,
     /// Is this entity in lava.
     pub in_lava: bool,
+    /// True if the entity is immune to fire.
+    pub fire_immune: bool,
     /// Total fall distance, will be used upon contact to calculate damages to deal.
     pub fall_distance: f32,
     /// Remaining fire ticks.
-    pub fire_ticks: u32,
+    pub fire_time: u32,
     /// Remaining air ticks to breathe.
-    pub air_ticks: u32,
+    pub air_time: u32,
     /// The health.
     pub health: u32,
     /// If this entity is ridden, this contains its entity id.
@@ -130,6 +178,9 @@ pub struct Base {
 
 #[derive(Debug, Clone, Default)]
 pub struct Living {
+    pub attack_time: u16,
+    pub hurt_time: u16,
+    pub death_time: u16,
     /// The strafing acceleration.
     pub accel_strafing: f32,
     /// The forward acceleration.
@@ -172,6 +223,8 @@ pub struct Painting {
     pub orientation: PaintingOrientation,
     /// The art of the painting, which define its size.
     pub art: PaintingArt,
+    /// This timer is used to repeatedly check if the painting is at a valid position.
+    pub check_valid_time: u8,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -391,4 +444,54 @@ pub enum PaintingArt {
     BurningSkull,
     Skeleton,
     DonkeyKong,
+}
+
+
+impl EntityKind {
+
+    /// Create a new default entity instance from the given type.
+    pub fn new_default(self) -> Box<Entity> {
+        todo!()
+    }
+
+}
+
+
+impl Entity {
+
+    /// Get the kind of entity from this instance.
+    pub fn kind(&self) -> EntityKind {
+        self.1.entity_kind()
+    }
+
+}
+
+
+/// This macro can be used to easily construct an entity.
+#[macro_export]
+macro_rules! entity {
+    (
+        $( $field:ident: $value:expr, )*
+        $variant:ident $block:block
+    ) => {
+        $crate::entity_new::Entity(
+            $crate::entity_new::Base {
+                $( $field: $value ),*
+                ..Default::default()
+            },
+            $crate::entity_new::BaseKind::$variant($crate::entity_new::$variant {
+                ..Default::default()
+            })
+        )
+    };
+}
+
+
+fn test() {
+    
+    let a = entity! {
+        persistent: true,
+        Item {}
+    };
+
 }

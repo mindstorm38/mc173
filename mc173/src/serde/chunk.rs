@@ -9,7 +9,7 @@ use glam::IVec3;
 
 use crate::block_entity::BlockEntity;
 use crate::world::ChunkSnapshot;
-use crate::entity::Entity;
+use crate::entity_new::Entity;
 
 use super::nbt::NbtError;
 

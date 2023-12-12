@@ -4,7 +4,7 @@ use std::ops::{Mul, Add};
 
 use glam::IVec3;
 
-use crate::entity::{ItemEntity, Entity};
+use crate::entity_new::{Entity, Base, BaseKind, Item};
 use crate::item::ItemStack;
 use crate::{block, item};
 
@@ -23,6 +23,9 @@ impl World {
             .as_dvec3()
             .add((1.0 - spread as f64) * 0.5);
 
+        let mut entity = EntityKind::Item.new_default();
+        entity.0.pos = pos.as_dvec3() + delta;
+
         let mut entity = ItemEntity::default();
         entity.persistent = true;
         entity.pos = pos.as_dvec3() + delta;
@@ -32,7 +35,12 @@ impl World {
         entity.kind.stack = stack;
         entity.kind.frozen_ticks = 10;
 
-        self.spawn_entity(Entity::Item(entity));
+        self.spawn_entity(Entity(Base {
+            pos: pos.as_dvec3() + delta,
+            ..Default::default()
+        }, BaseKind::Item(Item {
+            
+        })));
 
     }
 
