@@ -63,7 +63,7 @@ impl World {
     /// are handled apart by other functions that do not rely on the block placing logic.
     fn use_block_stack(&mut self, id: u8, metadata: u8, mut pos: IVec3, mut face: Face, entity_id: u32) -> bool {
 
-        let look = self.get_entity(entity_id).unwrap().base().look;
+        let look = self.get_entity(entity_id).unwrap().0.look;
 
         if let Some((block::SNOW, _)) = self.get_block(pos) {
             // If a block is placed by clicking on a snow block, replace that snow block.
@@ -119,7 +119,7 @@ impl World {
         }
 
         // The door face the opposite of the placer's look.
-        let look = self.get_entity(entity_id).unwrap().base().look;
+        let look = self.get_entity(entity_id).unwrap().0.look;
         let mut door_face = Face::from_yaw(look.x).opposite();
         let mut flip = false;
         
@@ -180,7 +180,7 @@ impl World {
             pos += IVec3::Y;
         }
 
-        let look = self.get_entity(entity_id).unwrap().base().look;
+        let look = self.get_entity(entity_id).unwrap().0.look;
         let bed_face = Face::from_yaw(look.x);
         let head_pos = pos + bed_face.delta();
 
@@ -255,14 +255,14 @@ impl World {
 
     fn use_bucket_stack(&mut self, fluid_id: u8, entity_id: u32) -> Option<ItemStack> {
 
-        let entity_base = self.get_entity(entity_id).unwrap().base();
+        let entity = self.get_entity(entity_id).unwrap();
         
-        let origin = entity_base.pos + DVec3::new(0.0, 1.62, 0.0);
+        let origin = entity.0.pos + DVec3::new(0.0, 1.62, 0.0);
         
-        let yaw_dx = -entity_base.look.x.sin();
-        let yaw_dz = entity_base.look.x.cos();
-        let pitch_dy = -entity_base.look.y.sin();
-        let pitch_h = entity_base.look.y.cos();
+        let yaw_dx = -entity.0.look.x.sin();
+        let yaw_dz = entity.0.look.x.cos();
+        let pitch_dy = -entity.0.look.y.sin();
+        let pitch_h = entity.0.look.y.cos();
         let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
 
         let (pos, face) = self.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR)?;

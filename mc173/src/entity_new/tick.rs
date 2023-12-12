@@ -8,12 +8,16 @@ use std::ops::Add;
 
 use glam::{DVec3, IVec3, Vec2};
 
+use crate::item::ItemStack;
 use crate::path::PathFinder;
 use crate::util::Face;
 use crate::world::{World, Event, EntityEvent};
 use crate::block::{self, Material};
 
-use super::{Entity, Base, BaseKind, Size, ProjectileKind, LivingKind, Living, Item, Painting, Path};
+use super::{Entity, Size, Path,
+    BaseKind, ProjectileKind, LivingKind, 
+    Base, Living, 
+    Item, Painting, FallingBlock};
 
 
 /// This implementation is just a wrapper to call all the inner tick functions.
@@ -40,33 +44,38 @@ thread_local! {
 /// REF: Entity::onUpdate
 fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKind) {
 
+    // Just kill the entity if far in the void.
+    if base.pos.y < -64.0 {
+        world.remove_entity(id);
+        return;
+    }
+
     // If size is not coherent, get the current size and initialize the bounding box
     // from the current position.
     if !base.coherent {
         base.size = calc_size(base_kind);
         base.update_bounding_box_from_pos();
-    }
-
-    // Just kill the entity if far in the void.
-    if base.pos.y < -64.0 {
-        world.remove_entity(id);
-        return; // TODO: Early return in caller function.
+    } else if base.controlled {
+        base.update_bounding_box_from_pos();
     }
 
     // Increase the entity lifetime, used by some entities and is interesting for debug.
     base.lifetime += 1;
 
-    match base_kind {
-        BaseKind::Item(item) => tick_item(world, id, base, item),
-        BaseKind::Painting(painting) => tick_painting(world, id, base, painting),
-        BaseKind::Boat(_) => todo!(),
-        BaseKind::Minecart(_) => todo!(),
-        BaseKind::Fish(_) => todo!(),
-        BaseKind::LightningBolt(_) => todo!(),
-        BaseKind::FallingBlock(_) => todo!(),
-        BaseKind::Tnt(_) => todo!(),
-        BaseKind::Projectile(_, _) => todo!(),
-        BaseKind::Living(living, living_kind) => tick_living(world, id, base, living, living_kind),
+    // Do not tick entity logic if the entity is externally controlled.
+    if !base.controlled {
+        match base_kind {
+            BaseKind::Item(item) => tick_item(world, id, base, item),
+            BaseKind::Painting(painting) => tick_painting(world, id, base, painting),
+            BaseKind::Boat(_) => todo!(),
+            BaseKind::Minecart(_) => todo!(),
+            BaseKind::Fish(_) => todo!(),
+            BaseKind::LightningBolt(_) => todo!(),
+            BaseKind::FallingBlock(falling_block) => tick_falling_block(world, id, base, falling_block),
+            BaseKind::Tnt(_) => todo!(),
+            BaseKind::Projectile(_, _) => todo!(),
+            BaseKind::Living(living, living_kind) => tick_living(world, id, base, living, living_kind),
+        }
     }
 
     tick_base_state(world, id, base, base_kind);
@@ -112,21 +121,21 @@ fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut 
 
             debug_assert!(picked_up_entities.is_empty());
             
-            for (_entity_id, _entity, _) in world.iter_entities_colliding(base.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
-                // TODO:
-                // match entity {
-                //     Entity::Item(base) => {
-                //         if base.kind.frozen_ticks == 0 {
-                //             picked_up_entities.push(entity_id);
-                //         }
-                //     }
-                //     Entity::Arrow(base) => {
-                //         if base.on_ground {
-                //             picked_up_entities.push(entity_id);
-                //         }
-                //     }
-                //     _ => {}
-                // }
+            for (entity_id, entity, _) in world.iter_entities_colliding(base.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
+
+                match &entity.1 {
+                    BaseKind::Item(item) => {
+                        if item.frozen_ticks == 0 {
+                            picked_up_entities.push(entity_id);
+                        }
+                    }
+                    BaseKind::Projectile(projectile, ProjectileKind::Arrow(_)) => {
+                        if projectile.block_hit.is_some() {
+                            picked_up_entities.push(entity_id);
+                        }
+                    }
+                    _ => {}
+                }
             }
 
             for entity_id in picked_up_entities.drain(..) {
@@ -345,6 +354,40 @@ fn tick_painting(_world: &mut World, _id: u32, _base: &mut Base, painting: &mut 
     }
 }
 
+/// REF: EntityFallingSand::onUpdate
+fn tick_falling_block(world: &mut World, id: u32, base: &mut Base, falling_block: &mut FallingBlock) {
+
+    if falling_block.block_id == 0 {
+        world.remove_entity(id);
+        return;
+    }
+
+    base.vel_dirty = true;
+    base.vel.y -= 0.04;
+
+    tick_base_pos(world, id, base, base.vel, 0.0);
+
+    if base.on_ground {
+
+        base.vel *= DVec3::new(0.7, -0.5, 0.7);
+        world.remove_entity(id);
+
+        let block_pos = base.pos.floor().as_ivec3();
+        if world.can_place_block(block_pos, Face::PosY, falling_block.block_id) {
+            world.set_block_notify(block_pos, falling_block.block_id, 0);
+        } else {
+            world.spawn_loot(base.pos, ItemStack::new_block(falling_block.block_id, 0), 0.0);
+        }
+
+    } else if base.lifetime > 100 {
+        world.remove_entity(id);
+        world.spawn_loot(base.pos, ItemStack::new_block(falling_block.block_id, 0), 0.0);
+    }
+
+}
+
+
+
 /// REF: EntityLiving::onUpdate
 fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
 
@@ -357,7 +400,7 @@ fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living,
     }
 
     match living_kind {
-        LivingKind::Player(_) => todo!(),
+        LivingKind::Player(_) => (),  // For now we do nothing.
         LivingKind::Ghast(_) => todo!(),
         LivingKind::Slime(_) => todo!(),
         LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, 0.7, path_weight_animal),
@@ -387,6 +430,11 @@ fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living,
     living.accel_strafing *= 0.98;
     living.accel_forward *= 0.98;
     living.yaw_velocity *= 0.9;
+
+    // FIXME: Exception for now to avoid player position being touched.
+    if let LivingKind::Player(_) = living_kind {
+        return;
+    }
 
     tick_living_pos(world, id, base, living, living_kind);
 

@@ -67,6 +67,7 @@ impl Base {
 
 impl BaseKind {
 
+    /// Get the generic entity kind from this base entity kind.
     pub fn entity_kind(&self) -> EntityKind {
         match self {
             BaseKind::Item(_) => EntityKind::Item,

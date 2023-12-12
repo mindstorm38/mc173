@@ -17,7 +17,7 @@ use crate::block_entity::piston::PistonBlockEntity;
 use crate::block_entity::chest::ChestBlockEntity;
 use crate::block_entity::sign::SignBlockEntity;
 use crate::block_entity::BlockEntity;
-use crate::entity::EntityKind;
+use crate::entity_new::EntityKind;
 use crate::util::Face;
 
 use super::slot_nbt::{SlotItemStackNbt, insert_slots, make_slots};

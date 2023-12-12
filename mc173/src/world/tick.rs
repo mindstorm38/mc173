@@ -2,9 +2,9 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::entity::{Entity, ItemEntity, FallingBlockEntity};
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
+use crate::entity_new::{Item, FallingBlock};
 use crate::gen::tree::TreeGenerator;
 use crate::util::{Face, FaceSet};
 use crate::block::Material;
@@ -148,17 +148,20 @@ impl World {
                 println!("[WARN] TODO: Shot snowball");
             } else {
 
-                let mut item_base = ItemEntity::default();
-                item_base.persistent = true;
-                item_base.pos = origin_pos - DVec3::Y * 0.3;
-                
-                let rand_vel = self.rand.next_double() * 0.1 + 0.2;
-                item_base.vel = face.delta().as_dvec3() * rand_vel;
-                item_base.vel += self.rand.next_gaussian_dvec3() * 0.0075 * 6.0;
-                
-                item_base.kind.stack = dispense_stack;
+                let entity = Item::new_with(|base, item| {
+                    
+                    base.persistent = true;
+                    base.pos = origin_pos - DVec3::Y * 0.3;
+                    
+                    let rand_vel = self.rand.next_double() * 0.1 + 0.2;
+                    base.vel = face.delta().as_dvec3() * rand_vel;
+                    base.vel += self.rand.next_gaussian_dvec3() * 0.0075 * 6.0;
 
-                self.spawn_entity(Entity::Item(item_base));
+                    item.stack = dispense_stack;
+
+                });
+
+                self.spawn_entity(entity);
 
                 // TODO: Play effect 1000 (click with pitch 1.0)
 
@@ -309,12 +312,15 @@ impl World {
     fn tick_falling_block(&mut self, pos: IVec3, id: u8) {
         let (below_block, _) = self.get_block(pos - IVec3::Y).unwrap_or_default();
         if below_block == 0 || below_block == block::FIRE || block::material::is_fluid(below_block) {
-            let mut falling_block = FallingBlockEntity::default();
-            falling_block.persistent = true;
-            falling_block.pos = pos.as_dvec3() + 0.5;
-            falling_block.kind.block_id = id;
-            self.spawn_entity(Entity::FallingBlock(falling_block));
+
+            self.spawn_entity(FallingBlock::new_with(|base, falling_block| {
+                base.persistent = true;
+                base.pos = pos.as_dvec3() + 0.5;
+                falling_block.block_id = id;
+            }));
+
             self.set_block_notify(pos, block::AIR, 0);
+            
         }
     }
 

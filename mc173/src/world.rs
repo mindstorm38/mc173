@@ -517,7 +517,7 @@ impl World {
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
     #[inline(never)]
-    fn spawn_entity_inner(&mut self, mut entity: Box<Entity>) -> u32 {
+    fn spawn_entity_inner(&mut self, entity: Box<Entity>) -> u32 {
 
         // Initial position is used to known in which chunk to cache it.
         let entity_index = self.entities.len();

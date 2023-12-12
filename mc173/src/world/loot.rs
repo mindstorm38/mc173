@@ -1,10 +1,10 @@
 //! Looting functions to spawn items in a world, also contains the loots for each block.
 
-use std::ops::{Mul, Add};
+use std::ops::{Mul, Sub};
 
-use glam::IVec3;
+use glam::{IVec3, DVec3};
 
-use crate::entity_new::{Entity, Base, BaseKind, Item};
+use crate::entity_new::Item;
 use crate::item::ItemStack;
 use crate::{block, item};
 
@@ -16,31 +16,26 @@ impl World {
     /// Spawn item entity in the world containing the given stack. The velocity of the 
     /// spawned item stack is random and the initial position depends on the given spread.
     /// This item entity will be impossible to pickup for 10 ticks.
-    pub fn spawn_loot(&mut self, pos: IVec3, stack: ItemStack, spread: f32) {
+    pub fn spawn_loot(&mut self, mut pos: DVec3, stack: ItemStack, spread: f32) {
         
-        let delta = self.rand.next_vec3()
-            .mul(spread)
-            .as_dvec3()
-            .add((1.0 - spread as f64) * 0.5);
+        if spread != 0.0 {
+            pos += self.rand.next_vec3()
+                .mul(spread)
+                .as_dvec3()
+                .sub(spread as f64 * 0.5);
+        }
 
-        let mut entity = EntityKind::Item.new_default();
-        entity.0.pos = pos.as_dvec3() + delta;
+        let entity = Item::new_with(|base, item| {
+            base.persistent = true;
+            base.pos = pos;
+            base.vel.x = self.rand.next_double() * 0.2 - 0.1;
+            base.vel.y = 0.2;
+            base.vel.z = self.rand.next_double() * 0.2 - 0.1;
+            item.stack = stack;
+            item.frozen_ticks = 10;
+        });
 
-        let mut entity = ItemEntity::default();
-        entity.persistent = true;
-        entity.pos = pos.as_dvec3() + delta;
-        entity.vel.x = self.rand.next_double() * 0.2 - 0.1;
-        entity.vel.y = 0.2;
-        entity.vel.z = self.rand.next_double() * 0.2 - 0.1;
-        entity.kind.stack = stack;
-        entity.kind.frozen_ticks = 10;
-
-        self.spawn_entity(Entity(Base {
-            pos: pos.as_dvec3() + delta,
-            ..Default::default()
-        }, BaseKind::Item(Item {
-            
-        })));
+        self.spawn_entity(entity);
 
     }
 
@@ -53,7 +48,7 @@ impl World {
             if self.rand.next_float() <= self.get_block_loot_chance(id, metadata, try_num, chance) {
                 let stack = self.get_block_loot_stack(id, metadata, try_num);
                 if !stack.is_empty() {
-                    self.spawn_loot(pos, stack, 0.7);
+                    self.spawn_loot(pos.as_dvec3() + 0.5, stack, 0.7);
                 }
             }
         }

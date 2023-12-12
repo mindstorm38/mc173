@@ -16,7 +16,8 @@ use mc173::world::{World, Dimension, Event, Weather, BlockEvent, EntityEvent,
     use mc173::world::interact::Interaction;
     use mc173::chunk::{self, Chunk};
 
-use mc173::entity::{self, Entity, PlayerEntity, ItemEntity};
+use mc173::entity_new::{self as e, Entity, BaseKind, ProjectileKind, LivingKind, EntityKind};
+
 use mc173::block_entity::BlockEntity;
 use mc173::item::{self, ItemStack};
 use mc173::block;
@@ -192,13 +193,17 @@ impl Server {
             .next()
             .expect("invalid offline player world name");
 
-        let mut entity = PlayerEntity::default();
-        entity.kind.kind.username = packet.username.clone();
-        entity.pos = offline_player.pos;
-        entity.look = offline_player.look;
-        entity.persistent = false;
-        entity.can_pickup = true;
-        let entity_id = world.world.spawn_entity(Entity::Player(entity));
+        let entity = e::Player::new_with(|base, _, player| {
+            player.username = packet.username.clone();
+            base.pos = offline_player.pos;
+            base.look = offline_player.look;
+            base.persistent = false;
+            base.can_pickup = true;
+            base.controlled = true;
+            base.health = 20;
+        });
+
+        let entity_id = world.world.spawn_entity(entity);
 
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {
@@ -663,7 +668,7 @@ impl ServerWorld {
     /// Handle an entity pickup world event.
     fn handle_entity_pickup(&mut self, id: u32, target_id: u32) {
 
-        let Some(target_entity) = self.world.get_entity_mut(target_id) else { return };
+        let Some(Entity(_, target_kind)) = self.world.get_entity_mut(target_id) else { return };
         let Some(player) = self.players.iter_mut().find(|p| p.entity_id == id) else {
             // This works only on entities handled by players.
             return
@@ -671,12 +676,12 @@ impl ServerWorld {
 
         let mut inv = InventoryHandle::new(&mut player.main_inv[..]);
 
-        let remove_target = match target_entity {
-            Entity::Item(base) => {
-                base.kind.stack.size -= inv.add(base.kind.stack);
-                base.kind.stack.size == 0
+        let remove_target = match target_kind {
+            BaseKind::Item(item) => {
+                item.stack.size -= inv.add(item.stack);
+                item.stack.size == 0
             }
-            Entity::Arrow(_) => {
+            BaseKind::Projectile(_, ProjectileKind::Arrow(_)) => {
                 inv.add(ItemStack::new_single(item::ARROW, 0)) != 0
             }
             // Other entities cannot be picked up.
@@ -1069,23 +1074,20 @@ impl ServerPlayer {
 
                 // Entity spawning params depends on the entity
                 let mut entity = match entity_kind {
-                    "item" => {
-                        let mut item: ItemEntity = Default::default();
-                        item.kind.stack = ItemStack::new_block(block::STONE, 0);
-                        Entity::Item(item)
-                    }
-                    "boat" => Entity::Boat(Default::default()),
-                    "minecart" => Entity::Minecart(Default::default()),
-                    "pig" => Entity::Pig(Default::default()),
-                    "chicken" => Entity::Chicken(Default::default()),
-                    "cow" => Entity::Cow(Default::default()),
-                    "sheep" => Entity::Sheep(Default::default()),
+                    "item" => e::Item::new_with(|_, item| {
+                        item.stack = ItemStack::new_block(block::STONE, 0);
+                    }),
+                    "boat" => EntityKind::Boat.new_default(),
+                    "minecart" => EntityKind::Minecart.new_default(),
+                    "pig" => EntityKind::Pig.new_default(),
+                    "chicken" => EntityKind::Chicken.new_default(),
+                    "cow" => EntityKind::Cow.new_default(),
+                    "sheep" => EntityKind::Sheep.new_default(),
                     _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind}"))
                 };
 
-                let base = entity.base_mut();
-                base.persistent = true;
-                base.pos = self.pos;
+                entity.0.persistent = true;
+                entity.0.pos = self.pos;
 
                 let entity_id = world.spawn_entity(entity);
                 self.send_chat(format!("§aEntity spawned:§r {entity_id}"));
@@ -1239,19 +1241,18 @@ impl ServerPlayer {
     fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>, on_ground: bool) {
 
         let entity = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
-        let entity_base = entity.base_mut();
-        entity_base.on_ground = on_ground;
+        entity.0.on_ground = on_ground;
 
         if let Some(pos) = pos {
             self.pos = pos;
-            entity_base.pos = self.pos;
-            entity_base.pos_dirty = true;
+            entity.0.pos = self.pos;
+            entity.0.pos_dirty = true;
         }
 
         if let Some(look) = look {
             self.look = Vec2::new(look.x.to_radians(), look.y.to_radians());
-            entity_base.look = self.look;
-            entity_base.look_dirty = true;
+            entity.0.look = self.look;
+            entity.0.look_dirty = true;
         }
 
         if pos.is_some() {
@@ -1263,11 +1264,11 @@ impl ServerPlayer {
     /// Handle a break block packet.
     fn handle_break_block(&mut self, world: &mut World, packet: proto::BreakBlockPacket) {
         
-        let Some(Entity::Player(base)) = world.get_entity_mut(self.entity_id) else { return };
+        let Some(entity) = world.get_entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
-        let in_water = base.in_water;
-        let on_ground = base.on_ground;
+        let in_water = entity.0.in_water;
+        let on_ground = entity.0.on_ground;
         let mut stack = self.main_inv[self.hand_slot as usize];
 
         if packet.status == 0 {
@@ -1971,43 +1972,45 @@ impl ServerPlayer {
     /// the `on_ground` argument can be set to true in order to drop item on the ground.
     fn drop_stack(&mut self, world: &mut World, stack: ItemStack, on_ground: bool) {
 
-        let entity = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
-        let base = entity.base_mut();
-
-        let mut item_entity = ItemEntity::default();
-        item_entity.persistent = true;
-        item_entity.pos = base.pos;
-        item_entity.pos.y += 1.3;  // TODO: Adjust depending on eye height.
-
-        if on_ground {
-
-            let rand_drop_speed = base.rand.next_float() * 0.5;
-            let rand_yaw = base.rand.next_float() * std::f32::consts::TAU;
-
-            item_entity.vel.x = (rand_yaw.sin() * rand_drop_speed) as f64;
-            item_entity.vel.z = (rand_yaw.cos() * rand_drop_speed) as f64;
-            item_entity.vel.y = 0.2;
-
-        } else {
-
-            let drop_speed = 0.3;
-            let rand_yaw = base.rand.next_float() * std::f32::consts::TAU;
-            let rand_drop_speed = base.rand.next_float() * 0.02;
-            let rand_vel_y = (base.rand.next_float() - base.rand.next_float()) * 0.1;
-
-            item_entity.vel.x = (-base.look.x.sin() * base.look.y.cos() * drop_speed) as f64;
-            item_entity.vel.z = (base.look.x.cos() * base.look.y.cos() * drop_speed) as f64;
-            item_entity.vel.y = (-base.look.y.sin() * drop_speed + 0.1) as f64;
-            item_entity.vel.x += (rand_yaw.cos() * rand_drop_speed) as f64;
-            item_entity.vel.z += (rand_yaw.sin() * rand_drop_speed) as f64;
-            item_entity.vel.y += rand_vel_y as f64;
-
-        }
-
-        item_entity.kind.frozen_ticks = 40;
-        item_entity.kind.stack = stack;
+        let Entity(origin_base, _) = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
         
-        world.spawn_entity(Entity::Item(item_entity));
+        let entity = e::Item::new_with(|base, item| {
+
+            base.persistent = true;
+            base.pos = origin_base.pos;
+            base.pos.y += 1.3;  // TODO: Adjust depending on eye height.
+
+            if on_ground {
+
+                let rand_drop_speed = origin_base.rand.next_float() * 0.5;
+                let rand_yaw = origin_base.rand.next_float() * std::f32::consts::TAU;
+
+                base.vel.x = (rand_yaw.sin() * rand_drop_speed) as f64;
+                base.vel.z = (rand_yaw.cos() * rand_drop_speed) as f64;
+                base.vel.y = 0.2;
+
+            } else {
+
+                let drop_speed = 0.3;
+                let rand_yaw = base.rand.next_float() * std::f32::consts::TAU;
+                let rand_drop_speed = base.rand.next_float() * 0.02;
+                let rand_vel_y = (base.rand.next_float() - base.rand.next_float()) * 0.1;
+
+                base.vel.x = (-origin_base.look.x.sin() * origin_base.look.y.cos() * drop_speed) as f64;
+                base.vel.z = (origin_base.look.x.cos() * origin_base.look.y.cos() * drop_speed) as f64;
+                base.vel.y = (-origin_base.look.y.sin() * drop_speed + 0.1) as f64;
+                base.vel.x += (rand_yaw.cos() * rand_drop_speed) as f64;
+                base.vel.z += (rand_yaw.sin() * rand_drop_speed) as f64;
+                base.vel.y += rand_vel_y as f64;
+
+            }
+
+            item.frozen_ticks = 40;
+            item.stack = stack;
+            
+        });
+        
+        world.spawn_entity(entity);
 
     }
 
@@ -2252,25 +2255,24 @@ impl EntityTracker {
 
     fn new(id: u32, entity: &Entity) -> Self {
 
-        let (distance, interval, velocity) = match entity {
-            Entity::Player(_) => (512, 2, false),
-            Entity::Fish(_) => (64, 5, true),
-            Entity::Arrow(_) => (64, 20, false),
-            Entity::Fireball(_) => (64, 10, false),
-            Entity::Snowball(_) => (64, 10, true),
-            Entity::Egg(_) => (64, 10, true),
-            Entity::Item(_) => (64, 5, true), // Notchian use 20 ticks
-            Entity::Minecart(_) => (160, 5, true),
-            Entity::Boat(_) => (160, 5, true),
-            Entity::Squid(_) => (160, 3, true),
-            Entity::Tnt(_) => (160, 10, true),
-            Entity::FallingBlock(_) => (160, 20, true),
-            Entity::Painting(_) => (160, 0, false),
+        let (distance, interval, velocity) = match entity.kind() {
+            EntityKind::Player => (512, 2, false),
+            EntityKind::Fish => (64, 5, true),
+            EntityKind::Arrow => (64, 20, false),
+            EntityKind::Fireball => (64, 10, false),
+            EntityKind::Snowball => (64, 10, true),
+            EntityKind::Egg => (64, 10, true),
+            EntityKind::Item => (64, 5, true), // Notchian use 20 ticks
+            EntityKind::Minecart => (160, 5, true),
+            EntityKind::Boat => (160, 5, true),
+            EntityKind::Squid => (160, 3, true),
+            EntityKind::Tnt => (160, 10, true),
+            EntityKind::FallingBlock => (160, 20, true),
+            EntityKind::Painting => (160, 0, false),
             // All remaining animals and mobs.
             _ => (160, 3, true)
         };
 
-        let entity_base = entity.base();
         let mut tracker = Self {
             id,
             distance,
@@ -2286,8 +2288,8 @@ impl EntityTracker {
             }),
         };
         
-        tracker.set_pos(entity_base.pos);
-        tracker.set_look(entity_base.look);
+        tracker.set_pos(entity.0.pos);
+        tracker.set_look(entity.0.look);
         tracker.sent_pos = tracker.pos;
         tracker.sent_look = tracker.look;
         tracker
@@ -2459,56 +2461,60 @@ impl EntityTracker {
     fn spawn_player_entity(&self, player: &ServerPlayer, world: &World) {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
-        let Some(entity) = world.get_entity(self.id) else { return };
+        let Some(Entity(base, base_kind)) = world.get_entity(self.id) else { return };
         
-        match entity {
-            Entity::Player(base) => self.spawn_player_entity_player(player, base),
-            Entity::Item(base) => self.spawn_player_entity_item(player, base),
-            Entity::Minecart(base) => {
-                match base.kind {
-                    entity::Minecart::Normal => self.spawn_player_entity_object(player, 10, false),
-                    entity::Minecart::Chest { .. } => self.spawn_player_entity_object(player, 11, false),
-                    entity::Minecart::Furnace { .. } => self.spawn_player_entity_object(player, 12, false),
-                }
-            }
-            Entity::Boat(_) => self.spawn_player_entity_object(player, 1, false),
-            Entity::Painting(_) => todo!(),  // TODO:
-            Entity::Fish(_) => self.spawn_player_entity_object(player, 90, false),
-            Entity::LightningBolt(_) => (),
-            Entity::FallingBlock(base) => {
+        match base_kind {
+            BaseKind::Item(item) => self.spawn_player_entity_item(player, base, item),
+            BaseKind::Painting(_) => todo!(),  // TODO:
+            BaseKind::Boat(_) => self.spawn_player_entity_object(player, 1, false),
+            BaseKind::Minecart(e::Minecart::Normal) => self.spawn_player_entity_object(player, 10, false),
+            BaseKind::Minecart(e::Minecart::Chest { .. }) => self.spawn_player_entity_object(player, 11, false),
+            BaseKind::Minecart(e::Minecart::Furnace { .. }) => self.spawn_player_entity_object(player, 12, false),
+            BaseKind::Fish(_) => self.spawn_player_entity_object(player, 90, false),
+            BaseKind::LightningBolt(_) => (),
+            BaseKind::FallingBlock(falling_block) => {
                 // NOTE: We use sand for any block id that is unsupported.
-                match base.kind.block_id {
+                match falling_block.block_id {
                     block::GRAVEL => self.spawn_player_entity_object(player, 71, false),
                     _ => self.spawn_player_entity_object(player, 70, false),
                 }
             }
-            Entity::Tnt(_) => self.spawn_player_entity_object(player, 50, false),
-            Entity::Arrow(_) => self.spawn_player_entity_object(player, 60, true),
-            Entity::Egg(_) => self.spawn_player_entity_object(player, 62, false),
-            Entity::Fireball(_) => self.spawn_player_entity_object(player, 63, true),
-            Entity::Snowball(_) => self.spawn_player_entity_object(player, 61, false),
-            Entity::Ghast(_) => self.spawn_player_entity_mob(player, 56),
-            Entity::Slime(_) => self.spawn_player_entity_mob(player, 55),
-            Entity::Pig(_) => self.spawn_player_entity_mob(player, 90),
-            Entity::Chicken(_) => self.spawn_player_entity_mob(player, 93),
-            Entity::Cow(_) => self.spawn_player_entity_mob(player, 92),
-            Entity::Sheep(_) => self.spawn_player_entity_mob(player, 91),
-            Entity::Squid(_) => self.spawn_player_entity_mob(player, 94),
-            Entity::Wolf(_) => self.spawn_player_entity_mob(player, 95),
-            Entity::Creeper(_) => self.spawn_player_entity_mob(player, 50),
-            Entity::Giant(_) => self.spawn_player_entity_mob(player, 53),
-            Entity::PigZombie(_) => self.spawn_player_entity_mob(player, 57),
-            Entity::Skeleton(_) => self.spawn_player_entity_mob(player, 51),
-            Entity::Spider(_) => self.spawn_player_entity_mob(player, 52),
-            Entity::Zombie(_) => self.spawn_player_entity_mob(player, 54),
+            BaseKind::Tnt(_) => self.spawn_player_entity_object(player, 50, false),
+            BaseKind::Projectile(_, projectile_kind) => {
+                match projectile_kind {
+                    ProjectileKind::Arrow(_) => self.spawn_player_entity_object(player, 60, true),
+                    ProjectileKind::Egg(_) => self.spawn_player_entity_object(player, 62, false),
+                    ProjectileKind::Fireball(_) => self.spawn_player_entity_object(player, 63, true),
+                    ProjectileKind::Snowball(_) => self.spawn_player_entity_object(player, 61, false),
+                }
+            }
+            BaseKind::Living(_, living_kind) => {
+                match living_kind {
+                    LivingKind::Player(pl) => self.spawn_player_entity_player(player, pl),
+                    LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56),
+                    LivingKind::Slime(_) => self.spawn_player_entity_mob(player, 55),
+                    LivingKind::Pig(_) => self.spawn_player_entity_mob(player, 90),
+                    LivingKind::Chicken(_) => self.spawn_player_entity_mob(player, 93),
+                    LivingKind::Cow(_) => self.spawn_player_entity_mob(player, 92),
+                    LivingKind::Sheep(_) => self.spawn_player_entity_mob(player, 91),
+                    LivingKind::Squid(_) => self.spawn_player_entity_mob(player, 94),
+                    LivingKind::Wolf(_) => self.spawn_player_entity_mob(player, 95),
+                    LivingKind::Creeper(_) => self.spawn_player_entity_mob(player, 50),
+                    LivingKind::Giant(_) => self.spawn_player_entity_mob(player, 53),
+                    LivingKind::PigZombie(_) => self.spawn_player_entity_mob(player, 57),
+                    LivingKind::Skeleton(_) => self.spawn_player_entity_mob(player, 51),
+                    LivingKind::Spider(_) => self.spawn_player_entity_mob(player, 52),
+                    LivingKind::Zombie(_) => self.spawn_player_entity_mob(player, 54),
+                }
+            }
         }
 
     }
 
-    fn spawn_player_entity_player(&self, player: &ServerPlayer, base: &PlayerEntity) {
+    fn spawn_player_entity_player(&self, player: &ServerPlayer, pl: &e::Player) {
         player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
             entity_id: self.id,
-            username: base.kind.kind.username.clone(),
+            username: pl.username.clone(),
             x: self.sent_pos.0, 
             y: self.sent_pos.1, 
             z: self.sent_pos.2, 
@@ -2518,11 +2524,11 @@ impl EntityTracker {
         }));
     }
 
-    fn spawn_player_entity_item(&self, player: &ServerPlayer, base: &ItemEntity) {
+    fn spawn_player_entity_item(&self, player: &ServerPlayer, base: &e::Base, item: &e::Item) {
         let vel = base.vel.mul(128.0).as_ivec3();
         player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
             entity_id: self.id, 
-            stack: base.kind.stack, 
+            stack: item.stack, 
             x: self.sent_pos.0, 
             y: self.sent_pos.1, 
             z: self.sent_pos.2, 

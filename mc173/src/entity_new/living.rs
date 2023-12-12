@@ -11,6 +11,7 @@ impl Living {
 
 impl LivingKind {
 
+    /// Get the generic entity kind from this living entity kind.
     pub fn entity_kind(&self) -> EntityKind {
         match self {
             LivingKind::Player(_) => EntityKind::Player,

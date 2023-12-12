@@ -106,6 +106,9 @@ pub struct Base {
     /// are typically non-persistent because these are not real entities. Some entities
     /// cannot be persistent as they are not supported by the Notchian serialization.
     pub persistent: bool,
+    /// Set to true when this entity is externally controlled.
+    /// FIXME: This property is being tested.
+    pub controlled: bool,
     /// Tell if the position of this entity and its bounding box are coherent, if false
     /// (the default value), this will recompute the bounding box from the center position
     /// and the size of the entity.
@@ -451,7 +454,52 @@ impl EntityKind {
 
     /// Create a new default entity instance from the given type.
     pub fn new_default(self) -> Box<Entity> {
-        todo!()
+        
+        use crate::util::default as def;
+
+        Box::new(Entity(def(), match self {
+            EntityKind::Item => BaseKind::Item(def()),
+            EntityKind::Painting => BaseKind::Painting(def()),
+            EntityKind::Boat => BaseKind::Boat(def()),
+            EntityKind::Minecart => BaseKind::Minecart(def()),
+            EntityKind::Fish => BaseKind::Fish(def()),
+            EntityKind::LightningBolt => BaseKind::LightningBolt(def()),
+            EntityKind::FallingBlock => BaseKind::FallingBlock(def()),
+            EntityKind::Tnt => BaseKind::Tnt(def()),
+            EntityKind::Arrow |
+            EntityKind::Egg |
+            EntityKind::Fireball |
+            EntityKind::Snowball => {
+                BaseKind::Projectile(def(), match self {
+                    EntityKind::Arrow => ProjectileKind::Arrow(def()),
+                    EntityKind::Egg => ProjectileKind::Egg(def()),
+                    EntityKind::Fireball => ProjectileKind::Fireball(def()),
+                    EntityKind::Snowball => ProjectileKind::Snowball(def()),
+                    _ => unreachable!()
+                })
+            }
+            _ => {
+                BaseKind::Living(def(), match self {
+                    EntityKind::Player => LivingKind::Player(def()),
+                    EntityKind::Ghast => LivingKind::Ghast(def()),
+                    EntityKind::Slime => LivingKind::Slime(def()),
+                    EntityKind::Pig => LivingKind::Pig(def()),
+                    EntityKind::Chicken => LivingKind::Chicken(def()),
+                    EntityKind::Cow => LivingKind::Cow(def()),
+                    EntityKind::Sheep => LivingKind::Sheep(def()),
+                    EntityKind::Squid => LivingKind::Squid(def()),
+                    EntityKind::Wolf => LivingKind::Wolf(def()),
+                    EntityKind::Creeper => LivingKind::Creeper(def()),
+                    EntityKind::Giant => LivingKind::Giant(def()),
+                    EntityKind::PigZombie => LivingKind::PigZombie(def()),
+                    EntityKind::Skeleton => LivingKind::Skeleton(def()),
+                    EntityKind::Spider => LivingKind::Spider(def()),
+                    EntityKind::Zombie => LivingKind::Zombie(def()),
+                    _ => unreachable!()
+                })
+            }
+        }))
+
     }
 
 }
@@ -467,31 +515,79 @@ impl Entity {
 }
 
 
-/// This macro can be used to easily construct an entity.
-#[macro_export]
-macro_rules! entity {
-    (
-        $( $field:ident: $value:expr, )*
-        $variant:ident $block:block
-    ) => {
-        $crate::entity_new::Entity(
-            $crate::entity_new::Base {
-                $( $field: $value ),*
-                ..Default::default()
-            },
-            $crate::entity_new::BaseKind::$variant($crate::entity_new::$variant {
-                ..Default::default()
-            })
-        )
+macro_rules! impl_new_with {
+    ( Base: $( $kind:ident ),* ) => {
+        
+        $(impl $kind {
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut $kind)) -> Box<Entity> {
+                let mut base: Base = Default::default();
+                let mut this: $kind = Default::default();
+                func(&mut base, &mut this);
+                Box::new(Entity(base, BaseKind::$kind(this)))
+            }
+        })*
+
+    };
+    ( Projectile: $( $kind:ident ),* ) => {
+        
+        $(impl $kind {
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
+                let mut base: Base = Default::default();
+                let mut projectile: Projectile = Default::default();
+                let mut this: $kind = Default::default();
+                func(&mut base, &mut projectile, &mut this);
+                Box::new(Entity(base, BaseKind::Projectile(projectile, ProjectileKind::$kind(this))))
+            }
+        })*
+
+    };
+    ( Living: $( $kind:ident ),* ) => {
+        
+        $(impl $kind {
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut Living, &mut $kind)) -> Box<Entity> {
+                let mut base: Base = Default::default();
+                let mut living: Living = Default::default();
+                let mut this: $kind = Default::default();
+                func(&mut base, &mut living, &mut this);
+                Box::new(Entity(base, BaseKind::Living(living, LivingKind::$kind(this))))
+            }
+        })*
+
     };
 }
 
-
-fn test() {
+impl_new_with!(Base: 
+    Item, 
+    Painting, 
+    Boat, 
+    Minecart, 
+    Fish, 
+    LightningBolt, 
+    FallingBlock, 
+    Tnt);
     
-    let a = entity! {
-        persistent: true,
-        Item {}
-    };
+impl_new_with!(Projectile: 
+    Arrow,
+    Egg,
+    Fireball,
+    Snowball);
 
-}
+impl_new_with!(Living: 
+    Player,
+    Ghast,
+    Slime,
+    Pig,
+    Chicken,
+    Cow,
+    Sheep,
+    Squid,
+    Wolf,
+    Creeper,
+    Giant,
+    PigZombie,
+    Skeleton,
+    Spider,
+    Zombie);
