@@ -26,7 +26,7 @@ pub fn to_writer<S: ser::Serialize>(mut writer: impl Write, value: &S) -> Result
     let mut next_key = String::new();
     let mut path = String::new();
 
-    let res = value.serialize(NbtSerializer {
+    value.serialize(NbtSerializer {
         writer: &mut writer,
         path: &mut path,
         next_key: &mut next_key,
@@ -34,24 +34,24 @@ pub fn to_writer<S: ser::Serialize>(mut writer: impl Write, value: &S) -> Result
         seq_element_type_id: None,
         seq_type_id: None,
         in_key: false,
-    });
-    
-    if let Err(kind) = res {
-        Err(NbtError { path, kind })
-    } else {
-        Ok(())
-    }
+    }).map_err(|kind| NbtError { 
+        path,
+        kind 
+    })
 
 }
 
 /// Deserialize a NBT tag from a reader.
 pub fn from_reader<'de, D: de::Deserialize<'de>>(mut reader: impl Read) -> Result<D, NbtError> {
 
+    let mut path = String::new();
+
     D::deserialize(NbtDeserializer {
         reader: &mut reader,
+        path: &mut path,
         state: NbtDeserializerState::Root,
     }).map_err(|kind| NbtError { 
-        path: String::new(), // TODO:
+        path,
         kind 
     })
 
@@ -379,7 +379,7 @@ impl<W: Write> ser::SerializeSeq for NbtSerializer<'_, W> {
         }
         
         let path_len = self.path.len();
-        write!(self.path, "[-{remaining_len}]").unwrap();
+        write!(self.path, "/-{remaining_len}").unwrap();
 
         // We also pass the next key to avoid reallocation.
         value.serialize(NbtSerializer {
@@ -581,6 +581,8 @@ impl<W: Write> ser::SerializeStructVariant for NbtSerializer<'_, W> {
 struct NbtDeserializer<'a, R> {
     /// Inner reader.
     reader: &'a mut R,
+    /// Debug path.
+    path: &'a mut String,
     /// State of the deserializer.
     state: NbtDeserializerState,
 }
@@ -601,20 +603,31 @@ enum NbtDeserializerState {
 struct NbtSeqDeserializer<'a, R> {
     /// Inner reader.
     reader: &'a mut R,
+    /// Debug path.
+    path: &'a mut String,
+    /// Initial debug path length.
+    path_len: usize,
     /// Type id of tags in the sequence.
     type_id: i8,
-    /// Remaining length in the sequence.
-    remaining_len: usize,
+    /// Length of the sequence.
+    len: usize,
+    /// Current index within the sequence.
+    index: usize,
 }
 
 /// A NBT deserializer for a map.
 struct NbtMapDeserializer<'a, R> {
     /// Inner reader.
     reader: &'a mut R,
+    /// Debug path.
+    path: &'a mut String,
+    /// Initial path length, used to truncate back the path.
+    path_len: usize,
     /// Type id of the next value, none if `next_key` must be called before.
     next_type_id: Option<i8>,
 }
 
+#[derive(Debug)]
 enum NbtDeserializerHint {
     /// Default type should be returned.
     Default,
@@ -630,8 +643,7 @@ enum NbtDeserializerHint {
 impl<R: Read> NbtDeserializer<'_, R> {
 
     /// Internal helper function to deserialize any value, much like serde 
-    /// `deserialize_any` but with a hint about the expected sign of the value, only 
-    /// relevant if the is an integer.
+    /// `deserialize_any` but with a hint about the expected value variant.
     fn deserialize_any_hint<'de, V>(mut self, visitor: V, hint: NbtDeserializerHint) -> Result<V::Value, NbtErrorKind>
     where
         V: de::Visitor<'de> 
@@ -665,6 +677,7 @@ impl<R: Read> NbtDeserializer<'_, R> {
 
         match type_id {
             NBT_BYTE => {
+                self.path.push_str("<byte>");
                 let val = self.reader.read_java_byte()?;
                 match hint {
                     NbtDeserializerHint::Unsigned => visitor.visit_u8(val as u8),
@@ -674,6 +687,7 @@ impl<R: Read> NbtDeserializer<'_, R> {
                 }
             }
             NBT_SHORT => {
+                self.path.push_str("<short>");
                 let val = self.reader.read_java_short()?;
                 match hint {
                     NbtDeserializerHint::Unsigned => visitor.visit_u16(val as u16),
@@ -681,6 +695,7 @@ impl<R: Read> NbtDeserializer<'_, R> {
                 }
             }
             NBT_INT => {
+                self.path.push_str("<int>");
                 let val = self.reader.read_java_int()?;
                 match hint {
                     NbtDeserializerHint::Unsigned => visitor.visit_u32(val as u32),
@@ -688,15 +703,24 @@ impl<R: Read> NbtDeserializer<'_, R> {
                 }
             }
             NBT_LONG => {
+                self.path.push_str("<long>");
                 let val = self.reader.read_java_long()?;
                 match hint {
                     NbtDeserializerHint::Unsigned => visitor.visit_u64(val as u64),
                     _ => visitor.visit_i64(val)
                 }
             }
-            NBT_FLOAT => visitor.visit_f32(self.reader.read_java_float()?),
-            NBT_DOUBLE => visitor.visit_f64(self.reader.read_java_double()?),
+            NBT_FLOAT => {
+                self.path.push_str("<float>");
+                visitor.visit_f32(self.reader.read_java_float()?)
+            }
+            NBT_DOUBLE => {
+                self.path.push_str("<double>");
+                visitor.visit_f64(self.reader.read_java_double()?)
+            }
             NBT_BYTE_ARRAY => {
+
+                self.path.push_str("<bytes>");
 
                 let len = self.reader.read_java_int()?;
                 if len < 0 {
@@ -711,6 +735,8 @@ impl<R: Read> NbtDeserializer<'_, R> {
             NBT_STRING => visitor.visit_string(self.reader.read_java_string8()?),
             NBT_LIST => {
 
+                self.path.push_str("<list>");
+
                 // NOTE: A list can contain a single type.
                 let type_id = self.reader.read_java_byte()?;
                 let len = self.reader.read_java_int()?;
@@ -720,15 +746,22 @@ impl<R: Read> NbtDeserializer<'_, R> {
 
                 visitor.visit_seq(NbtSeqDeserializer {
                     reader: self.reader,
+                    path_len: self.path.len(),
+                    path: self.path,
                     type_id,
-                    remaining_len: len as usize,
+                    len: len as usize,
+                    index: 0,
                 })
 
             }
             NBT_COMPOUND => {
 
+                self.path.push_str("<compound>");
+                
                 visitor.visit_map(NbtMapDeserializer {
                     reader: self.reader,
+                    path_len: self.path.len(),
+                    path: self.path,
                     next_type_id: None,
                 })
 
@@ -810,21 +843,26 @@ impl<'de, R: Read> de::SeqAccess<'de> for NbtSeqDeserializer<'_, R> {
         T: de::DeserializeSeed<'de> 
     {
        
-        if self.remaining_len == 0 {
+        if self.index >= self.len {
             return Ok(None);
-        } 
+        }
+        
+        // Reset to the initial path length before appending key.
+        self.path.truncate(self.path_len);
+        write!(self.path, "/{}", self.index).unwrap();
 
-        self.remaining_len -= 1;
+        self.index += 1;
         
         seed.deserialize(NbtDeserializer {
             reader: &mut *self.reader,
+            path: &mut *self.path,
             state: NbtDeserializerState::SeqValue(self.type_id),
         }).map(Some)
 
     }
 
     fn size_hint(&self) -> Option<usize> {
-        Some(self.remaining_len)
+        Some(self.len)
     }
 
 }
@@ -848,9 +886,14 @@ impl<'de, R: Read> de::MapAccess<'de> for NbtMapDeserializer<'_, R> {
 
         let key = self.reader.read_java_string8()?;
         self.next_type_id = Some(type_id);
+        
+        // Reset to the initial path length before appending key.
+        self.path.truncate(self.path_len);
+        write!(self.path, "/{key}").unwrap();
 
         seed.deserialize(NbtDeserializer {
             reader: &mut *self.reader,
+            path: &mut *self.path,
             state: NbtDeserializerState::MapKey(Some(key)),
         }).map(Some)
 
@@ -862,9 +905,10 @@ impl<'de, R: Read> de::MapAccess<'de> for NbtMapDeserializer<'_, R> {
     {
 
         let type_id = self.next_type_id.take().expect("missing next key");
-        
+
         seed.deserialize(NbtDeserializer {
             reader: &mut *self.reader,
+            path: &mut *self.path,
             state: NbtDeserializerState::MapValue(Some(type_id)),
         })
 

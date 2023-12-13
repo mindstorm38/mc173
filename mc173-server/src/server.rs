@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::io;
 
 use anyhow::Result as AnyResult;
-use glam::Vec2;
+use glam::{Vec2, DVec3};
 
 use log::{warn, info};
 
@@ -158,13 +158,15 @@ impl Server {
             return;
         }
 
+        let spawn_pos = DVec3::new(0.0, 100.0, 0.0);
+
         // Get the offline player, if not existing we create a new one with the 
         let offline_player = self.offline_players.entry(packet.username.clone())
             .or_insert_with(|| {
                 let spawn_world = &self.worlds[0];
                 OfflinePlayer {
                     world: spawn_world.state.name.clone(),
-                    pos: spawn_world.world.get_spawn_pos(),
+                    pos: spawn_pos,
                     look: Vec2::ZERO,
                 }
             });
@@ -199,7 +201,7 @@ impl Server {
 
         // The standard server sends the spawn position just after login response.
         self.net.send(client, OutPacket::SpawnPosition(proto::SpawnPositionPacket {
-            pos: world.world.get_spawn_pos().as_ivec3(),
+            pos: spawn_pos.as_ivec3(),
         }));
 
         // Send the initial position for the client.

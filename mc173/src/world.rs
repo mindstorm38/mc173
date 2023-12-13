@@ -12,6 +12,8 @@ use std::mem;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
+use log::trace;
+
 use crate::biome::Biome;
 use crate::chunk::{Chunk, 
     calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos,
@@ -103,8 +105,6 @@ pub struct World {
     events: Option<Vec<Event>>,
     /// The dimension
     dimension: Dimension,
-    /// The spawn position.
-    spawn_pos: DVec3,
     /// The world time, increasing on each tick. This is used for day/night cycle but 
     /// also for registering scheduled ticks.
     time: u64,
@@ -158,7 +158,6 @@ impl World {
         Self {
             events: None,
             dimension,
-            spawn_pos: DVec3::ZERO,
             time: 0,
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
@@ -207,17 +206,6 @@ impl World {
     /// world with chunks and entities.
     pub fn get_dimension(&self) -> Dimension {
         self.dimension
-    }
-
-    /// Get the world's spawn position.
-    pub fn get_spawn_pos(&self) -> DVec3 {
-        self.spawn_pos
-    }
-
-    /// Set the world's spawn position, this triggers `SpawnPosition` event.
-    pub fn set_spawn_pos(&mut self, pos: DVec3) {
-        self.spawn_pos = pos;
-        self.push_event(Event::SpawnPosition { pos });
     }
 
     /// Get the world time, in ticks.
@@ -527,6 +515,8 @@ impl World {
         self.entities_count = self.entities_count.checked_add(1)
             .expect("entity count overflow");
 
+        trace!("spawn entity #{id} ({:?})", entity.kind());
+
         let (cx, cz) = calc_entity_chunk_pos(entity.0.pos);
 
         // NOTE: Entities should always be stored in a world chunk.
@@ -600,6 +590,8 @@ impl World {
             .entities.remove(&index);
 
         debug_assert!(removed_success, "entity missing from its chunk");
+
+        trace!("remove entity #{id}");
 
         self.push_event(Event::Entity { id, inner: EntityEvent::Remove });
         true
@@ -1264,17 +1256,19 @@ pub enum Event {
         /// Inner block entity event.
         inner: BlockEntityEvent,
     },
-    /// The world's spawn point has been changed.
-    SpawnPosition {
-        /// The new spawn point position.
-        pos: DVec3,
-    },
     /// The weather in the world has changed.
     Weather {
         /// Previous weather in the world.
         prev: Weather,
         /// New weather in the world.
         new: Weather,
+    },
+    /// An event to debug and spawn block break particles at the given position.
+    DebugParticle {
+        /// The block position to spawn particles at.
+        pos: IVec3,
+        /// The block to break at this position.
+        block: u8,
     }
 }
 

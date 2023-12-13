@@ -86,7 +86,7 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
     if base.lifetime % 4 == 0 && base.pos_dirty && log_enabled!(Level::Trace) {
         let kind = base_kind.entity_kind();
         let bb_size = base.bb.size();
-        trace!("tick entity #{id} ({kind:?}), pos: {:.2}/{:.2}/{:.2}, bb: {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2} ({:.2}/{:.2}/{:.2})", 
+        trace!("entity #{id} ({kind:?}), pos: {:.2}/{:.2}/{:.2}, bb: {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2} ({:.2}/{:.2}/{:.2})", 
             base.pos.x, base.pos.y, base.pos.z, 
             base.bb.min.x, base.bb.min.y, base.bb.min.z,
             base.bb.max.x, base.bb.max.y, base.bb.max.z,
@@ -192,15 +192,13 @@ fn tick_base_pos(world: &mut World, _id: u32, base: &mut Base, delta: DVec3, ste
         let colliding_bb = base.bb.expand(delta);
         let colliding_bbs: Vec<_> = world.iter_blocks_boxes_colliding(colliding_bb)
             .chain(world.iter_entities_colliding(colliding_bb)
-                .filter_map(|(_entity_id, _entity, _entity_bb)| {
+                .filter_map(|(_entity_id, entity, entity_bb)| {
                     // Only the boat entity acts like a hard bounding box.
-                    // TODO:
-                    // if let Entity::Boat(_) = entity {
-                    //     Some(entity_bb)
-                    // } else {
-                    //     None
-                    // }
-                    None
+                    if let Entity(_, BaseKind::Boat(_)) = entity {
+                        Some(entity_bb)
+                    } else {
+                        None
+                    }
                 }))
             .collect();
         
@@ -400,8 +398,6 @@ fn tick_falling_block(world: &mut World, id: u32, base: &mut Base, falling_block
 
 }
 
-
-
 /// REF: EntityLiving::onUpdate
 fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
 
@@ -413,14 +409,16 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
         }
     }
 
+    const ANIMAL_MOVE_SPEED: f32 = 0.1;
+
     match living_kind {
         LivingKind::Player(_) => (),  // For now we do nothing.
         LivingKind::Ghast(_) => todo!(),
         LivingKind::Slime(_) => todo!(),
-        LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, 0.7, path_weight_animal),
-        LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, 0.7, path_weight_animal),
-        LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, 0.7, path_weight_animal),
-        LivingKind::Sheep(_) => tick_creature_ai(world, id, base, living, 0.7, path_weight_animal),
+        LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
+        LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
+        LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
+        LivingKind::Sheep(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
         LivingKind::Squid(_) => todo!(),
         LivingKind::Wolf(_) => todo!(),
         LivingKind::Creeper(_) => todo!(),
@@ -437,7 +435,7 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
             base.vel.y += 0.04;
         } else if base.on_ground {
             base.vel_dirty = true;
-            base.vel.y += 0.42;
+            base.vel.y += 0.42 + 0.1; // FIXME: Added 0.1 to make it work
         }
     }
 
@@ -503,7 +501,7 @@ fn tick_living_pos(world: &mut World, id: u32, base: &mut Base, living: &mut Liv
 
         // Change entity velocity if on ground or not.
         let vel_factor = match base.on_ground {
-            true => 0.1 * 0.16277136 / (slipperiness * slipperiness * slipperiness),
+            true => 0.16277136 / (slipperiness * slipperiness * slipperiness) * 0.1,
             false => 0.02,
         };
 
@@ -519,8 +517,8 @@ fn tick_living_pos(world: &mut World, id: u32, base: &mut Base, living: &mut Liv
             base.vel *= slipperiness as f64;
         } else {
             base.vel.y -= 0.08;
-            base.vel.x *= slipperiness as f64;
             base.vel.y *= 0.98;
+            base.vel.x *= slipperiness as f64;
             base.vel.z *= slipperiness as f64;
         }
 
@@ -537,7 +535,7 @@ fn tick_living_vel(_world: &mut World, _id: u32, base: &mut Base, living: &mut L
     let mut forward = living.accel_forward;
     let mut dist = Vec2::new(forward, strafing).length();
     if dist >= 0.01 {
-        dist = dist.min(1.0);
+        dist = dist.max(1.0);
         dist = factor / dist;
         strafing *= dist;
         forward *= dist;
@@ -635,9 +633,16 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
 
     // TODO: Work on mob AI with attacks...
 
+    // If the path is not none, try finding a new path every second on average.
     if living.path.is_none() || base.rand.next_int_bounded(20) != 0 {
         // Find a new path every 4 seconds on average.
         if base.rand.next_int_bounded(80) == 0 {
+
+            if living.path.is_none() {
+                trace!("entity #{id}, path finding because path none");
+            } else {
+                trace!("entity #{id}, path finding because 5% chance");
+            }
             
             let best_pos = (0..10)
                 .map(|_| {
@@ -651,19 +656,34 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
                 .max_by(|(_, a), (_, b)| a.total_cmp(b))
                 .unwrap().0;
 
+            trace!("entity #{id}, path finding: {best_pos}");
+
             let best_pos = best_pos.as_dvec3() + 0.5;
             if let Some(points) = PathFinder::new(world).find_path_from_bounding_box(base.bb, best_pos, 18.0) {
                 // println!("== update_creature_path: new path found to {best_pos}");
+                trace!("entity #{id}, path found: {points:?}");
                 living.path = Some(Path {
                     points,
                     index: 0,
-                })
+                });
             }
                 
         }
     }
 
     if let Some(path) = &mut living.path {
+
+        // Debug particles, lava = remaining, water = done.
+        if base.lifetime % 10 == 0 {
+            for (i, pos) in path.points.iter().copied().enumerate() {
+                if i < path.index {
+                    world.push_event(Event::DebugParticle { pos, block: block::WATER_STILL });
+                } else {
+                    world.push_event(Event::DebugParticle { pos, block: block::LAVA_STILL });
+                }
+            }
+        }
+
         if base.rand.next_int_bounded(100) != 0 {
 
             let bb_size = base.bb.size();
@@ -677,10 +697,11 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
                 pos.x += (bb_size.x + 1.0) * 0.5;
                 pos.z += (bb_size.z + 1.0) * 0.5;
 
-                // Advance the path to the next point only if distance to current
-                // one is too short.
+                // Advance the path to the next point only if distance to current one is 
+                // too short. We only check the horizontal distance, because Y delta is 0.
                 let pos_dist_sq = pos.distance_squared(DVec3::new(base.pos.x, pos.y, base.pos.z));
                 if pos_dist_sq < double_width * double_width {
+                    trace!("entity #{id}, path pos to short: {pos}, dist: {} < {}", pos_dist_sq.sqrt(), double_width);
                     path.advance();
                 } else {
                     next_pos = Some(pos);
@@ -693,24 +714,24 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
 
             if let Some(next_pos) = next_pos {
 
-                // println!("== update_creature_ai: next pos {next_pos}");
+                trace!("entity #{id}, path next pos: {next_pos}");
 
                 let dx = next_pos.x - base.pos.x;
                 let dy = next_pos.y - base.bb.min.y.add(0.5).floor();
                 let dz = next_pos.z - base.pos.z;
 
-                let target_yaw = f64::atan2(dx, dz) as f32 - std::f32::consts::FRAC_PI_2;
-                let delta_yaw = target_yaw - base.look.x;
+                let target_yaw = f64::atan2(dz, dx) as f32 - std::f32::consts::FRAC_PI_2;
+                // let delta_yaw = target_yaw - base.look.x;
 
                 living.accel_forward = move_speed;
-                base.look.x += delta_yaw;
+                base.look.x = target_yaw;
 
                 if dy > 0.0 {
                     living.jumping = true;
                 }
 
             } else {
-                // println!("== update_creature_ai: finished path");
+                trace!("entity #{id}, path finished");
                 living.path = None;
             }
 
@@ -718,18 +739,18 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
 
             // TODO: If collided horizontal and no path, then jump
 
-            if base.rand.next_float() < 0.8 && (base.in_water || base.in_water) {
+            if base.rand.next_float() < 0.8 && (base.in_water || base.in_lava) {
+                trace!("entity #{id}, jumping because of 80% chance or water/lava");
                 living.jumping = true;
             }
 
             return;
 
         } else {
-            // println!("== update_creature_ai: bad luck, path abandoned");
+            trace!("entity #{id}, forget path because 1% chance")
         }
-    }
 
-    // println!("== update_creature_ai: no path, fallback to living ai");
+    }
 
     // If we can't run a path finding AI, fallback to the default immobile AI.
     living.path = None;

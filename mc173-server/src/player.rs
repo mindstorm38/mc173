@@ -264,6 +264,7 @@ impl ServerPlayer {
 
                 entity.0.persistent = true;
                 entity.0.pos = self.pos;
+                entity.0.health = 20;
 
                 let entity_id = world.spawn_entity(entity);
                 self.send_chat(format!("§aEntity spawned:§r {entity_id}"));

@@ -81,7 +81,6 @@ impl ServerWorld {
     pub fn new(name: impl Into<String>) -> Self {
 
         let mut inner = World::new(Dimension::Overworld);
-        inner.set_spawn_pos(DVec3::new(0.0, 100.0, 0.0));
 
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
@@ -185,10 +184,10 @@ impl ServerWorld {
                     BlockEntityEvent::Progress { progress, value } =>
                         self.handle_block_entity_progress(pos, progress, value),
                 }
-                Event::SpawnPosition { pos } =>
-                    self.handle_spawn_position(pos),
                 Event::Weather { new, .. } =>
                     self.handle_weather_change(new),
+                Event::DebugParticle { pos, block } =>
+                    self.handle_debug_particle(pos, block),
             }
         }
 
@@ -448,22 +447,27 @@ impl ServerWorld {
 
     }
 
-    /// Handle a dynamic update of the spawn position.
-    fn handle_spawn_position(&mut self, pos: DVec3) {
-        let pos = pos.floor().as_ivec3();
-        for player in &self.players {
-            player.send(OutPacket::SpawnPosition(proto::SpawnPositionPacket {
-                pos,
-            }))
-        }
-    }
-
     /// Handle weather change in the world.
     fn handle_weather_change(&mut self, weather: Weather) {
         for player in &self.players {
             player.send(OutPacket::Notification(proto::NotificationPacket {
                 reason: if weather == Weather::Clear { 2 } else { 1 },
             }));
+        }
+    }
+
+    fn handle_debug_particle(&mut self, pos: IVec3, block: u8) {
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
+                    effect_id: 2001,
+                    x: pos.x,
+                    y: pos.y as i8,
+                    z: pos.z,
+                    effect_data: block as u32,
+                }));
+            }
         }
     }
 
