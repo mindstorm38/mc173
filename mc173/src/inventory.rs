@@ -21,17 +21,17 @@ impl<'a> InventoryHandle<'a> {
         }
     }
 
-    /// Add an item to the inventory. The returned size if the number of items consumed
-    /// from the stack, this may not be equal to the stack size of the inventory is full.
-    pub fn add(&mut self, stack: ItemStack) -> u16 {
+    /// Add an item to the inventory. The given item stack is modified according to the
+    /// amount of items actually added to the inventory, its size will be set to zero if
+    /// fully consumed.
+    pub fn add(&mut self, stack: &mut ItemStack) {
 
         // Do nothing if stack size is 0 or the item is air.
         if stack.is_empty() {
-            return 0;
+            return;
         }
 
         let item = item::from_id(stack.id);
-        let mut remaining_size = stack.size;
 
         // Only accumulate of stack size is greater than 1.
         if item.max_stack_size > 1 {
@@ -40,14 +40,14 @@ impl<'a> InventoryHandle<'a> {
                 // If the slot is of the same item and has space left in the stack size.
                 if slot.id == stack.id && slot.damage == stack.damage && slot.size < item.max_stack_size {
                     let available = item.max_stack_size - slot.size;
-                    let to_add = available.min(remaining_size);
+                    let to_add = available.min(stack.size);
                     slot.size += to_add;
-                    remaining_size -= to_add;
+                    stack.size -= to_add;
                     // NOTE: We requires that size must be less than 64, so the index fit
                     // in the 64 bits of changes integer.
                     self.changes |= 1 << index;
-                    if remaining_size == 0 {
-                        return stack.size;
+                    if stack.size == 0 {
+                        return;
                     }
                 }
             }
@@ -58,15 +58,12 @@ impl<'a> InventoryHandle<'a> {
         for (index, slot) in self.inv.iter_mut().enumerate() {
             if slot.is_empty() {
                 // We found an empty slot, insert the whole remaining stack size.
-                *slot = stack;
-                slot.size = remaining_size;
+                *slot = *stack;
+                stack.size = 0;
                 self.changes |= 1 << index;
-                return stack.size;
+                return;
             }
         }
-
-        // Here we found no available slot so we return the total added size.
-        stack.size - remaining_size
         
     }
 
