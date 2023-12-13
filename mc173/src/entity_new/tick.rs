@@ -8,6 +8,8 @@ use std::ops::Add;
 
 use glam::{DVec3, IVec3, Vec2};
 
+use log::{trace, log_enabled, Level};
+
 use crate::item::ItemStack;
 use crate::path::PathFinder;
 use crate::util::Face;
@@ -79,6 +81,18 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
     }
 
     tick_base_state(world, id, base, base_kind);
+
+    // Only trace each second.
+    if base.lifetime % 4 == 0 && base.pos_dirty && log_enabled!(Level::Trace) {
+        let kind = base_kind.entity_kind();
+        let bb_size = base.bb.size();
+        trace!("tick entity #{id} ({kind:?}), pos: {:.2}/{:.2}/{:.2}, bb: {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2} ({:.2}/{:.2}/{:.2})", 
+            base.pos.x, base.pos.y, base.pos.z, 
+            base.bb.min.x, base.bb.min.y, base.bb.min.z,
+            base.bb.max.x, base.bb.max.y, base.bb.max.z,
+            bb_size.x, bb_size.y, bb_size.z,
+        );
+    }
 
 }
 
@@ -389,7 +403,7 @@ fn tick_falling_block(world: &mut World, id: u32, base: &mut Base, falling_block
 
 
 /// REF: EntityLiving::onUpdate
-fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
+fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
 
     fn path_weight_animal(world: &mut World, pos: IVec3) -> f32 {
         if world.is_block(pos - IVec3::Y, block::GRASS) {

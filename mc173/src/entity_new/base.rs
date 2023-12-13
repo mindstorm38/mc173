@@ -19,7 +19,7 @@ impl Base {
         let height_center = self.size.height_center as f64;
         self.bb = BoundingBox {
             min: self.pos - DVec3::new(half_width, height_center, half_width),
-            max: self.pos + DVec3::new(half_width, height + height_center, half_width),
+            max: self.pos + DVec3::new(half_width, height - height_center, half_width),
         };
         // Entity position and bounding are coherent.
         self.coherent = true;
