@@ -88,14 +88,14 @@ impl Server {
 
     /// Handle new client accepted by the network.
     fn handle_accept(&mut self, client: NetworkClient) {
-        info!("client accepted: {client:?}");
+        info!("accept client #{}", client.id());
         self.clients.insert(client, ClientState::Handshaking);
     }
 
     /// Handle a lost client.
     fn handle_lost(&mut self, client: NetworkClient, error: Option<io::Error>) {
 
-        info!("client lost: {client:?}: {error:?}");
+        info!("lost client #{}: {:?}", client.id(), error);
         
         let state = self.clients.remove(&client).unwrap();
         

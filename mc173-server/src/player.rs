@@ -180,7 +180,7 @@ impl ServerPlayer {
                 self.handle_window_close(world, packet),
             InPacket::Animation(packet) =>
                 self.handle_animation(world, packet),
-            _ => warn!("unhandled packet from {:?}: {packet:?}", self.client)
+            _ => warn!("unhandled packet from #{}: {packet:?}", self.client.id())
         }
 
     }

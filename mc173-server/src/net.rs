@@ -152,6 +152,16 @@ impl fmt::Debug for NetworkClient {
     }
 }
 
+impl NetworkClient {
+
+    /// Return the numeric id of this network client, many used for displaying purpose.
+    #[inline]
+    pub fn id(self) -> u64 {
+        self.0.0 as u64
+    }
+
+}
+
 /// An event of the packet
 #[derive(Debug)]
 pub enum NetworkEvent<I> {
