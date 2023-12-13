@@ -345,8 +345,6 @@ impl<G: ChunkGenerator> StorageWorker<G> {
         // Set the chunk in the world.
         self.world.set_chunk(cx, cz, chunk);
 
-        // println!("inserting chunk {cx}/{cz}");
-
         // For each chunk around the current chunk, check if it exists. Component order 
         // is [X][Z]. Using this temporary array avoids too much calls to contains_chunk.
         let mut contains = [[false; 3]; 3];

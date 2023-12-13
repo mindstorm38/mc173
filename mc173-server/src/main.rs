@@ -1,5 +1,7 @@
 //! A Minecraft beta 1.7.3 server in Rust.
 
+use log::info;
+
 pub mod net;
 pub mod proto;
 
@@ -16,7 +18,13 @@ pub mod server;
 
 
 pub fn main() {
-    use server::Server;
-    let mut server = Server::bind("127.0.0.1:25565".parse().unwrap()).unwrap();
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    
+    let addr = "127.0.0.1:25565".parse().unwrap();
+    info!("starting server on {addr}");
+
+    let mut server = server::Server::bind(addr).unwrap();
     server.run().unwrap();
+    
 }

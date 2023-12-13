@@ -4,6 +4,8 @@ use std::collections::HashSet;
 
 use glam::{DVec3, Vec2, IVec3};
 
+use log::warn;
+
 use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress};
 use mc173::world::interact::Interaction;
 
@@ -178,7 +180,7 @@ impl ServerPlayer {
                 self.handle_window_close(world, packet),
             InPacket::Animation(packet) =>
                 self.handle_animation(world, packet),
-            _ => println!("[{:?}] Packet: {packet:?}", self.client)
+            _ => warn!("unhandled packet from {:?}: {packet:?}", self.client)
         }
 
     }
@@ -441,6 +443,8 @@ impl ServerPlayer {
         let Some(entity) = world.get_entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
+        // TODO: Use server time for breaking blocks.
+
         let in_water = entity.0.in_water;
         let on_ground = entity.0.on_ground;
         let mut stack = self.main_inv[self.hand_slot as usize];
@@ -479,10 +483,10 @@ impl ServerPlayer {
                     if world.get_time() >= min_time {
                         world.break_block(pos);
                     } else {
-                        println!("[WARN] Incoherent break (too early), expected {min_time}, got {}", world.get_time());
+                        warn!("incoherent break time, expected {min_time} but got {}", world.get_time());
                     }
                 } else {
-                    println!("[WARN] Incoherent break (position), expected {}, got {}", pos, state.pos);
+                    warn!("incoherent break position, expected  {}, got {}", pos, state.pos);
                 }
             }
         } else if packet.status == 4 {
@@ -570,7 +574,7 @@ impl ServerPlayer {
         if slot >= 0 && slot < 9 {
             self.hand_slot = slot as u8;
         } else {
-            println!("[WARN] Invalid hand slot: {slot}");
+            warn!("invalid hand slot: {slot}");
         }
     }
 
@@ -600,7 +604,7 @@ impl ServerPlayer {
 
             let slot_handle = self.make_window_slot_handle(world, packet.window_id, packet.slot);
             let Some(mut slot_handle) = slot_handle else {
-                println!("[WARN] Cannot find a handle for slot {} in window {}", packet.slot, packet.window_id);
+                warn!("cannot find a handle for slot {} in window {}", packet.slot, packet.window_id);
                 return;
             };
 
@@ -948,13 +952,13 @@ impl ServerPlayer {
 
         // Check coherency of server/client windows.
         if self.window.id != window_id {
-            println!("[WARN] Incoherent window id, expected {}, got {} from client", self.window.id, window_id);
+            warn!("incoherent window id, expected {}, got {} from client", self.window.id, window_id);
             return None;
         }
 
         // This avoid temporary cast issues afterward, even if we keep the signed type.
         if slot < 0 {
-            println!("[WARN] Negative slot {slot} received for window {window_id}");
+            warn!("negative slot {slot} received for window {window_id}");
             return None;
         }
 

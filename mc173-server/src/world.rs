@@ -5,6 +5,8 @@ use std::time::Instant;
 
 use glam::{DVec3, IVec3, Vec2};
 
+use log::debug;
+
 use mc173::entity_new::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
 use mc173::gen::OverworldGenerator;
@@ -122,17 +124,17 @@ impl ServerWorld {
         while let Some(reply) = self.state.storage.poll() {
             match reply {
                 ChunkStorageReply::Load(Ok(snapshot)) => {
-                    println!("[STORAGE] Inserting chunk {}/{}", snapshot.cx, snapshot.cz);
+                    debug!("loaded chunk from storage: {}/{}", snapshot.cx, snapshot.cz);
                     self.world.insert_chunk_snapshot(snapshot);
                 }
                 ChunkStorageReply::Load(Err(err)) => {
-                    println!("[STORAGE] Error while loading chunk: {err}");
+                    debug!("failed to load chunk from storage: {err}");
                 }
                 ChunkStorageReply::Save(Ok((cx, cz))) => {
-                    println!("[STORAGE] Saved chunk {cx}/{cz}");
+                    debug!("saved chunk in storage {cx}/{cz}");
                 }
                 ChunkStorageReply::Save(Err(err)) => {
-                    println!("[STORAGE] Error while saving chunk: {err}");
+                    debug!("failed to save chunk in storage: {err}");
                 }
             }
         }

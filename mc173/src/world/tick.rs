@@ -2,6 +2,8 @@
 
 use glam::{IVec3, DVec3};
 
+use log::warn;
+
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
 use crate::entity_new::{Item, FallingBlock};
@@ -141,11 +143,11 @@ impl World {
             let origin_pos = pos.as_dvec3() + face.delta().as_dvec3() * 0.6 + 0.5;
 
             if dispense_stack.id == item::ARROW {
-                println!("[WARN] TODO: Shot arrow");
+                warn!("TODO: shot arrow from dispenser");
             } else if dispense_stack.id == item::EGG {
-                println!("[WARN] TODO: Shot egg");
+                warn!("TODO: shot egg from dispenser");
             } else if dispense_stack.id == item::SNOWBALL {
-                println!("[WARN] TODO: Shot snowball");
+                warn!("TODO: shot snowball from dispenser");
             } else {
 
                 let entity = Item::new_with(|base, item| {

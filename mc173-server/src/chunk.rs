@@ -4,6 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use glam::IVec3;
+
+use log::trace;
+
 use mc173::chunk::{Chunk, self};
 use mc173::world::World;
 
@@ -159,9 +162,9 @@ impl ChunkTracker {
                 z: (self.set_blocks_max.z - self.set_blocks_min.z + 1) as i32, 
             };
 
-            let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
+            trace!("sending partial chunk data for {cx}/{cz}, from {from}, size {size}");
 
-            // println!("sending chunk data for {cx}/{cz}");
+            let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(packet.clone());
@@ -171,8 +174,8 @@ impl ChunkTracker {
         } else if self.set_blocks.len() == 1 {
 
             let set_block = self.set_blocks[0];
-
-            // println!("sending single block change for {cx}/{cz}");
+            trace!("sending single block for {cx}/{cz}, at {:?}", set_block.pos);
+            
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
                     player.send(OutPacket::BlockSet(proto::BlockSetPacket {
@@ -203,7 +206,7 @@ impl ChunkTracker {
                 blocks: Arc::new(set_blocks),
             });
 
-            // println!("sending multi block change for {cx}/{cz} ({})", self.set_blocks.len());
+            trace!("sending multi block for {cx}/{cz}, count {}", self.set_blocks.len());
 
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {

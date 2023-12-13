@@ -589,9 +589,7 @@ impl ChunkGenerator for OverworldGenerator {
         // Mob dungeons...
         for _ in 0..8 {
             let pos = pos + next_offset(&mut rand, 128, 8);
-            if DungeonGenerator::new().generate(world, pos, &mut rand) {
-                println!("generated dungeon at {pos}");
-            }
+            DungeonGenerator::new().generate(world, pos, &mut rand);
         }
 
         // Clay veins (only in water).

@@ -8,6 +8,8 @@ use std::io;
 use anyhow::Result as AnyResult;
 use glam::Vec2;
 
+use log::{warn, info};
+
 use mc173::world::{Dimension, Weather};
 use mc173::entity_new::{self as e};
 
@@ -56,7 +58,7 @@ impl Server {
             if let Some(missing) = TICK_DURATION.checked_sub(elapsed) {
                 std::thread::sleep(missing);
             } else {
-                println!("[WARN] Tick was too long ({elapsed:?})");
+                warn!("tick take too long {:?}, expected {:?}", elapsed, TICK_DURATION);
             }
         }
     }
@@ -86,14 +88,15 @@ impl Server {
 
     /// Handle new client accepted by the network.
     fn handle_accept(&mut self, client: NetworkClient) {
-        println!("[{client:?}] Accepted");
+        info!("client accepted: {client:?}");
         self.clients.insert(client, ClientState::Handshaking);
     }
 
     /// Handle a lost client.
     fn handle_lost(&mut self, client: NetworkClient, error: Option<io::Error>) {
 
-        println!("[{client:?}] Lost: {error:?}");
+        info!("client lost: {client:?}: {error:?}");
+        
         let state = self.clients.remove(&client).unwrap();
         
         if let ClientState::Playing { world_index, player_index } = state {
