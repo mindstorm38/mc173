@@ -2,7 +2,7 @@
 
 use glam::IVec3;
 
-use crate::entity_new::EntityKind;
+use crate::entity::EntityKind;
 use crate::world::World;
 
 

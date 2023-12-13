@@ -4,7 +4,7 @@ use std::ops::{Mul, Div};
 
 use glam::{DVec3, Vec2, IVec3};
 
-use mc173::entity_new::{self as e, Entity, EntityKind, BaseKind, ProjectileKind, LivingKind};
+use mc173::entity::{self as e, Entity, EntityKind, BaseKind, ProjectileKind, LivingKind};
 use mc173::world::World;
 use mc173::block;
 

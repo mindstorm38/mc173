@@ -11,7 +11,7 @@ use glam::{Vec2, DVec3};
 use log::{warn, info};
 
 use mc173::world::{Dimension, Weather};
-use mc173::entity_new::{self as e};
+use mc173::entity::{self as e};
 
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::offline::OfflinePlayer;

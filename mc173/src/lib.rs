@@ -4,7 +4,7 @@ pub mod util;
 
 pub mod block;
 pub mod item;
-pub mod entity_new;
+pub mod entity;
 pub mod block_entity;
 pub mod biome;
 

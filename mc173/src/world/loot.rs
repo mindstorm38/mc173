@@ -4,7 +4,7 @@ use std::ops::{Mul, Sub};
 
 use glam::{IVec3, DVec3};
 
-use crate::entity_new::Item;
+use crate::entity::Item;
 use crate::item::ItemStack;
 use crate::{block, item};
 

@@ -8,7 +8,7 @@ use glam::IVec3;
 use serde::de::{Deserializer, Visitor, SeqAccess};
 use serde::ser::Serializer;
 
-use crate::entity_new::{self as e, 
+use crate::entity::{self as e, 
     Entity, 
     Base, Projectile, Living,
     PaintingOrientation, PaintingArt};

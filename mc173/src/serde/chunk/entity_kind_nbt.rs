@@ -1,6 +1,6 @@
 //! NBT serialization and deserialization for [`EntityKind`] enumeration.
 
-use crate::entity_new::EntityKind;
+use crate::entity::EntityKind;
 
 pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<EntityKind, D::Error> {
 

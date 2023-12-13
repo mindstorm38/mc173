@@ -7,7 +7,7 @@ use glam::{DVec3, IVec3, Vec2};
 
 use log::debug;
 
-use mc173::entity_new::{Entity, BaseKind, ProjectileKind};
+use mc173::entity::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
 use mc173::gen::OverworldGenerator;
 use mc173::item::{ItemStack, self};

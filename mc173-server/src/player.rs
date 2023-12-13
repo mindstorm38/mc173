@@ -9,7 +9,7 @@ use log::warn;
 use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress};
 use mc173::world::interact::Interaction;
 
-use mc173::entity_new::{self as e, EntityKind, Entity};
+use mc173::entity::{self as e, EntityKind, Entity};
 use mc173::block_entity::BlockEntity;
 use mc173::item::{self, ItemStack};
 use mc173::{block, chunk};

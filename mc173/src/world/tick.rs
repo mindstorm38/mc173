@@ -6,7 +6,7 @@ use log::warn;
 
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
-use crate::entity_new::{Item, FallingBlock};
+use crate::entity::{Item, FallingBlock};
 use crate::gen::tree::TreeGenerator;
 use crate::util::{Face, FaceSet};
 use crate::block::Material;

@@ -21,7 +21,7 @@ use crate::chunk::{Chunk,
 use crate::util::{JavaRandom, BoundingBox, Face};
 use crate::block_entity::BlockEntity;
 use crate::item::ItemStack;
-use crate::entity_new::Entity;
+use crate::entity::Entity;
 use crate::block;
 
 
