@@ -16,5 +16,7 @@ flate2 = "1.0"
 arcstr = "1.1"
 glam = "0.24"
 
+ctrlc = "3.4.1"
+
 env_logger = "0.10"
 log = "0.4"

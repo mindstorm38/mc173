@@ -2,6 +2,7 @@
 //! chunks. The current implementation use a single worker for region or features 
 //! generation and many workers for terrain generation.
 
+use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -41,6 +42,10 @@ pub struct ChunkStorage {
     storage_request_sender: Sender<StorageRequest>,
     /// Reply receiver from storage worker.
     storage_reply_receiver: Receiver<ChunkStorageReply>,
+    /// Set of requested chunk loads.
+    request_load: HashSet<(i32, i32)>,
+    /// Set of requested chunk saves.
+    request_save: HashSet<(i32, i32)>,
 }
 
 /// The storage worker is the entry point where commands arrives, it dispatch terrain
@@ -170,30 +175,52 @@ impl ChunkStorage {
         Self {
             storage_request_sender,
             storage_reply_receiver,
+            request_load: HashSet::new(),
+            request_save: HashSet::new(),
         }
 
     }
 
     /// Request loading of a chunk, that will later be returned by polling this storage.
-    pub fn request_load(&self, cx: i32, cz: i32) {
+    pub fn request_load(&mut self, cx: i32, cz: i32) {
+        self.request_load.insert((cx, cz));
         self.storage_request_sender.send(StorageRequest::Load { cx, cz })
             .expect("worker should not disconnect while this handle exists");
     }
 
     /// Request saving of the given chunk snapshot.
-    pub fn request_save(&self, snapshot: ChunkSnapshot) {
+    pub fn request_save(&mut self, snapshot: ChunkSnapshot) {
+        self.request_save.insert((snapshot.cx, snapshot.cz));
         self.storage_request_sender.send(StorageRequest::Save { snapshot })
             .expect("worker should not disconnect while this handle exists");
     }
 
     /// Poll without blocking this storage for new reply to requested load and save.
     /// This function returns none if there is not new reply to poll.
-    pub fn poll(&self) -> Option<ChunkStorageReply> {
+    pub fn poll(&mut self) -> Option<ChunkStorageReply> {
         match self.storage_reply_receiver.try_recv() {
-            Ok(reply) => Some(reply),
+            Ok(reply) => {
+                match reply {
+                    ChunkStorageReply::Load { cx, cz, .. } => self.request_load.remove(&(cx, cz)),
+                    ChunkStorageReply::Save { cx, cz, .. } => self.request_save.remove(&(cx, cz)),
+                };
+                Some(reply)
+            }
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => panic!("worker should not disconnect while this handle exists"),
         }
+    }
+
+    /// Number of requested chunk loads pending.
+    #[inline]
+    pub fn request_load_count(&self) -> usize {
+        self.request_load.len()
+    }
+
+    /// Number of requested chunk saves pending.
+    #[inline]
+    pub fn request_save_count(&self) -> usize {
+        self.request_save.len()
     }
 
 }
@@ -240,11 +267,11 @@ impl<G: ChunkGenerator> StorageWorker<G> {
             Err(err) => {
                 // Immediately send error, we don't want to load the chunk if there is
                 // an error in the region file, in order to avoid overwriting the error.
-                self.storage_reply_sender.send(ChunkStorageReply::Load(Err(err))).is_ok()
+                self.storage_reply_sender.send(ChunkStorageReply::Load { cx, cz, res: Err(err) }).is_ok()
             }
             Ok(Some(snapshot)) => {
                 // Immediately send the loaded chunk.
-                self.storage_reply_sender.send(ChunkStorageReply::Load(Ok(snapshot))).is_ok()
+                self.storage_reply_sender.send(ChunkStorageReply::Load { cx, cz, res: Ok(snapshot) }).is_ok()
             }
             Ok(None) => {
                 // The chunk has not been found in region files, generate it.
@@ -450,7 +477,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
                         }
 
                         // Finally return the chunk snapshot!
-                        if self.storage_reply_sender.send(ChunkStorageReply::Load(Ok(snapshot))).is_err() {
+                        if self.storage_reply_sender.send(ChunkStorageReply::Load { cx, cz, res: Ok(snapshot) }).is_err() {
                             // Directly abort to stop the thread because the handle is dropped.
                             return false;
                         }
@@ -482,10 +509,10 @@ impl<G: ChunkGenerator> StorageWorker<G> {
         match self.try_save(snapshot) {
             Err(err) => {
                 // Immediately send the save error.
-                self.storage_reply_sender.send(ChunkStorageReply::Save(Err(err))).is_ok()
+                self.storage_reply_sender.send(ChunkStorageReply::Save { cx, cz, res: Err(err) }).is_ok()
             }
             Ok(()) => {
-                self.storage_reply_sender.send(ChunkStorageReply::Save(Ok((cx, cz)))).is_ok()
+                self.storage_reply_sender.send(ChunkStorageReply::Save { cx, cz, res: Ok(()) }).is_ok()
             }
         }
 
@@ -547,8 +574,8 @@ enum StorageRequest {
 /// 
 /// TODO: Add chunk coordinate to error.
 pub enum ChunkStorageReply {
-    Load(Result<ChunkSnapshot, StorageError>),
-    Save(Result<(i32, i32), StorageError>),
+    Load { cx: i32, cz: i32, res: Result<ChunkSnapshot, StorageError> },
+    Save { cx: i32, cz: i32, res: Result<(), StorageError> },
 }
 
 enum TerrainRequest {

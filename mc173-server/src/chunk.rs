@@ -88,6 +88,14 @@ impl ChunkTrackers {
         }
     }
 
+    /// Force drain the internal save queue, ignoring cool downs.
+    pub fn drain_save(&mut self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.save_queue.drain(..).map(|(cx, cz, _)| {
+            debug_assert!(self.dirty.remove(&(cx, cz)));
+            (cx, cz)
+        })
+    }
+
 }
 
 /// This structure tracks a chunk and record every block set in the chunk, this is used

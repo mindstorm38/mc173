@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::io;
 
-use anyhow::Result as AnyResult;
 use glam::{Vec2, DVec3};
 
 use log::{warn, info};
@@ -17,6 +16,7 @@ use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPack
 use crate::offline::OfflinePlayer;
 use crate::player::ServerPlayer;
 use crate::world::ServerWorld;
+
 
 /// Target tick duration. Currently 20 TPS, so 50 ms/tick.
 const TICK_DURATION: Duration = Duration::from_millis(50);
@@ -39,6 +39,9 @@ impl Server {
 
     /// Bind this server's TCP listener to the given address.
     pub fn bind(addr: SocketAddr) -> io::Result<Self> {
+
+        info!("server bound to {addr}");
+
         Ok(Self {
             net: Network::bind(addr)?,
             clients: HashMap::new(),
@@ -47,24 +50,39 @@ impl Server {
             ],
             offline_players: HashMap::new(),
         })
+
     }
 
-    /// Rick the game at an approximately constant tick rate.
-    pub fn run(&mut self) -> AnyResult<()> {
-        loop {
-            let start = Instant::now();
-            self.tick()?;
-            let elapsed = start.elapsed();
-            if let Some(missing) = TICK_DURATION.checked_sub(elapsed) {
-                std::thread::sleep(missing);
-            } else {
-                warn!("tick take too long {:?}, expected {:?}", elapsed, TICK_DURATION);
-            }
+    /// Force save this server and block waiting for all resources to be saved.
+    pub fn save(&mut self) {
+
+        for world in &mut self.worlds {
+            world.save();
         }
+
     }
 
-    /// Run a single tick in the server.
-    pub fn tick(&mut self) -> AnyResult<()> {
+    /// Run a single tick on the server network and worlds. This function also waits for
+    /// this function to approximately last for 50 ms (20 TPS), there is no sleep of the
+    /// tick was too long, in such case a warning is logged.
+    pub fn tick_padded(&mut self) -> io::Result<()> {
+
+        let start = Instant::now();
+        self.tick()?;
+        let elapsed = start.elapsed();
+
+        if let Some(missing) = TICK_DURATION.checked_sub(elapsed) {
+            std::thread::sleep(missing);
+        } else {
+            warn!("tick take too long {:?}, expected {:?}", elapsed, TICK_DURATION);
+        }
+
+        Ok(())
+
+    }
+
+    /// Run a single tick on the server network and worlds.
+    pub fn tick(&mut self) -> io::Result<()> {
 
         // Poll all network events.
         while let Some(event) = self.net.poll()? {

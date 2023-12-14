@@ -5,8 +5,9 @@ use std::time::Instant;
 
 use glam::{DVec3, IVec3, Vec2};
 
-use log::debug;
+use log::{debug, info};
 
+use mc173::chunk::calc_entity_chunk_pos;
 use mc173::entity::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
 use mc173::gen::OverworldGenerator;
@@ -106,6 +107,24 @@ impl ServerWorld {
 
     }
 
+    /// Save this world's resources and block until all resources has been saved.
+    pub fn save(&mut self) {
+
+        info!("saving {}...", self.state.name);
+
+        for (cx, cz) in self.state.chunk_trackers.drain_save() {
+            if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
+                debug!("saving {} chunk: {cx}/{cz}", self.state.name);
+                self.state.storage.request_save(snapshot);
+            }
+        }
+
+        while self.state.storage.request_save_count() != 0 {
+            let _ = self.state.storage.poll();
+        }
+
+    }
+
     /// Tick this world.
     pub fn tick(&mut self) {
 
@@ -122,18 +141,18 @@ impl ServerWorld {
         // Poll all chunks to load in the world.
         while let Some(reply) = self.state.storage.poll() {
             match reply {
-                ChunkStorageReply::Load(Ok(snapshot)) => {
-                    debug!("loaded chunk from storage: {}/{}", snapshot.cx, snapshot.cz);
+                ChunkStorageReply::Load { cx, cz, res: Ok(snapshot) } => {
+                    debug!("loaded chunk from storage: {cx}/{cz}");
                     self.world.insert_chunk_snapshot(snapshot);
                 }
-                ChunkStorageReply::Load(Err(err)) => {
-                    debug!("failed to load chunk from storage: {err}");
+                ChunkStorageReply::Load { cx, cz, res: Err(err) } => {
+                    debug!("failed to load chunk from storage: {cx}/{cz}: {err}");
                 }
-                ChunkStorageReply::Save(Ok((cx, cz))) => {
-                    debug!("saved chunk in storage {cx}/{cz}");
+                ChunkStorageReply::Save { cx, cz, res: Ok(()) } => {
+                    debug!("saved chunk in storage: {cx}/{cz}");
                 }
-                ChunkStorageReply::Save(Err(err)) => {
-                    debug!("failed to save chunk in storage: {err}");
+                ChunkStorageReply::Save { cx, cz, res: Err(err) } => {
+                    debug!("failed to save chunk in storage: {cx}/{cz}: {err}");
                 }
             }
         }
@@ -355,6 +374,8 @@ impl ServerWorld {
 
     /// Handle an entity position world event.
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
+        let (cx, cz) = calc_entity_chunk_pos(pos);
+        self.state.chunk_trackers.set_dirty(cx, cz);
         self.state.entity_trackers.get_mut(&id).unwrap().set_pos(pos);
     }
 
