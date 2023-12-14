@@ -10,11 +10,12 @@ use glam::{DVec3, IVec3, Vec2};
 
 use log::{trace, log_enabled, Level};
 
-use crate::item::ItemStack;
-use crate::path::PathFinder;
-use crate::util::Face;
 use crate::world::{World, Event, EntityEvent};
-use crate::block::{self, Material};
+use crate::block::material::Material;
+use crate::path::PathFinder;
+use crate::item::ItemStack;
+use crate::util::Face;
+use crate::block;
 
 use super::{Entity, Size, Path,
     BaseKind, ProjectileKind, LivingKind, 
@@ -102,9 +103,25 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
 /// REF: Entity::onEntityUpdate
 fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKind) {
 
-    // TODO: Handle water velocity.
-    base.in_water = false;
+    // Compute the bounding box used for water collision, it depends on the entity kind.
+    let water_bb = match base_kind {
+        BaseKind::Item(_) => base.bb,
+        _ => base.bb.inflate(DVec3::new(-0.001, -0.4 - 0.001, -0.001)),
+    };
 
+    // Search for water block in the water bb.
+    base.in_water = false;
+    for (pos, block, metadata) in world.iter_blocks_in_box(water_bb) {
+        if let block::WATER_MOVING | block::WATER_STILL = block {
+            let height = block::fluid::get_actual_height(metadata);
+            if water_bb.max.y.add(1.0).floor() >= pos.y as f64 + height as f64 {
+                base.in_water = true;
+
+            }
+        }
+    }
+
+    // Extinguish and cancel fall if in water.
     if base.in_water {
         base.fire_time = 0;
         base.fall_distance = 0.0;
@@ -126,7 +143,7 @@ fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut 
     // Check if there is a lava block colliding...
     let lava_bb = base.bb.inflate(DVec3::new(-0.1, -0.4, -0.1));
     base.in_lava = world.iter_blocks_in_box(lava_bb)
-        .any(|(_, block, _)| block::from_id(block).material == Material::Lava);
+        .any(|(_, block, _)| block::material::get_material(block) == Material::Lava);
 
     // If this entity can pickup other ones, trigger an event.
     if base.can_pickup {
@@ -800,4 +817,15 @@ fn calc_size(base_kind: &mut BaseKind) -> Size {
         BaseKind::Living(_, LivingKind::Spider(_)) => Size::new(1.4, 0.9),
         BaseKind::Living(_, LivingKind::Zombie(_)) => Size::new(0.6, 1.8),
     }
+}
+
+/// Calculate the velocity of a fluid at given position, this depends on neighbor blocks.
+fn calc_fluid_vel(world: &mut World, pos: IVec3) -> DVec3 {
+
+    let mut vel = DVec3::ZERO;
+
+
+
+    vel
+
 }

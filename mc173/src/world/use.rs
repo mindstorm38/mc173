@@ -92,7 +92,7 @@ impl World {
             _ => {}
         }
 
-        if pos.y >= 127 && block::from_id(id).material.is_solid() {
+        if pos.y >= 127 && block::material::get_material(id).is_solid() {
             return false;
         } if !self.can_place_block(pos, face, id) {
             return false;
@@ -291,7 +291,7 @@ impl World {
             let pos = pos + face.delta();
             let (id, _) = self.get_block(pos)?;
 
-            if id == block::AIR || !block::from_id(id).material.is_solid() {
+            if id == block::AIR || !block::material::get_material(id).is_solid() {
                 self.set_block_notify(pos, fluid_id, 0);
                 // world.schedule_tick(pos, fluid_id, 5); // TODO: 30 for lava.
             }

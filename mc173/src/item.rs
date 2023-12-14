@@ -139,7 +139,7 @@ items! {
 /// Get an item from its numeric id.
 pub fn from_id(id: u16) -> &'static Item {
     if id < 256 {
-        &block::from_id(id as u8).item
+        block::item(id as u8)
     } else {
         &ITEMS[(id - 256) as usize]
     }

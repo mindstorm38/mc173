@@ -3,8 +3,9 @@
 use glam::IVec3;
 
 use crate::block_entity::BlockEntity;
+use crate::block::material::Material;
 use crate::util::Face;
-use crate::block::{self, Material};
+use crate::block;
 
 use super::World;
 

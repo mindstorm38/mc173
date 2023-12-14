@@ -1,7 +1,7 @@
 //! Item smelting management.
 
+use crate::block::material::Material;
 use crate::item::ItemStack;
-use crate::block::Material;
 use crate::{block, item};
 
 
@@ -20,7 +20,7 @@ pub fn get_burn_ticks(id: u16) -> u16 {
     if let Ok(id) = u8::try_from(id) {
         match id {
             block::SAPLING => 100,
-            _ if block::from_id(id).material == Material::Wood => 300,
+            _ if block::material::get_material(id) == Material::Wood => 300,
             _ => 0,
         }
     } else {

@@ -4,12 +4,12 @@ use glam::{IVec3, DVec3};
 
 use log::warn;
 
+use crate::entity::{Item, FallingBlock};
+use crate::block::material::Material;
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
-use crate::entity::{Item, FallingBlock};
 use crate::gen::tree::TreeGenerator;
 use crate::util::{Face, FaceSet};
-use crate::block::Material;
 use crate::{block, item};
 
 use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage};
@@ -335,7 +335,7 @@ impl World {
 
         // +1 to get still fluid id.
         let still_id = flowing_id + 1;
-        let material = block::from_id(flowing_id).material;
+        let material = block::material::get_material(flowing_id);
 
         // Default distance to decrement on each block unit.
         let dist_drop = match flowing_id {
@@ -385,7 +385,7 @@ impl World {
 
             // Infinite water sources!
             if sources_around >= 2 && flowing_id == block::WATER_MOVING {
-                if block::from_id(below_id).material.is_solid() {
+                if block::material::get_material(below_id).is_solid() {
                     block::fluid::set_source(&mut new_metadata);
                 } else if below_id == flowing_id || below_id == still_id {
                     if block::fluid::is_source(below_metadata) {
@@ -465,7 +465,7 @@ impl World {
             let (face_block, face_metadata) = self.get_block(face_pos).unwrap_or_default();
 
             if !block::material::is_fluid_proof(face_block) {
-                if block::from_id(face_block).material != material || !block::fluid::is_source(face_metadata) {
+                if block::material::get_material(face_block) != material || !block::fluid::is_source(face_metadata) {
 
                     let face_below_pos = face_pos - IVec3::Y;
                     let (face_below_block, _) = self.get_block(face_below_pos).unwrap_or_default();
@@ -513,7 +513,7 @@ impl World {
                 let (face_block, face_metadata) = self.get_block(face_pos).unwrap_or_default();
 
                 if !block::material::is_fluid_proof(face_block) {
-                    if block::from_id(face_block).material != material || !block::fluid::is_source(face_metadata) {
+                    if block::material::get_material(face_block) != material || !block::fluid::is_source(face_metadata) {
 
                         let face_below_pos = face_pos - IVec3::Y;
                         let (face_below_block, _) = self.get_block(face_below_pos).unwrap_or_default();

@@ -80,7 +80,7 @@ impl FeatureGenerator for LakeGenerator {
                     if filled {
                         let check_pos = pos + IVec3::new(dx as i32, dy as i32, dz as i32);
                         let check_id = world.get_block(check_pos).map(|(id, _)| id).unwrap_or(block::AIR);
-                        let check_material = block::from_id(check_id).material;
+                        let check_material = block::material::get_material(check_id);
                         if dy >= 4 && check_material.is_fluid() {
                             return false;
                         } else if dy < 4 && !check_material.is_solid() && check_id != self.fluid_id {

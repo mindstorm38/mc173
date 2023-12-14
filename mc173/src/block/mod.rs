@@ -25,253 +25,145 @@ pub mod bed;
 /// Internal macro to easily define blocks registry.
 macro_rules! blocks {
     (
-        $($name:ident / $id:literal : $init:expr),* $(,)?
+        $($ident:ident / $id:literal : $name:literal),* $(,)?
     ) => {
 
-        static BLOCKS: [Block; 256] = {
-
-            const DEFAULT: Block = Block::new("", Material::Air, 0.0);
-
-            let mut arr = [DEFAULT; 256];
-            $(arr[$id as usize] = $init;)*
+        static NAMES: [&'static str; 256] = {
+            let mut arr = [""; 256];
+            $(arr[$id as usize] = $name;)*
             arr
-
         };
 
-        $(pub const $name: u8 = $id;)*
+        const ITEMS: [Item; 256] = {
+            let mut arr = [Item {
+                name: "",
+                block: true,
+                max_stack_size: 64,
+                max_damage: 0,
+            }; 256];
+            $(arr[$id as usize].name = $name;)*
+            arr
+        };
+
+        $(pub const $ident: u8 = $id;)*
 
     };
 }
 
 blocks! {
-    AIR/0:              Block::new("air", Material::Air, 0.0),
-    STONE/1:            Block::new("stone", Material::Rock, 30.0),
-    GRASS/2:            Block::new("grass", Material::Grass, 0.0),
-    DIRT/3:             Block::new("dirt", Material::Ground, 0.0),
-    COBBLESTONE/4:      Block::new("cobblestone", Material::Rock, 30.0),
-    WOOD/5:             Block::new("wood", Material::Wood, 15.0),
-    SAPLING/6:          Block::new("sapling", Material::Plant, 0.0),
-    BEDROCK/7:          Block::new("bedrock", Material::Rock, 18000000.0),
-    WATER_MOVING/8:     Block::new("water_moving", Material::Water, 0.0),
-    WATER_STILL/9:      Block::new("water_still", Material::Water, 0.0),
-    LAVA_MOVING/10:     Block::new("lava_moving", Material::Lava, 0.0),
-    LAVA_STILL/11:      Block::new("lava_still", Material::Lava, 0.0),
-    SAND/12:            Block::new("sand", Material::Sand, 0.0),
-    GRAVEL/13:          Block::new("gravel", Material::Sand,0.0),
-    GOLD_ORE/14:        Block::new("gold_ore", Material::Rock, 15.0),
-    IRON_ORE/15:        Block::new("iron_ore", Material::Rock, 15.0),
-    COAL_ORE/16:        Block::new("coal_ore", Material::Rock, 15.0),
-    LOG/17:             Block::new("log", Material::Wood, 0.0),
-    LEAVES/18:          Block::new("leaves", Material::Leaves, 0.0),
-    SPONGE/19:          Block::new("sponge", Material::Sponge, 0.0),
-    GLASS/20:           Block::new("glass", Material::Glass, 0.0),
-    LAPIS_ORE/21:       Block::new("lapis_ore", Material::Rock, 15.0),
-    LAPIS_BLOCK/22:     Block::new("lapis_block", Material::Rock, 15.0),
-    DISPENSER/23:       Block::new("dispenser", Material::Rock, 0.0),
-    SANDSTONE/24:       Block::new("sandstone", Material::Rock, 0.0),
-    NOTE_BLOCK/25:      Block::new("note_block", Material::Wood, 0.0),
-    BED/26:             Block::new("bed", Material::Cloth, 0.0),
-    POWERED_RAIL/27:    Block::new("powered_rail", Material::Circuit, 0.0),
-    DETECTOR_RAIL/28:   Block::new("detector_rail", Material::Circuit, 0.0),
-    STICKY_PISTON/29:   Block::new("sticky_piston", Material::Piston, 0.0),
-    COBWEB/30:          Block::new("cobweb", Material::Cobweb, 0.0),
-    TALL_GRASS/31:      Block::new("tall_grass", Material::Plant, 0.0),
-    DEAD_BUSH/32:       Block::new("dead_bush", Material::Plant, 0.0),
-    PISTON/33:          Block::new("piston", Material::Piston, 0.0),
-    PISTON_EXT/34:      Block::new("piston_ext", Material::Piston, 0.0),
-    WOOL/35:            Block::new("wool", Material::Cloth, 0.0),
-    PISTON_MOVING/36:   Block::new("piston_moving", Material::Piston, 0.0),
-    DANDELION/37:       Block::new("dandelion", Material::Plant, 0.0),
-    POPPY/38:           Block::new("poppy", Material::Plant, 0.0),
-    BROWN_MUSHROOM/39:  Block::new("brown_mushroom", Material::Plant, 0.0),
-    RED_MUSHROOM/40:    Block::new("red_mushroom", Material::Plant, 0.0),
-    GOLD_BLOCK/41:      Block::new("gold_block", Material::Iron, 30.0),
-    IRON_BLOCK/42:      Block::new("iron_block", Material::Iron, 30.0),
-    DOUBLE_SLAB/43:     Block::new("double_slab", Material::Rock,30.0),
-    SLAB/44:            Block::new("slab", Material::Rock, 30.0),
-    BRICK/45:           Block::new("brick", Material::Rock, 30.0),
-    TNT/46:             Block::new("tnt", Material::Tnt, 0.0),
-    BOOKSHELF/47:       Block::new("bookshelf", Material::Wood, 0.0),
-    MOSSY_COBBLESTONE/48: Block::new("mossy_cobblestone", Material::Rock, 30.0),
-    OBSIDIAN/49:        Block::new("obsidian", Material::Rock, 6000.0),
-    TORCH/50:           Block::new("torch", Material::Circuit, 0.0),
-    FIRE/51:            Block::new("fire", Material::Fire, 0.0),
-    SPAWNER/52:         Block::new("spawner", Material::Rock, 0.0),
-    WOOD_STAIR/53:      Block::new("wood_stair", Material::Wood, 15.0),
-    CHEST/54:           Block::new("chest", Material::Wood, 0.0),
-    REDSTONE/55:        Block::new("redstone", Material::Circuit, 0.0),
-    DIAMOND_ORE/56:     Block::new("diamond_ore", Material::Rock, 15.0),
-    DIAMOND_BLOCK/57:   Block::new("diamond_block", Material::Iron, 30.0),
-    CRAFTING_TABLE/58:  Block::new("crafting_table", Material::Wood, 0.0),
-    WHEAT/59:           Block::new("wheat", Material::Plant, 0.0),
-    FARMLAND/60:        Block::new("farmland", Material::Ground, 0.0),
-    FURNACE/61:         Block::new("furnace", Material::Rock, 0.0),
-    FURNACE_LIT/62:     Block::new("furnace_lit", Material::Rock, 0.0),
-    SIGN/63:            Block::new("sign", Material::Wood, 0.0),
-    WOOD_DOOR/64:       Block::new("wood_door", Material::Wood, 0.0),
-    LADDER/65:          Block::new("ladder", Material::Circuit, 0.0),
-    RAIL/66:            Block::new("rail", Material::Circuit, 0.0),
-    COBBLESTONE_STAIR/67: Block::new("cobblestone_stair", Material::Rock, 30.0),
-    WALL_SIGN/68:       Block::new("wall_sign", Material::Wood, 0.0),
-    LEVER/69:           Block::new("lever", Material::Circuit, 0.0),
-    STONE_PRESSURE_PLATE/70: Block::new("stone_pressure_plate", Material::Rock, 0.0),
-    IRON_DOOR/71:       Block::new("iron_door", Material::Iron, 15.0),
-    WOOD_PRESSURE_PLATE/72: Block::new("wood_pressure_plate", Material::Wood, 0.0),
-    REDSTONE_ORE/73:    Block::new("redstone_ore", Material::Rock, 15.0),
-    REDSTONE_ORE_LIT/74: Block::new("redstone_ore_lit", Material::Rock, 15.0),
-    REDSTONE_TORCH/75:  Block::new("redstone_torch", Material::Circuit, 0.0),
-    REDSTONE_TORCH_LIT/76:  Block::new("redstone_torch_lit", Material::Circuit, 0.0),
-    BUTTON/77:          Block::new("button", Material::Circuit, 0.0),
-    SNOW/78:            Block::new("snow", Material::Snow, 0.0),
-    ICE/79:             Block::new("ice", Material::Ice, 0.0),
-    SNOW_BLOCK/80:      Block::new("snow_block", Material::SnowBlock, 0.0),
-    CACTUS/81:          Block::new("cactus", Material::Cactus, 0.0),
-    CLAY/82:            Block::new("clay", Material::Clay, 0.0),
-    SUGAR_CANES/83:     Block::new("sugar_canes", Material::Plant, 0.0),
-    JUKEBOX/84:         Block::new("jukebox", Material::Wood, 30.0),
-    FENCE/85:           Block::new("fence", Material::Wood, 5.0),
-    PUMPKIN/86:         Block::new("pumpkin", Material::Pumpkin, 0.0),
-    NETHERRACK/87:      Block::new("netherrack", Material::Rock, 0.0),
-    SOULSAND/88:        Block::new("soulsand", Material::Sand, 0.0),
-    GLOWSTONE/89:       Block::new("glowstone", Material::Rock, 0.0),
-    PORTAL/90:          Block::new("portal", Material::Portal, 0.0),
-    PUMPKIN_LIT/91:     Block::new("pumpkin_lit", Material::Pumpkin, 0.0),
-    CAKE/92:            Block::new("cake", Material::Cake, 0.0),
-    REPEATER/93:        Block::new("repeater", Material::Circuit, 0.0),
-    REPEATER_LIT/94:    Block::new("repeater_lit", Material::Circuit, 0.0),
-    LOCKED_CHEST/95:    Block::new("locked_chest", Material::Wood, 0.0),
-    TRAPDOOR/96:        Block::new("trapdoor", Material::Wood, 0.0),
+    AIR/0:              "air",
+    STONE/1:            "stone",
+    GRASS/2:            "grass",
+    DIRT/3:             "dirt",
+    COBBLESTONE/4:      "cobblestone",
+    WOOD/5:             "wood",
+    SAPLING/6:          "sapling",
+    BEDROCK/7:          "bedrock",
+    WATER_MOVING/8:     "water_moving",
+    WATER_STILL/9:      "water_still",
+    LAVA_MOVING/10:     "lava_moving",
+    LAVA_STILL/11:      "lava_still",
+    SAND/12:            "sand",
+    GRAVEL/13:          "gravel",
+    GOLD_ORE/14:        "gold_ore",
+    IRON_ORE/15:        "iron_ore",
+    COAL_ORE/16:        "coal_ore",
+    LOG/17:             "log",
+    LEAVES/18:          "leaves",
+    SPONGE/19:          "sponge",
+    GLASS/20:           "glass",
+    LAPIS_ORE/21:       "lapis_ore",
+    LAPIS_BLOCK/22:     "lapis_block",
+    DISPENSER/23:       "dispenser",
+    SANDSTONE/24:       "sandstone",
+    NOTE_BLOCK/25:      "note_block",
+    BED/26:             "bed",
+    POWERED_RAIL/27:    "powered_rail",
+    DETECTOR_RAIL/28:   "detector_rail",
+    STICKY_PISTON/29:   "sticky_piston",
+    COBWEB/30:          "cobweb",
+    TALL_GRASS/31:      "tall_grass",
+    DEAD_BUSH/32:       "dead_bush",
+    PISTON/33:          "piston",
+    PISTON_EXT/34:      "piston_ext",
+    WOOL/35:            "wool",
+    PISTON_MOVING/36:   "piston_moving",
+    DANDELION/37:       "dandelion",
+    POPPY/38:           "poppy",
+    BROWN_MUSHROOM/39:  "brown_mushroom",
+    RED_MUSHROOM/40:    "red_mushroom",
+    GOLD_BLOCK/41:      "gold_block",
+    IRON_BLOCK/42:      "iron_block",
+    DOUBLE_SLAB/43:     "double_slab",
+    SLAB/44:            "slab",
+    BRICK/45:           "brick",
+    TNT/46:             "tnt",
+    BOOKSHELF/47:       "bookshelf",
+    MOSSY_COBBLESTONE/48: "mossy_cobblestone",
+    OBSIDIAN/49:        "obsidian",
+    TORCH/50:           "torch",
+    FIRE/51:            "fire",
+    SPAWNER/52:         "spawner",
+    WOOD_STAIR/53:      "wood_stair",
+    CHEST/54:           "chest",
+    REDSTONE/55:        "redstone",
+    DIAMOND_ORE/56:     "diamond_ore",
+    DIAMOND_BLOCK/57:   "diamond_block",
+    CRAFTING_TABLE/58:  "crafting_table",
+    WHEAT/59:           "wheat",
+    FARMLAND/60:        "farmland",
+    FURNACE/61:         "furnace",
+    FURNACE_LIT/62:     "furnace_lit",
+    SIGN/63:            "sign",
+    WOOD_DOOR/64:       "wood_door",
+    LADDER/65:          "ladder",
+    RAIL/66:            "rail",
+    COBBLESTONE_STAIR/67: "cobblestone_stair",
+    WALL_SIGN/68:       "wall_sign",
+    LEVER/69:           "lever",
+    STONE_PRESSURE_PLATE/70: "stone_pressure_plate",
+    IRON_DOOR/71:       "iron_door",
+    WOOD_PRESSURE_PLATE/72: "wood_pressure_plate",
+    REDSTONE_ORE/73:    "redstone_ore",
+    REDSTONE_ORE_LIT/74: "redstone_ore_lit",
+    REDSTONE_TORCH/75:  "redstone_torch",
+    REDSTONE_TORCH_LIT/76:  "redstone_torch_lit",
+    BUTTON/77:          "button",
+    SNOW/78:            "snow",
+    ICE/79:             "ice",
+    SNOW_BLOCK/80:      "snow_block",
+    CACTUS/81:          "cactus",
+    CLAY/82:            "clay",
+    SUGAR_CANES/83:     "sugar_canes",
+    JUKEBOX/84:         "jukebox",
+    FENCE/85:           "fence",
+    PUMPKIN/86:         "pumpkin",
+    NETHERRACK/87:      "netherrack",
+    SOULSAND/88:        "soulsand",
+    GLOWSTONE/89:       "glowstone",
+    PORTAL/90:          "portal",
+    PUMPKIN_LIT/91:     "pumpkin_lit",
+    CAKE/92:            "cake",
+    REPEATER/93:        "repeater",
+    REPEATER_LIT/94:    "repeater_lit",
+    LOCKED_CHEST/95:    "locked_chest",
+    TRAPDOOR/96:        "trapdoor",
 }
 
-
-/// Get a block from its numeric id.
-pub fn from_id(id: u8) -> &'static Block {
-    &BLOCKS[id as usize]
+/// Find a block name from its id.
+#[inline]
+pub fn name(id: u8) -> &'static str {
+    NAMES[id as usize]
 }
 
 /// Find a block id from its name.
 pub fn from_name(name: &str) -> Option<u8> {
-    BLOCKS.iter().enumerate()
-        .find(|(_, item)| item.name == name)
-        .map(|(i, _)| i as u8)
+    NAMES.iter().position(|&n| n == name).map(|n| n as u8)
 }
 
-
-/// This structure describe a block.
-#[derive(Debug, Clone, Copy)]
-pub struct Block {
-    /// The name of the block, used for debug purpose.
-    pub name: &'static str,
-    /// The block material defining its common properties.
-    pub material: Material,
-    /// Block resistance to explosions.
-    /// TODO: Move to specific module.
-    pub resistance: f32,
-    /// The item corresponding to this block.
-    pub item: Item,
-}
-
-impl Block {
-
-    pub const fn new(name: &'static str, material: Material, resistance: f32) -> Self {
-        Self {
-            name,
-            material,
-            resistance,
-            item: Item {
-                name,
-                block: true,
-                max_stack_size: 64,
-                max_damage: 0,
-            },
-        }
-    }
-
-}
-
-
-/// Common block properties are defined through materials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Material {
-    Air,
-    Grass,
-    Ground,
-    Wood,
-    Rock,
-    Iron,
-    Water,
-    Lava,
-    Leaves,
-    Plant,
-    Sponge,
-    Cloth,
-    Fire,
-    Sand,
-    Circuit,
-    Glass,
-    Tnt,
-    Wug,
-    Ice,
-    Snow,
-    SnowBlock,
-    Cactus,
-    Clay,
-    Pumpkin,
-    Portal,
-    Cake,
-    Cobweb,
-    Piston,
-}
-
-impl Material {
-
-    pub fn is_solid(self) -> bool {
-        !matches!(self, 
-            Self::Air |
-            Self::Water |
-            Self::Lava |
-            Self::Plant |
-            Self::Snow |
-            Self::Circuit |
-            Self::Portal |
-            Self::Fire)
-    }
-
-    pub fn is_fluid(self) -> bool {
-        matches!(self, Self::Water | Self::Lava)
-    }
-
-    pub fn is_translucent(self) -> bool {
-        matches!(self, 
-            Self::Leaves | 
-            Self::Glass | 
-            Self::Tnt | 
-            Self::Ice | 
-            Self::Snow | 
-            Self::Cactus)
-    }
-
-    pub fn is_opaque(self) -> bool {
-        !self.is_translucent() && self.is_solid()
-    }
-
-    pub fn is_replaceable(self) -> bool {
-        matches!(self, 
-            Self::Air |
-            Self::Water |
-            Self::Lava |
-            Self::Snow |
-            Self::Fire)
-    }
-
-    pub fn is_breakable_by_default(self) -> bool {
-        !matches!(self,
-            Self::Rock |
-            Self::Iron |
-            Self::Snow |
-            Self::SnowBlock |
-            Self::Cobweb
-        )
-    }
-
+/// Find the item associated to the given block id. 
+/// TODO: This should be removed in the future when items module is reworked.
+#[inline]
+pub fn item(id: u8) -> &'static Item {
+    &ITEMS[id as usize]
 }

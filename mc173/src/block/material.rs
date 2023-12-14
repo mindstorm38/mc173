@@ -3,6 +3,109 @@
 use crate::block;
 
 
+/// Get material of a block.
+pub fn get_material(block: u8) -> Material {
+    match block {
+        block::STONE |
+        block::COBBLESTONE |
+        block::BEDROCK |
+        block::GOLD_ORE | 
+        block::IRON_ORE |
+        block::COAL_ORE |
+        block::LAPIS_ORE | 
+        block::LAPIS_BLOCK |
+        block::DISPENSER |
+        block::SANDSTONE |
+        block::DOUBLE_SLAB |
+        block::SLAB |
+        block::BRICK |
+        block::MOSSY_COBBLESTONE |
+        block::OBSIDIAN |
+        block::SPAWNER |
+        block::DIAMOND_ORE |
+        block::FURNACE |
+        block::FURNACE_LIT |
+        block::COBBLESTONE_STAIR |
+        block::STONE_PRESSURE_PLATE |
+        block::REDSTONE_ORE |
+        block::REDSTONE_ORE_LIT |
+        block::NETHERRACK |
+        block::GLOWSTONE => Material::Rock,
+        block::GRASS => Material::Grass,
+        block::DIRT |
+        block::FARMLAND => Material::Ground,
+        block::WOOD |
+        block::LOG |
+        block::NOTE_BLOCK |
+        block::BOOKSHELF |
+        block::WOOD_STAIR |
+        block::CHEST |
+        block::CRAFTING_TABLE |
+        block::SIGN |
+        block::WOOD_DOOR |
+        block::WALL_SIGN |
+        block::WOOD_PRESSURE_PLATE |
+        block::JUKEBOX |
+        block::FENCE |
+        block::LOCKED_CHEST |
+        block::TRAPDOOR => Material::Wood,
+        block::SAPLING |
+        block::TALL_GRASS |
+        block::DEAD_BUSH |
+        block::DANDELION |
+        block::POPPY |
+        block::BROWN_MUSHROOM |
+        block::RED_MUSHROOM |
+        block::WHEAT |
+        block::SUGAR_CANES => Material::Plant,
+        block::WATER_MOVING |
+        block::WATER_STILL => Material::Water,
+        block::LAVA_MOVING |
+        block::LAVA_STILL => Material::Lava,
+        block::SAND |
+        block::GRAVEL |
+        block::SOULSAND => Material::Sand,
+        block::LEAVES => Material::Leaves,
+        block::SPONGE => Material::Sponge,
+        block::GLASS => Material::Glass,
+        block::BED |
+        block::WOOL => Material::Cloth,
+        block::POWERED_RAIL |
+        block::DETECTOR_RAIL |
+        block::TORCH |
+        block::REDSTONE |
+        block::LADDER |
+        block::RAIL |
+        block::LEVER |
+        block::REDSTONE_TORCH |
+        block::REDSTONE_TORCH_LIT |
+        block::BUTTON |
+        block::REPEATER |
+        block::REPEATER_LIT => Material::Circuit,
+        block::STICKY_PISTON |
+        block::PISTON |
+        block::PISTON_EXT |
+        block::PISTON_MOVING => Material::Piston,
+        block::COBWEB => Material::Cobweb,
+        block::GOLD_BLOCK |
+        block::IRON_BLOCK |
+        block::DIAMOND_BLOCK |
+        block::IRON_DOOR => Material::Iron,
+        block::TNT => Material::Tnt,
+        block::FIRE => Material::Fire,
+        block::SNOW => Material::Snow,
+        block::ICE => Material::Ice,
+        block::SNOW_BLOCK => Material::SnowBlock,
+        block::CACTUS => Material::Cactus,
+        block::CLAY => Material::Clay,
+        block::PUMPKIN |
+        block::PUMPKIN_LIT => Material::Pumpkin,
+        block::PORTAL => Material::Portal,
+        block::CAKE => Material::Cake,
+        _ => Material::Air
+    }
+}
+
 /// Return true if a block is a full cube.
 pub fn is_cube(block: u8) -> bool {
     match block {
@@ -88,7 +191,7 @@ pub fn is_fluid_proof(block: u8) -> bool {
         block::SIGN |
         block::LADDER |
         block::SUGAR_CANES => true,
-        _ => block::from_id(block).material.is_solid()
+        _ => get_material(block).is_solid()
     }
 }
 
@@ -131,4 +234,122 @@ pub fn get_slipperiness(id: u8) -> f32 {
         block::ICE => 0.95,
         _ => 0.6
     }
+}
+
+/// The block resistance to explosions.
+pub fn get_resistance(id: u8) -> f32 {
+    match id {
+        block::WOOD |
+        block::GOLD_ORE |
+        block::IRON_ORE |
+        block::COAL_ORE |
+        block::LAPIS_ORE |
+        block::LAPIS_BLOCK |
+        block::WOOD_STAIR |
+        block::DIAMOND_ORE |
+        block::IRON_DOOR |
+        block::REDSTONE_ORE |
+        block::REDSTONE_ORE_LIT => 15.0,
+        block::STONE |
+        block::COBBLESTONE |
+        block::GOLD_BLOCK |
+        block::IRON_BLOCK |
+        block::DOUBLE_SLAB |
+        block::SLAB |
+        block::BRICK |
+        block::MOSSY_COBBLESTONE |
+        block::DIAMOND_BLOCK |
+        block::COBBLESTONE_STAIR |
+        block::JUKEBOX => 30.0,
+        block::OBSIDIAN => 6000.0,
+        block::BEDROCK => 18000000.0,
+        _ => 0.0,
+    }
+}
+
+/// Common block properties of blocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Material {
+    #[default]
+    Air,
+    Grass,
+    Ground,
+    Wood,
+    Rock,
+    Iron,
+    Water,
+    Lava,
+    Leaves,
+    Plant,
+    Sponge,
+    Cloth,
+    Fire,
+    Sand,
+    Circuit,
+    Glass,
+    Tnt,
+    Wug,
+    Ice,
+    Snow,
+    SnowBlock,
+    Cactus,
+    Clay,
+    Pumpkin,
+    Portal,
+    Cake,
+    Cobweb,
+    Piston,
+}
+
+impl Material {
+
+    pub fn is_solid(self) -> bool {
+        !matches!(self, 
+            Self::Air |
+            Self::Water |
+            Self::Lava |
+            Self::Plant |
+            Self::Snow |
+            Self::Circuit |
+            Self::Portal |
+            Self::Fire)
+    }
+
+    pub fn is_fluid(self) -> bool {
+        matches!(self, Self::Water | Self::Lava)
+    }
+
+    pub fn is_translucent(self) -> bool {
+        matches!(self, 
+            Self::Leaves | 
+            Self::Glass | 
+            Self::Tnt | 
+            Self::Ice | 
+            Self::Snow | 
+            Self::Cactus)
+    }
+
+    pub fn is_opaque(self) -> bool {
+        !self.is_translucent() && self.is_solid()
+    }
+
+    pub fn is_replaceable(self) -> bool {
+        matches!(self, 
+            Self::Air |
+            Self::Water |
+            Self::Lava |
+            Self::Snow |
+            Self::Fire)
+    }
+
+    pub fn is_breakable_by_default(self) -> bool {
+        !matches!(self,
+            Self::Rock |
+            Self::Iron |
+            Self::Snow |
+            Self::SnowBlock |
+            Self::Cobweb
+        )
+    }
+
 }

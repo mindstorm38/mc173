@@ -6,9 +6,10 @@ use std::ops::{Sub, Add};
 
 use glam::{IVec3, DVec3};
 
-use crate::block::{self, Material};
+use crate::block::material::Material;
 use crate::util::BoundingBox;
 use crate::world::World;
+use crate::block;
 
 
 /// A path finder on a world.
@@ -89,7 +90,7 @@ impl<'a> PathFinder<'a> {
                     }
                 }
                 _ => {
-                    match block::from_id(block).material {
+                    match block::material::get_material(block) {
                         Material::Water => return PathClearance::Water,
                         Material::Lava => return PathClearance::Lava,
                         material => {

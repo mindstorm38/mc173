@@ -2,7 +2,8 @@
 
 use glam::IVec3;
 
-use crate::block::{self, Material};
+use crate::block::material::Material;
+use crate::block;
 
 use super::World;
 
@@ -11,13 +12,13 @@ impl World {
 
     /// Get the block material at given position, defaults to air if no chunk.
     pub fn get_block_material(&mut self, pos: IVec3) -> Material {
-        self.get_block(pos).map(|(id, _)| block::from_id(id).material).unwrap_or(Material::Air)
+        self.get_block(pos).map(|(id, _)| block::material::get_material(id)).unwrap_or_default()
     }
 
     /// Return true if the block at given position can be replaced.
     pub fn is_block_replaceable(&mut self, pos: IVec3) -> bool {
         if let Some((id, _)) = self.get_block(pos) {
-            block::from_id(id).material.is_replaceable()
+            block::material::get_material(id).is_replaceable()
         } else {
             false
         }
@@ -35,7 +36,7 @@ impl World {
     /// Return true if the block at position is material solid.
     pub fn is_block_solid(&mut self, pos: IVec3) -> bool {
         if let Some((id, _)) = self.get_block(pos) {
-            block::from_id(id).material.is_solid()
+            block::material::get_material(id).is_solid()
         } else {
             false
         }

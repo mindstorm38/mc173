@@ -383,7 +383,7 @@ impl World {
                     let face_power = self.get_active_power_from(face_pos, face.opposite());
                     node.power = node.power.max(face_power);
 
-                    if block::from_id(id).material.is_opaque() {
+                    if block::material::get_material(id).is_opaque() {
                         // If that faced block is opaque, we check if a redstone dust is 
                         // present on top of it, we connect the network to it if not opaque 
                         // above.

@@ -2,9 +2,10 @@
 
 use glam::IVec3;
 
+use crate::block::material::Material;
 use crate::util::{JavaRandom, Face};
 use crate::world::World;
-use crate::block::{self, Material};
+use crate::block;
 
 use super::FeatureGenerator;
 

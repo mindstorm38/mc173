@@ -3,7 +3,7 @@
 
 use glam::IVec3;
 
-use crate::block::Material;
+use crate::block::material::Material;
 use crate::{block, item};
 
 use super::World;
@@ -177,7 +177,7 @@ impl World {
                 item::WOOD_SHOVEL),
             _ => {
 
-                let material = block::from_id(block_id).material;
+                let material = block::material::get_material(block_id);
                 if material.is_breakable_by_default() {
                     return true;
                 }

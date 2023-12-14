@@ -51,3 +51,9 @@ pub fn get_actual_distance(metadata: u8) -> u8 {
         get_distance(metadata)
     }
 }
+
+/// Calculate the actual height of a fluid block depending on its metadata.
+#[inline]
+pub fn get_actual_height(metadata: u8) -> f32 {
+    1.0 - (get_actual_distance(metadata) + 1) as f32 / 9.0
+}
