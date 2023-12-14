@@ -469,11 +469,6 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
     living.accel_forward *= 0.98;
     living.yaw_velocity *= 0.9;
 
-    // FIXME: Exception for now to avoid player position being touched.
-    if let LivingKind::Player(_) = living_kind {
-        return;
-    }
-
     tick_living_pos(world, id, base, living, living_kind);
 
     // TODO: Entity collision.
