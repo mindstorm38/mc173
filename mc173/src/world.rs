@@ -92,7 +92,8 @@ thread_local! {
 ///   `remove_`).
 /// 
 /// Various suffixes can be added to methods, depending on the world area affected by the
-/// method, for example `_in`, `_in_box` or `_colliding`.
+/// method, for example `_in`, `_in_box` or `_colliding`. Any mutation prefix `_mut` 
+/// should be placed after all words.
 /// 
 /// TODO: Make a diagram to better explain the world structure with entity caching.
 /// TODO: Immediate entity/block entity removal if not ticking.
@@ -230,11 +231,6 @@ impl World {
             self.push_event(Event::Weather { prev: self.weather, new: weather });
             self.weather = weather;
         }
-    }
-
-    /// Return the number of internal chunks.
-    pub fn _debug_count_chunks(&self) -> usize {
-        self.chunks.len()
     }
 
     /// Insert a chunk snapshot into this world at its position with all entities and 
@@ -705,8 +701,8 @@ impl World {
     /// Iterate over all entities in the world.
     pub fn iter_entities(&self) -> impl Iterator<Item = (u32, &Entity)> {
         self.entities.iter()
-            .filter_map(|entity_comp| entity_comp.inner.as_ref().map(|entity| (entity_comp.id, entity)))
-            .map(|(id, entity)| (id, &**entity))
+            .filter_map(|comp| 
+                comp.inner.as_deref().map(|entity| (comp.id, entity)))
     }
 
     /// Internal function to iterate world entities in a given chunk.
@@ -1480,6 +1476,16 @@ impl<T> ComponentStorage<T> {
     /// If the inner storage is ready for update, return some shared reference to it.
     #[inline]
     fn as_ref(&self) -> Option<&T> {
+        match self {
+            Self::Ready(data) => Some(data),
+            _ => None
+        }
+    }
+
+    /// If the inner storage is ready for update, return some exclusive reference to it.
+    #[inline]
+    #[allow(unused)]
+    fn as_mut(&mut self) -> Option<&mut T> {
         match self {
             Self::Ready(data) => Some(data),
             _ => None

@@ -298,6 +298,8 @@ pub struct Ghast { }
 pub struct Slime {
     /// Size of the slime.
     pub size: u8,
+    /// Remaining time before jumping.
+    pub jump_remaining_time: u32,
 }
 
 #[derive(Debug, Clone, Default)]

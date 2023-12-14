@@ -151,6 +151,7 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
                 "Zombie" => LivingKind::Zombie(e::Zombie::default()),
                 "Slime" => LivingKind::Slime(e::Slime {
                     size: comp.get_int("Size")?.clamp(0, 254) as u8 + 1,
+                    ..Default::default()
                 }),
                 "Ghast" => LivingKind::Ghast(e::Ghast::default()),
                 "PigZombie" => LivingKind::PigZombie(e::PigZombie {

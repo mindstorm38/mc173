@@ -12,15 +12,16 @@ use log::{trace, log_enabled, Level};
 
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
+use crate::util::{Face, BoundingBox};
 use crate::path::PathFinder;
 use crate::item::ItemStack;
-use crate::util::Face;
 use crate::block;
 
 use super::{Entity, Size, Path,
     BaseKind, ProjectileKind, LivingKind, 
     Base, Living, 
-    Item, Painting, FallingBlock};
+    Item, Painting, FallingBlock, 
+    Slime};
 
 
 /// This implementation is just a wrapper to call all the inner tick functions.
@@ -36,9 +37,12 @@ impl Entity {
 
 
 thread_local! {
-    /// This thread local vector is currently used to list all entities that may be picked
-    /// up by the entity being updated, if it have the `can_pickup` capability.
-    static PICKED_UP_ENTITIES: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    /// Temporary entity id storage.
+    static ENTITY_ID: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    /// Temporary bounding boxes storage.
+    static BOUNDING_BOX: RefCell<Vec<BoundingBox>> = const { RefCell::new(Vec::new()) };
+    /// Temporary entity id with vector.
+    static ENTITY_ID_WITH_VEC: RefCell<Vec<(u32, DVec3)>> = const { RefCell::new(Vec::new()) };
 }
 
 
@@ -157,7 +161,8 @@ fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut 
     // If this entity can pickup other ones, trigger an event.
     if base.can_pickup {
 
-        PICKED_UP_ENTITIES.with_borrow_mut(|picked_up_entities| {
+        // Temporarily owned vector to avoid allocation.
+        ENTITY_ID.with_borrow_mut(|picked_up_entities| {
 
             debug_assert!(picked_up_entities.is_empty());
             
@@ -216,8 +221,17 @@ fn tick_base_pos(world: &mut World, _id: u32, base: &mut Base, delta: DVec3, ste
         // TODO: Sneaking on ground
 
         let colliding_bb = base.bb.expand(delta);
-        let colliding_bbs: Vec<_> = world.iter_blocks_boxes_colliding(colliding_bb)
-            .chain(world.iter_entities_colliding(colliding_bb)
+
+        // Compute a new delta that doesn't collide with above boxes.
+        let mut new_delta = delta;
+        
+        // Use a temporarily owned thread local for colliding boxes.
+        BOUNDING_BOX.with_borrow_mut(|colliding_bbs| {
+
+            debug_assert!(colliding_bbs.is_empty());
+
+            colliding_bbs.extend(world.iter_blocks_boxes_colliding(colliding_bb));
+            colliding_bbs.extend(world.iter_entities_colliding(colliding_bb)
                 .filter_map(|(_entity_id, entity, entity_bb)| {
                     // Only the boat entity acts like a hard bounding box.
                     if let Entity(_, BaseKind::Boat(_)) = entity {
@@ -225,32 +239,33 @@ fn tick_base_pos(world: &mut World, _id: u32, base: &mut Base, delta: DVec3, ste
                     } else {
                         None
                     }
-                }))
-            .collect();
-        
-        // Compute a new delta that doesn't collide with above boxes.
-        let mut new_delta = delta;
+                }));
 
-        // Check collision on Y axis.
-        for colliding_bb in &colliding_bbs {
-            new_delta.y = colliding_bb.calc_y_delta(base.bb, new_delta.y);
-        }
+            // Check collision on Y axis.
+            for colliding_bb in &*colliding_bbs {
+                new_delta.y = colliding_bb.calc_y_delta(base.bb, new_delta.y);
+            }
+    
+            base.bb += DVec3::new(0.0, new_delta.y, 0.0);
+    
+            // Check collision on X axis.
+            for colliding_bb in &*colliding_bbs {
+                new_delta.x = colliding_bb.calc_x_delta(base.bb, new_delta.x);
+            }
+    
+            base.bb += DVec3::new(new_delta.x, 0.0, 0.0);
+    
+            // Check collision on Z axis.
+            for colliding_bb in &*colliding_bbs {
+                new_delta.z = colliding_bb.calc_z_delta(base.bb, new_delta.z);
+            }
+            
+            base.bb += DVec3::new(0.0, 0.0, new_delta.z);
 
-        base.bb += DVec3::new(0.0, new_delta.y, 0.0);
-
-        // Check collision on X axis.
-        for colliding_bb in &colliding_bbs {
-            new_delta.x = colliding_bb.calc_x_delta(base.bb, new_delta.x);
-        }
-
-        base.bb += DVec3::new(new_delta.x, 0.0, 0.0);
-
-        // Check collision on Z axis.
-        for colliding_bb in &colliding_bbs {
-            new_delta.z = colliding_bb.calc_z_delta(base.bb, new_delta.z);
-        }
-        
-        base.bb += DVec3::new(0.0, 0.0, new_delta.z);
+            // Finally clear the cache.
+            colliding_bbs.clear();
+                
+        });
 
         let collided_x = delta.x != new_delta.x;
         let collided_y = delta.y != new_delta.y;
@@ -425,7 +440,7 @@ fn tick_falling_block(world: &mut World, id: u32, base: &mut Base, falling_block
 }
 
 /// REF: EntityLiving::onUpdate
-fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
+fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
 
     fn path_weight_animal(world: &mut World, pos: IVec3) -> f32 {
         if world.is_block(pos - IVec3::Y, block::GRASS) {
@@ -440,7 +455,7 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
     match living_kind {
         LivingKind::Player(_) => (),  // For now we do nothing.
         LivingKind::Ghast(_) => todo!(),
-        LivingKind::Slime(_) => (), // TODO:
+        LivingKind::Slime(slime) => tick_slime_ai(world, id, base, living, slime),
         LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
         LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
         LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
@@ -470,8 +485,64 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
     living.yaw_velocity *= 0.9;
 
     tick_living_pos(world, id, base, living, living_kind);
+    tick_living_push(world, id, base);
 
-    // TODO: Entity collision.
+}
+
+/// Tick a living entity to push/being pushed an entity.
+fn tick_living_push(world: &mut World, _id: u32, base: &mut Base) {
+
+    // TODO: pushing minecart
+
+    // Temporarily owned vector in order to compute pushed entities.
+    // REF: Entity::applyEntityCollision
+    ENTITY_ID_WITH_VEC.with_borrow_mut(|pushed_entities| {
+
+        debug_assert!(pushed_entities.is_empty());
+
+        // For each colliding entity, precalculate the velocity to add to both entities.
+        for (push_id, push_entity, _) in world.iter_entities_colliding(base.bb.inflate(DVec3::new(0.2, 0.0, 0.2))) {
+            
+            let Entity(push_base, push_base_kind) = push_entity;
+
+            match push_base_kind {
+                BaseKind::Boat(_) |
+                BaseKind::Living(_, _) |
+                BaseKind::Minecart(_) => {}
+                _ => continue // Other entities cannot be pushed.
+            }
+
+            let mut dx = base.pos.x - push_base.pos.x;
+            let mut dz = base.pos.z - push_base.pos.z;
+            let mut delta = f64::max(dx.abs(), dz.abs());
+            
+            if delta >= 0.01 {
+                
+                delta = delta.sqrt();
+                dx /= delta;
+                dz /= delta;
+
+                let delta_inv = 1.0 / delta;
+                dx *= delta_inv;
+                dz *= delta_inv;
+                dx *= 0.05;
+                dz *= 0.05;
+
+                pushed_entities.push((push_id, DVec3::new(dx, 0.0, dz)));
+
+            }
+
+        }
+
+        for (push_id, push_delta) in pushed_entities.drain(..) {
+            let Entity(push_base, _) = world.get_entity_mut(push_id).unwrap();
+            push_base.vel -= push_delta;
+            base.vel += push_delta;
+            push_base.vel_dirty = true;
+            base.vel_dirty = true;
+        }
+
+    });
 
 }
 
@@ -777,6 +848,41 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
     // If we can't run a path finding AI, fallback to the default immobile AI.
     living.path = None;
     tick_living_ai(world, id, base, living);
+
+}
+
+/// Tick a slime entity AI.
+/// 
+/// REF: EntitySlime::updatePlayerActionState
+fn tick_slime_ai(_world: &mut World, _id: u32, base: &mut Base, living: &mut Living, slime: &mut Slime) {
+
+    // TODO: despawn entity if too far away from player
+    // TODO: face nearest player
+
+    let mut set_jumping = false;
+    if base.on_ground {
+        slime.jump_remaining_time = slime.jump_remaining_time.saturating_sub(1);
+        if slime.jump_remaining_time == 0 {
+            set_jumping = true;
+        }
+    }
+
+    if set_jumping {
+        
+        slime.jump_remaining_time = base.rand.next_int_bounded(20) as u32 + 10;
+        // TODO: if tracking a player, divide time by 3
+
+        living.jumping = true;
+        living.accel_strafing = 1.0 - base.rand.next_float() * 2.0;
+        living.accel_forward = slime.size as f32;
+
+    } else {
+        living.jumping = false;
+        if base.on_ground {
+            living.accel_strafing = 0.0;
+            living.accel_forward = 0.0;
+        }
+    }
 
 }
 
