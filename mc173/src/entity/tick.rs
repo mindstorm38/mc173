@@ -725,6 +725,7 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
 
                 living.accel_forward = move_speed;
                 base.look.x = target_yaw;
+                base.look_dirty = true;
 
                 if dy > 0.0 {
                     living.jumping = true;
