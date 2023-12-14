@@ -712,8 +712,8 @@ pub struct DisconnectPacket {
 /// A metadata for entity.
 #[derive(Debug, Clone)]
 pub struct Metadata {
-    sub: u8,
-    kind: MetadataKind,
+    pub id: u8,
+    pub kind: MetadataKind,
 }
 
 #[derive(Debug, Clone)]
@@ -724,7 +724,41 @@ pub enum MetadataKind {
     Float(f32),
     String(String),
     ItemStack(ItemStack),
-    Position(i32, i32, i32),
+    Position(IVec3),
+}
+
+impl Metadata {
+
+    #[inline]
+    pub fn new_byte(id: u8, value: i8) -> Self {
+        Self { id, kind: MetadataKind::Byte(value) }
+    }
+
+    #[inline]
+    pub fn new_short(id: u8, value: i16) -> Self {
+        Self { id, kind: MetadataKind::Short(value) }
+    }
+
+    #[inline]
+    pub fn new_int(id: u8, value: i32) -> Self {
+        Self { id, kind: MetadataKind::Int(value) }
+    }
+
+    #[inline]
+    pub fn new_float(id: u8, value: f32) -> Self {
+        Self { id, kind: MetadataKind::Float(value) }
+    }
+
+    #[inline]
+    pub fn new_item_stack(id: u8, value: ItemStack) -> Self {
+        Self { id, kind: MetadataKind::ItemStack(value) }
+    }
+
+    #[inline]
+    pub fn new_position(id: u8, value: IVec3) -> Self {
+        Self { id, kind: MetadataKind::Position(value) }
+    }
+
 }
 
 
@@ -1274,10 +1308,10 @@ fn write_metadata(write: &mut impl Write, metadata: &Metadata) -> io::Result<()>
         MetadataKind::Float(_) => 3,
         MetadataKind::String(_) => 4,
         MetadataKind::ItemStack(_) => 5,
-        MetadataKind::Position(_, _, _) => 6,
+        MetadataKind::Position(_) => 6,
     };
 
-    write.write_u8((kind_index << 5) | (metadata.sub & 31))?;
+    write.write_u8((kind_index << 5) | (metadata.id & 31))?;
 
     match metadata.kind {
         MetadataKind::Byte(n) => write.write_java_byte(n),
@@ -1290,10 +1324,10 @@ fn write_metadata(write: &mut impl Write, metadata: &Metadata) -> io::Result<()>
             write.write_java_byte(i.size as i8)?;
             write.write_java_short(i.damage as i16)
         }
-        MetadataKind::Position(x, y, z) => {
-            write.write_java_int(x)?;
-            write.write_java_int(y)?;
-            write.write_java_int(z)
+        MetadataKind::Position(pos) => {
+            write.write_java_int(pos.x)?;
+            write.write_java_int(pos.y)?;
+            write.write_java_int(pos.z)
         }
     }
 

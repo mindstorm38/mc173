@@ -440,7 +440,7 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
     match living_kind {
         LivingKind::Player(_) => (),  // For now we do nothing.
         LivingKind::Ghast(_) => todo!(),
-        LivingKind::Slime(_) => todo!(),
+        LivingKind::Slime(_) => (), // TODO:
         LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
         LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
         LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),

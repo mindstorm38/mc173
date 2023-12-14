@@ -259,6 +259,19 @@ impl ServerPlayer {
                     "chicken" => EntityKind::Chicken.new_default(),
                     "cow" => EntityKind::Cow.new_default(),
                     "sheep" => EntityKind::Sheep.new_default(),
+                    "slime" => {
+                        
+                        let mut size = 1u8;
+                        if let Some(size_raw) = parts.get(2) {
+                            size = size_raw.parse::<u8>()
+                                .map_err(|_| format!("§cError: invalid slime size:§r {size_raw}"))?;
+                        }
+                        
+                        e::Slime::new_with(|_, _, slime| {
+                            slime.size = size;
+                        })
+
+                    },
                     _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind}"))
                 };
 

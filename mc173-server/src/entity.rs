@@ -312,20 +312,22 @@ impl EntityTracker {
             BaseKind::Living(_, living_kind) => {
                 match living_kind {
                     LivingKind::Player(pl) => self.spawn_player_entity_player(player, pl),
-                    LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56),
-                    LivingKind::Slime(_) => self.spawn_player_entity_mob(player, 55),
-                    LivingKind::Pig(_) => self.spawn_player_entity_mob(player, 90),
-                    LivingKind::Chicken(_) => self.spawn_player_entity_mob(player, 93),
-                    LivingKind::Cow(_) => self.spawn_player_entity_mob(player, 92),
-                    LivingKind::Sheep(_) => self.spawn_player_entity_mob(player, 91),
-                    LivingKind::Squid(_) => self.spawn_player_entity_mob(player, 94),
-                    LivingKind::Wolf(_) => self.spawn_player_entity_mob(player, 95),
-                    LivingKind::Creeper(_) => self.spawn_player_entity_mob(player, 50),
-                    LivingKind::Giant(_) => self.spawn_player_entity_mob(player, 53),
-                    LivingKind::PigZombie(_) => self.spawn_player_entity_mob(player, 57),
-                    LivingKind::Skeleton(_) => self.spawn_player_entity_mob(player, 51),
-                    LivingKind::Spider(_) => self.spawn_player_entity_mob(player, 52),
-                    LivingKind::Zombie(_) => self.spawn_player_entity_mob(player, 54),
+                    LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56, vec![]),
+                    LivingKind::Slime(slime) => self.spawn_player_entity_mob(player, 55, vec![
+                        proto::Metadata::new_byte(16, slime.size as i8),
+                    ]),
+                    LivingKind::Pig(_) => self.spawn_player_entity_mob(player, 90, vec![]),
+                    LivingKind::Chicken(_) => self.spawn_player_entity_mob(player, 93, vec![]),
+                    LivingKind::Cow(_) => self.spawn_player_entity_mob(player, 92, vec![]),
+                    LivingKind::Sheep(_) => self.spawn_player_entity_mob(player, 91, vec![]),
+                    LivingKind::Squid(_) => self.spawn_player_entity_mob(player, 94, vec![]),
+                    LivingKind::Wolf(_) => self.spawn_player_entity_mob(player, 95, vec![]),
+                    LivingKind::Creeper(_) => self.spawn_player_entity_mob(player, 50, vec![]),
+                    LivingKind::Giant(_) => self.spawn_player_entity_mob(player, 53, vec![]),
+                    LivingKind::PigZombie(_) => self.spawn_player_entity_mob(player, 57, vec![]),
+                    LivingKind::Skeleton(_) => self.spawn_player_entity_mob(player, 51, vec![]),
+                    LivingKind::Spider(_) => self.spawn_player_entity_mob(player, 52, vec![]),
+                    LivingKind::Zombie(_) => self.spawn_player_entity_mob(player, 54, vec![]),
                 }
             }
         }
@@ -372,7 +374,7 @@ impl EntityTracker {
         }));
     }
 
-    fn spawn_player_entity_mob(&self, player: &ServerPlayer, kind: u8) {
+    fn spawn_player_entity_mob(&self, player: &ServerPlayer, kind: u8, metadata: Vec<proto::Metadata>) {
         player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
             entity_id: self.id,
             kind,
@@ -381,7 +383,7 @@ impl EntityTracker {
             z: self.sent_pos.2, 
             yaw: self.sent_look.0,
             pitch: self.sent_look.1,
-            metadata: vec![], // TODO:
+            metadata,
         }));
     }
 
