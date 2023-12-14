@@ -31,17 +31,8 @@ pub enum Nbt {
     Double(f64),
     ByteArray(Vec<u8>),
     String(String),
-    // List tags.
-    ListByte(Vec<i8>),
-    ListShort(Vec<i16>),
-    ListInt(Vec<i32>),
-    ListLong(Vec<i64>),
-    ListFloat(Vec<f32>),
-    ListDouble(Vec<f64>),
-    ListByteArray(Vec<Vec<u8>>),
-    ListString(Vec<String>),
-    ListCompound(Vec<NbtCompound>),
-    // Compound tag.
+    // Container tags.
+    List(Vec<Nbt>),
     Compound(NbtCompound),
 }
 
@@ -75,7 +66,14 @@ fn from_reader_with_type(reader: &mut impl Read, type_id: i8) -> Result<Nbt, Nbt
         NBT_LONG => Nbt::Long(reader.read_java_long()?),
         NBT_FLOAT => Nbt::Float(reader.read_java_float()?),
         NBT_DOUBLE => Nbt::Double(reader.read_java_double()?),
-        NBT_BYTE_ARRAY => Nbt::ByteArray(byte_array_from_reader(reader)?),
+        NBT_BYTE_ARRAY => {
+            
+            let len: usize = reader.read_java_int()?.try_into().map_err(|_| NbtError::IllegalLength)?;
+            let mut buf = vec![0u8; len as usize];
+            reader.read_exact(&mut buf)?;
+            Nbt::ByteArray(buf)
+
+        }
         NBT_STRING => Nbt::String(reader.read_java_string8()?),
         NBT_LIST => {
 
@@ -83,57 +81,33 @@ fn from_reader_with_type(reader: &mut impl Read, type_id: i8) -> Result<Nbt, Nbt
             let type_id = reader.read_java_byte()?;
             let len: usize = reader.read_java_int()?.try_into().map_err(|_| NbtError::IllegalLength)?;
 
-            fn list_from_reader<T, E>(len: usize, mut func: impl FnMut() -> Result<T, E>) -> Result<Vec<T>, E> {
-                let mut list = Vec::with_capacity(len as usize);
-                for _ in 0..len {
-                    list.push(func()?);
-                }
-                Ok(list)
+            let mut list = Vec::with_capacity(len as usize);
+            for _ in 0..len {
+                list.push(from_reader_with_type(reader, type_id)?);
             }
 
-            match type_id {
-                NBT_BYTE => Nbt::ListByte(list_from_reader(len, || reader.read_java_byte())?),
-                NBT_SHORT => Nbt::ListShort(list_from_reader(len, || reader.read_java_short())?),
-                NBT_INT => Nbt::ListInt(list_from_reader(len, || reader.read_java_int())?),
-                NBT_LONG => Nbt::ListLong(list_from_reader(len, || reader.read_java_long())?),
-                NBT_FLOAT => Nbt::ListFloat(list_from_reader(len, || reader.read_java_float())?),
-                NBT_DOUBLE => Nbt::ListDouble(list_from_reader(len, || reader.read_java_double())?),
-                NBT_BYTE_ARRAY => Nbt::ListByteArray(list_from_reader(len, || byte_array_from_reader(reader))?),
-                NBT_STRING => Nbt::ListString(list_from_reader(len, || reader.read_java_string8())?),
-                NBT_LIST => return Err(NbtError::IllegalTagType),  // Recursive list.
-                NBT_COMPOUND => Nbt::ListCompound(list_from_reader(len, || compound_from_reader(reader))?),
-                _ => return Err(NbtError::IllegalTagType),
+            Nbt::List(list)
+
+        }
+        NBT_COMPOUND => {
+
+            let mut map = BTreeMap::new();
+
+            loop {
+
+                let type_id = reader.read_java_byte()?;
+                if type_id == 0 {
+                    break Nbt::Compound(NbtCompound { inner: map });  // End tag.
+                }
+
+                let key = reader.read_java_string8()?;
+                map.insert(key, from_reader_with_type(reader, type_id)?);
+
             }
 
         }
-        NBT_COMPOUND => Nbt::Compound(compound_from_reader(reader)?),
         _ => return Err(NbtError::IllegalTagType),
     })
-}
-
-fn byte_array_from_reader(reader: &mut impl Read) -> Result<Vec<u8>, NbtError> {
-    let len: usize = reader.read_java_int()?.try_into().map_err(|_| NbtError::IllegalLength)?;
-    let mut buf = vec![0u8; len as usize];
-    reader.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-fn compound_from_reader(reader: &mut impl Read) -> Result<NbtCompound, NbtError> {
-
-    let mut map = BTreeMap::new();
-
-    loop {
-
-        let type_id = reader.read_java_byte()?;
-        if type_id == 0 {
-            break Ok(NbtCompound { inner: map });  // End tag.
-        }
-
-        let key = reader.read_java_string8()?;
-        map.insert(key, from_reader_with_type(reader, type_id)?);
-
-    }
-
 }
 
 /// Serialize a NBT tag into a writer.
@@ -146,35 +120,6 @@ pub fn to_writer(mut writer: impl Write, tag: &Nbt) -> Result<(), NbtError> {
 /// Internal function to write a NBT tag content.
 fn to_writer_raw(writer: &mut impl Write, tag: &Nbt) -> Result<(), NbtError> {
 
-    #[inline(never)]
-    fn list_to_writer_generic(writer: &mut impl Write, len: usize, type_id: i8) -> Result<(), NbtError> {
-        let len: i32 = len.try_into().map_err(|_| NbtError::IllegalLength)?;
-        writer.write_java_byte(type_id)?;
-        writer.write_java_int(len)?;
-        Ok(())
-    }
-
-    #[inline]
-    fn list_to_writer<W, T>(writer: &mut W, list: &[T], type_id: i8, mut func: impl FnMut(&mut W, &T) -> Result<(), NbtError>) -> Result<(), NbtError>
-    where
-        W: Write,
-    {
-        list_to_writer_generic(writer, list.len(), type_id)?;
-        for item in list {
-            func(writer, item)?;
-        }
-        Ok(())
-    }
-
-    #[inline]
-    fn list_primitive_to_writer<W, T>(writer: &mut W, list: &[T], type_id: i8, mut func: impl FnMut(&mut W, T) -> io::Result<()>) -> Result<(), NbtError>
-    where
-        W: Write,
-        T: Copy,
-    {
-        list_to_writer(writer, list, type_id, |w, v| func(w, *v).map_err(|e| NbtError::Io(e)))
-    }
-
     match *tag {
         Nbt::Byte(n) => writer.write_java_byte(n)?,
         Nbt::Short(n) => writer.write_java_short(n)?,
@@ -182,44 +127,39 @@ fn to_writer_raw(writer: &mut impl Write, tag: &Nbt) -> Result<(), NbtError> {
         Nbt::Long(n) => writer.write_java_long(n)?,
         Nbt::Float(n) => writer.write_java_float(n)?,
         Nbt::Double(n) => writer.write_java_double(n)?,
-        Nbt::ByteArray(ref buf) => byte_array_to_writer(writer, &buf)?,
+        Nbt::ByteArray(ref buf) => {
+            
+            let len: i32 = buf.len().try_into().map_err(|_| NbtError::IllegalLength)?;
+            writer.write_java_int(len)?;
+            writer.write_all(&buf)?;
+
+        }
         Nbt::String(ref string) => writer.write_java_string8(&string)?,
-        Nbt::ListByte(ref list) => list_primitive_to_writer(writer, &list, NBT_BYTE, WriteJavaExt::write_java_byte)?,
-        Nbt::ListShort(ref list) => list_primitive_to_writer(writer, &list, NBT_SHORT, WriteJavaExt::write_java_short)?,
-        Nbt::ListInt(ref list) => list_primitive_to_writer(writer, &list, NBT_INT, WriteJavaExt::write_java_int)?,
-        Nbt::ListLong(ref list) => list_primitive_to_writer(writer, &list, NBT_LONG, WriteJavaExt::write_java_long)?,
-        Nbt::ListFloat(ref list) => list_primitive_to_writer(writer, &list, NBT_FLOAT, WriteJavaExt::write_java_float)?,
-        Nbt::ListDouble(ref list) => list_primitive_to_writer(writer, &list, NBT_DOUBLE, WriteJavaExt::write_java_double)?,
-        Nbt::ListByteArray(ref list) => list_to_writer(writer, &list, NBT_BYTE_ARRAY, byte_array_to_writer)?,
-        Nbt::ListString(ref list) => list_to_writer(writer, &list, NBT_STRING, |w, v| {
-            w.write_java_string8(&v)?;
-            Ok(())
-        })?,
-        Nbt::ListCompound(ref list) => list_to_writer(writer, &list, NBT_COMPOUND, compound_to_writer)?,
-        Nbt::Compound(ref compound) => compound_to_writer(writer, compound)?,
+        Nbt::List(ref list) => {
+
+            let len: i32 = list.len().try_into().map_err(|_| NbtError::IllegalLength)?;
+            let type_id = list.first().map(get_nbt_type_id).unwrap_or(NBT_BYTE);
+            writer.write_java_byte(type_id)?;
+            writer.write_java_int(len)?;
+
+            for item in list {
+                to_writer_raw(writer, item)?;
+            }
+
+        }
+        Nbt::Compound(ref compound) => {
+            
+            for (key, tag) in &compound.inner {
+                writer.write_java_byte(get_nbt_type_id(tag))?;
+                writer.write_java_string8(&key)?;
+                to_writer_raw(writer, tag)?;
+            }
+        
+            writer.write_java_byte(0)?;
+
+        }
     }
 
-    Ok(())
-
-}
-
-// NOTE: Intentionally using &Vec<u8>, it simplifies passing as closure..
-fn byte_array_to_writer(writer: &mut impl Write, buf: &Vec<u8>) -> Result<(), NbtError> {
-    let len: i32 = buf.len().try_into().map_err(|_| NbtError::IllegalLength)?;
-    writer.write_java_int(len)?;
-    writer.write_all(&buf)?;
-    Ok(())
-}
-
-fn compound_to_writer(writer: &mut impl Write, compound: &NbtCompound) -> Result<(), NbtError> {
-    
-    for (key, tag) in &compound.inner {
-        writer.write_java_byte(get_nbt_type_id(tag))?;
-        writer.write_java_string8(&key)?;
-        to_writer_raw(writer, tag)?;
-    }
-
-    writer.write_java_byte(0)?;
     Ok(())
 
 }
@@ -235,16 +175,43 @@ fn get_nbt_type_id(tag: &Nbt) -> i8 {
         Nbt::Double(_) => NBT_DOUBLE,
         Nbt::ByteArray(_) => NBT_BYTE_ARRAY,
         Nbt::String(_) => NBT_STRING,
-        Nbt::ListByte(_) |
-        Nbt::ListShort(_) |
-        Nbt::ListInt(_) |
-        Nbt::ListLong(_) |
-        Nbt::ListFloat(_) |
-        Nbt::ListDouble(_) |
-        Nbt::ListByteArray(_) |
-        Nbt::ListString(_) |
-        Nbt::ListCompound(_) => NBT_LIST,
+        Nbt::List(_) => NBT_LIST,
         Nbt::Compound(_) => NBT_COMPOUND,
+    }
+}
+
+
+/// This macro is used to generate from/into implementations from inner types to
+/// NBT variant instance.
+macro_rules! impl_nbt_from {
+    ( $variant:ident ( $type:ty ) ) => {
+        impl From<$type> for Nbt {
+            fn from(value: $type) -> Self {
+                Nbt::$variant(value as _)
+            }
+        }
+    };
+}
+
+impl_nbt_from!(Byte(bool));
+impl_nbt_from!(Byte(i8));
+impl_nbt_from!(Byte(u8));
+impl_nbt_from!(Short(i16));
+impl_nbt_from!(Short(u16));
+impl_nbt_from!(Int(i32));
+impl_nbt_from!(Int(u32));
+impl_nbt_from!(Long(i64));
+impl_nbt_from!(Long(u64));
+impl_nbt_from!(Float(f32));
+impl_nbt_from!(Double(f64));
+impl_nbt_from!(ByteArray(Vec<u8>));
+impl_nbt_from!(String(String));
+impl_nbt_from!(List(Vec<Nbt>));
+impl_nbt_from!(Compound(NbtCompound));
+
+impl<'a> From<&'a str> for Nbt {
+    fn from(value: &'a str) -> Self {
+        Nbt::String(value.to_string())
     }
 }
 
@@ -351,8 +318,8 @@ impl NbtCompound {
     }
 
     #[inline]
-    pub fn insert(&mut self, key: String, tag: Nbt) {
-        self.inner.insert(key, tag);
+    pub fn insert(&mut self, key: impl Into<String>, tag: impl Into<Nbt>) {
+        self.inner.insert(key.into(), tag.into());
     }
 
     #[inline]
@@ -417,7 +384,6 @@ impl NbtCompound {
 
 }
 
-
 /// Manual debug implement to shrink the potential huge byte arrays.
 impl fmt::Debug for Nbt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -453,9 +419,9 @@ pub enum NbtError {
 }
 
 
-/// Parsing utility structure for anonymous NBT data.
+/// Parsing utility structure for anonymous NBT.
 pub struct NbtParse<'nbt> {
-    /// Reference to the parsed NBT data.
+    /// Reference to the anonymous NBT.
     inner: &'nbt Nbt,
     /// Current path being parsed, used to return relevant errors.
     path: String,
@@ -517,13 +483,18 @@ impl<'nbt> NbtParse<'nbt> {
     }
 
     #[inline]
+    pub fn as_list(self) -> Result<NbtListParse<'nbt>, NbtParseError> {
+        match self.inner.as_list() {
+            Some(inner) => Ok(NbtListParse { inner, path: self.path }),
+            None => Err(self.make_error(NbtParseExpected::List))
+        }
+    }
+
+    #[inline]
     pub fn as_compound(self) -> Result<NbtCompoundParse<'nbt>, NbtParseError> {
         // If successful we wrap the compound into a parse structure to keep the path.
         match self.inner.as_compound() {
-            Some(compound) => Ok(NbtCompoundParse {
-                inner: compound,
-                path: self.path,
-            }),
+            Some(inner) => Ok(NbtCompoundParse { inner, path: self.path }),
             None => Err(self.make_error(NbtParseExpected::Compound))
         }
     }
@@ -535,14 +506,101 @@ impl<'nbt> NbtParse<'nbt> {
 
     #[inline]
     pub fn inner(&self) -> &'nbt Nbt {
-        &self.inner
+        self.inner
+    }
+
+}
+
+/// Parsing utility structure for NBT list.
+pub struct NbtListParse<'nbt> {
+    /// Reference to the parsed NBT data.
+    inner: &'nbt [Nbt],
+    /// Current path being parsed, used to return relevant errors.
+    path: String,
+}
+
+impl<'nbt> NbtListParse<'nbt> {
+
+    /// Get an item from its index in this list.
+    /// An expected item error is returned if not found.
+    pub fn get(&self, index: usize) -> Result<NbtParse<'nbt>, NbtParseError> {
+        let path = format!("{}/{index}", self.path);
+        match self.inner.get(index) {
+            Some(inner) => Ok(NbtParse { inner, path }),
+            None => Err(NbtParseError { path, expected: NbtParseExpected::Item })
+        }
+    }
+    
+    #[inline]
+    pub fn get_boolean(&self, index: usize) -> Result<bool, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_boolean)
+    }
+
+    #[inline]
+    pub fn get_byte(&self, index: usize) -> Result<i8, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_byte)
+    }
+
+    #[inline]
+    pub fn get_short(&self, index: usize) -> Result<i16, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_short)
+    }
+
+    #[inline]
+    pub fn get_int(&self, index: usize) -> Result<i32, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_int)
+    }
+
+    #[inline]
+    pub fn get_long(&self, index: usize) -> Result<i64, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_long)
+    }
+
+    #[inline]
+    pub fn get_float(&self, index: usize) -> Result<f32, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_float)
+    }
+
+    #[inline]
+    pub fn get_double(&self, index: usize) -> Result<f64, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_double)
+    }
+
+    #[inline]
+    pub fn get_byte_array(&self, index: usize) -> Result<&'nbt [u8], NbtParseError> {
+        self.get(index).and_then(NbtParse::as_byte_array)
+    }
+
+    #[inline]
+    pub fn get_string(&self, index: usize) -> Result<&'nbt str, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_string)
+    }
+
+    #[inline]
+    pub fn get_list(&self, index: usize) -> Result<NbtListParse<'nbt>, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_list)
+    }
+
+    #[inline]
+    pub fn get_compound(&self, index: usize) -> Result<NbtCompoundParse<'nbt>, NbtParseError> {
+        self.get(index).and_then(NbtParse::as_compound)
+    }
+
+    #[inline]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    #[inline]
+    pub fn inner(&self) -> &'nbt [Nbt] {
+        self.inner
     }
 
 }
 
 /// Parsing utility structure for a NBT compound.
 pub struct NbtCompoundParse<'nbt> {
-    /// Reference to the parsed NBT data.
+    /// Reference to the NBT compound.
     inner: &'nbt NbtCompound,
     /// Current path being parsed, used to return relevant errors.
     path: String,
@@ -550,18 +608,13 @@ pub struct NbtCompoundParse<'nbt> {
 
 impl<'nbt> NbtCompoundParse<'nbt> {
 
-    /// Get a item from its key in this compound.
+    /// Get a item from its key in this compound. 
+    /// An expected item error is returned if not found.
     pub fn get(&self, key: &str) -> Result<NbtParse<'nbt>, NbtParseError> {
         let path = format!("{}/{key}", self.path);
         match self.inner.get(key) {
-            Some(inner) => Ok(NbtParse { 
-                inner, 
-                path,
-            }),
-            None => Err(NbtParseError { 
-                path, 
-                expected: NbtParseExpected::Item,
-            })
+            Some(inner) => Ok(NbtParse { inner, path }),
+            None => Err(NbtParseError { path, expected: NbtParseExpected::Item })
         }
     }
 
@@ -611,6 +664,11 @@ impl<'nbt> NbtCompoundParse<'nbt> {
     }
 
     #[inline]
+    pub fn get_list(&self, key: &str) -> Result<NbtListParse<'nbt>, NbtParseError> {
+        self.get(key).and_then(NbtParse::as_list)
+    }
+
+    #[inline]
     pub fn get_compound(&self, key: &str) -> Result<NbtCompoundParse<'nbt>, NbtParseError> {
         self.get(key).and_then(NbtParse::as_compound)
     }
@@ -622,7 +680,7 @@ impl<'nbt> NbtCompoundParse<'nbt> {
 
     #[inline]
     pub fn inner(&self) -> &'nbt NbtCompound {
-        &self.inner
+        self.inner
     }
 
 }
@@ -658,16 +716,86 @@ pub enum NbtParseExpected {
 #[cfg(test)]
 mod tests {
 
+    use std::io::Cursor;
     use super::*;
 
-    fn all() -> Result<(), NbtParseError> {
+    fn test_value(tag: impl Into<Nbt>, bytes: &[u8]) {
+        
+        let tag = tag.into();
 
-        let nbt = Nbt::Byte(8);
+        let mut data = Vec::new();
+        to_writer(&mut data, &tag).expect("failed to write");
+        assert_eq!(data, bytes, "invalid written tag");
 
-        let parser = nbt.parse();
-        parser.as_byte_array()?;
+        let mut cursor = Cursor::new(bytes);
+        let read_tag = from_reader(&mut cursor).expect("failed to read");
+        assert_eq!(tag, read_tag, "invalid read tag");
+        assert_eq!(cursor.position(), bytes.len() as u64, "not all data has been read");
 
-        Ok(())
+    }
+
+    #[test]
+    fn primitives() {
+        test_value(0x12u8,                  &[NBT_BYTE as u8,   0, 0, 0x12]);
+        test_value(0x1234u16,               &[NBT_SHORT as u8,  0, 0, 0x12, 0x34]);
+        test_value(0x12345678u32,           &[NBT_INT as u8,    0, 0, 0x12, 0x34, 0x56, 0x78]);
+        test_value(0x123456789ABCDEF0u64,   &[NBT_LONG as u8,   0, 0, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
+        test_value(3141592.5f32,            &[NBT_FLOAT as u8,  0, 0, 0x4A, 0x3F, 0xBF, 0x62]);
+        test_value(3141592.5f64,            &[NBT_DOUBLE as u8, 0, 0, 0x41, 0x47, 0xF7, 0xEC, 0x40, 0x00, 0x00, 0x00]);
+        test_value(format!("hello"),        &[NBT_STRING as u8, 0, 0, 0, 5, 0x68, 0x65, 0x6C, 0x6C, 0x6F]);
+    }
+
+    #[test]
+    fn lists() {
+
+        const V0: Nbt = Nbt::Byte(0);
+        const V1: Nbt = Nbt::Byte(0x12u8 as _);
+        const V2: Nbt = Nbt::Short(0x1234u16 as _);
+
+        test_value(vec![V0; 0], &[NBT_LIST as u8,   0, 0, NBT_BYTE as u8,   0, 0, 0, 0]);
+        test_value(vec![V1; 3], &[NBT_LIST as u8,   0, 0, NBT_BYTE as u8,   0, 0, 0, 3, 0x12, 0x12, 0x12]);
+        test_value(vec![V2; 2], &[NBT_LIST as u8,   0, 0, NBT_SHORT as u8,  0, 0, 0, 2, 0x12, 0x34, 0x12, 0x34]);
+
+        let mut compound = NbtCompound::new();
+        compound.insert("key0", true);
+        let compound = Nbt::Compound(compound);
+
+        test_value(vec![compound.clone(), compound], &[
+            NBT_LIST as u8,     0, 0, NBT_COMPOUND as u8, 0, 0, 0, 2, // List header
+            NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x30, 0x01, 0, // key0 header + value + terminating byte
+            NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x30, 0x01, 0, // key0 header + value + terminating byte
+        ]);
+
+    }
+
+    #[test]
+    #[should_panic]
+    fn lists_err() {
+        
+        const V1: Nbt = Nbt::Byte(0x12u8 as _);
+        const V2: Nbt = Nbt::Short(0x1234u16 as _);
+
+        test_value(vec![V1, V2], &[]);
+
+    }
+
+    #[test]
+    fn compounds() {
+
+        test_value(NbtCompound::new(),  &[NBT_COMPOUND as u8, 0, 0, 0]);
+
+        let mut comp = NbtCompound::new();
+        comp.insert("key0", "hello");
+        comp.insert("key1", true);
+        comp.insert("key2", 3141592.5f32);
+
+        test_value(comp, &[
+            NBT_COMPOUND as u8, 0, 0, // Compound header
+            NBT_STRING as u8,   0, 4, 0x6B, 0x65, 0x79, 0x30, 0, 5, 0x68, 0x65, 0x6C, 0x6C, 0x6F, // key0 header + value
+            NBT_BYTE as u8,     0, 4, 0x6B, 0x65, 0x79, 0x31, 0x01, // key1 header + value
+            NBT_FLOAT as u8,    0, 4, 0x6B, 0x65, 0x79, 0x32, 0x4A, 0x3F, 0xBF, 0x62, // key2 header + value
+            0 // terminating byte
+        ]);
 
     }
     
