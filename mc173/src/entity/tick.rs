@@ -111,14 +111,23 @@ fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut 
 
     // Search for water block in the water bb.
     base.in_water = false;
+    let mut water_vel = DVec3::ZERO;
     for (pos, block, metadata) in world.iter_blocks_in_box(water_bb) {
-        if let block::WATER_MOVING | block::WATER_STILL = block {
+        let material = block::material::get_material(block);
+        if material == Material::Water {
             let height = block::fluid::get_actual_height(metadata);
             if water_bb.max.y.add(1.0).floor() >= pos.y as f64 + height as f64 {
                 base.in_water = true;
-
+                water_vel += calc_fluid_vel(world, pos, material, metadata);
             }
         }
+    }
+
+    // Finalize normalisation and apply if not zero.
+    let water_vel = water_vel.normalize_or_zero();
+    if water_vel != DVec3::ZERO {
+        base.vel += water_vel * 0.014;
+        base.vel_dirty = true;
     }
 
     // Extinguish and cancel fall if in water.
@@ -297,7 +306,7 @@ fn tick_item(world: &mut World, id: u32, base: &mut Base, item: &mut Item) {
     base.vel.y -= 0.04;
 
     // If the item is in lava, apply random motion like it's burning.
-    // NOTE: The real client don't use 'in_lava', check if problematic.
+    // PARITY: The real client don't use 'in_lava', check if problematic.
     if base.in_lava {
         base.vel.y = 0.2;
         base.vel.x = ((base.rand.next_float() - base.rand.next_float()) * 0.2) as f64;
@@ -820,12 +829,42 @@ fn calc_size(base_kind: &mut BaseKind) -> Size {
 }
 
 /// Calculate the velocity of a fluid at given position, this depends on neighbor blocks.
-fn calc_fluid_vel(world: &mut World, pos: IVec3) -> DVec3 {
+/// This calculation will only take the given material into account, this material should
+/// be a fluid material (water/lava), and the given metadata should be the one of the
+/// current block the the position.
+fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u8) -> DVec3 {
 
+    debug_assert!(material.is_fluid());
+
+    let distance = block::fluid::get_actual_distance(metadata);
     let mut vel = DVec3::ZERO;
 
+    for face in Face::HORIZONTAL {
 
+        let face_delta = face.delta();
+        let face_pos = pos + face_delta;
+        let (face_block, face_metadata) = world.get_block(face_pos).unwrap_or_default();
+        let face_material = block::material::get_material(face_block);
 
-    vel
+        if face_material == material {
+            let face_distance = block::fluid::get_actual_distance(face_metadata);
+            let delta = face_distance as i32 - distance as i32;
+            vel += (face_delta * delta).as_dvec3();
+        } else if !face_material.is_solid() {
+            let below_pos = face_pos - IVec3::Y;
+            let (below_block, below_metadata) = world.get_block(below_pos).unwrap_or_default();
+            let below_material = block::material::get_material(below_block);
+            if below_material == material {
+                let below_distance = block::fluid::get_actual_distance(below_metadata);
+                let delta = below_distance as i32 - (distance as i32 - 8);
+                vel += (face_delta * delta).as_dvec3();
+            }
+        }
+
+    }
+
+    // TODO: Things with falling water.
+
+    vel.normalize()
 
 }

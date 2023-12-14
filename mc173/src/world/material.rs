@@ -8,6 +8,7 @@ use crate::block;
 use super::World;
 
 
+// FIXME: Make all these methods &self instead of &mut self
 impl World {
 
     /// Get the block material at given position, defaults to air if no chunk.
