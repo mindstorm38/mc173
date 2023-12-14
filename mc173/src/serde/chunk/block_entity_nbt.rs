@@ -1,12 +1,6 @@
 //! NBT serialization and deserialization for [`BlockEntity`] type.
 
-
-use std::collections::HashMap;
-
 use glam::IVec3;
-
-use serde::de::{Deserializer, Visitor, SeqAccess};
-use serde::ser::{Serializer, SerializeSeq};
 
 use crate::block_entity::note_block::NoteBlockBlockEntity;
 use crate::block_entity::dispenser::DispenserBlockEntity;
@@ -18,256 +12,147 @@ use crate::block_entity::chest::ChestBlockEntity;
 use crate::block_entity::sign::SignBlockEntity;
 use crate::block_entity::BlockEntity;
 use crate::entity::EntityKind;
+use crate::item::ItemStack;
 use crate::util::Face;
 
-use super::slot_nbt::{SlotItemStackNbt, insert_slots, make_slots};
+use crate::serde::new_nbt::{NbtParseError, NbtCompound, NbtCompoundParse};
+
 use super::entity_kind_nbt;
+use super::slot_nbt;
 
+pub fn from_nbt(comp: NbtCompoundParse) -> Result<(IVec3, Box<BlockEntity>), NbtParseError> {
 
-pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<HashMap<IVec3, Box<BlockEntity>>, D::Error> {
+    let x = comp.get_int("x")?;
+    let y = comp.get_int("y")?;
+    let z = comp.get_int("z")?;
 
-    struct SeqVisitor;
-    impl<'de> Visitor<'de> for SeqVisitor {
-        
-        type Value = HashMap<IVec3, Box<BlockEntity>>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(formatter, "a sequence")
+    let id = comp.get_string("id")?;
+    let block_entity = Box::new(match id {
+        "Chest" => {
+            let mut chest = ChestBlockEntity::default();
+            slot_nbt::from_nbt_to_inv(comp.get_list("Items")?, &mut chest.inv[..])?;
+            BlockEntity::Chest(chest)
         }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>, 
-        {
-            let mut block_entities = HashMap::with_capacity(seq.size_hint().unwrap_or(0));
-            while let Some(nbt) = seq.next_element::<BlockEntityNbt>()? {
-                let (pos, block_entity) = nbt.into_block_entity();
-                block_entities.insert(pos, block_entity);
-            }
-            Ok(block_entities)
+        "Furnace" => {
+            let mut inv = [ItemStack::EMPTY; 3];
+            slot_nbt::from_nbt_to_inv(comp.get_list("Items")?, &mut inv[..])?;
+            let mut furnace = FurnaceBlockEntity::default();
+            furnace.input_stack = inv[0];
+            furnace.fuel_stack = inv[1];
+            furnace.output_stack = inv[2];
+            furnace.burn_remaining_ticks = comp.get_short("BurnTime")?.max(0) as u16;
+            furnace.smelt_ticks = comp.get_short("CookTime")?.max(0) as u16;
+            // TODO: burn max ticks
+            BlockEntity::Furnace(furnace)
         }
+        "Trap" => {
+            let mut dispenser = DispenserBlockEntity::default();
+            slot_nbt::from_nbt_to_inv(comp.get_list("Items")?, &mut dispenser.inv[..])?;
+            BlockEntity::Dispenser(dispenser)
+        }
+        "MobSpawner" => {
+            let mut spawner = SpawnerBlockEntity::default();
+            spawner.entity_kind = entity_kind_nbt::from_nbt(comp.get_string("EntityId")?).unwrap_or(EntityKind::Pig);
+            spawner.remaining_ticks = comp.get_short("Delay")? as u32;
+            BlockEntity::Spawner(spawner)
+        }
+        "Music" => {
+            let mut note_block = NoteBlockBlockEntity::default();
+            note_block.note = comp.get_byte("note")? as u8;
+            BlockEntity::NoteBlock(note_block)
+        }
+        "Piston" => {
+            let mut piston = PistonBlockEntity::default();
+            piston.block = comp.get_int("blockId")? as u8;
+            piston.metadata = comp.get_int("blockData")? as u8;
+            piston.face = match comp.get_int("facing")? {
+                0 => Face::NegY,
+                1 => Face::PosY,
+                2 => Face::NegZ,
+                3 => Face::PosZ,
+                4 => Face::NegX,
+                _ => Face::PosX,
+            };
+            piston.progress = comp.get_float("progress")?;
+            piston.extending = comp.get_boolean("extending")?;
+            BlockEntity::Piston(piston)
+        }
+        "Sign" => {
+            let mut sign = SignBlockEntity::default();
+            for (i, key) in ["Text1", "Text2", "Text3", "Text4"].into_iter().enumerate() {
+                sign.lines[i] = comp.get_string(key)?.to_string();
+            }
+            BlockEntity::Sign(sign)
+        }
+        "RecordPlayer" => {
+            BlockEntity::Jukebox(JukeboxBlockEntity { 
+                record: comp.get_int("Record")? as u32
+            })
+        }
+        _ => return Err(NbtParseError::new(format!("{}/id", comp.path()), "valid block entity id"))
+    });
 
-    }
-
-    deserializer.deserialize_seq(SeqVisitor)
+    Ok((IVec3::new(x, y, z), block_entity))
 
 }
 
-pub fn serialize<S: Serializer>(value: &HashMap<IVec3, Box<BlockEntity>>, serializer: S) -> Result<S::Ok, S::Error> {
+pub fn to_nbt<'a>(comp: &'a mut NbtCompound, pos: IVec3, block_entity: &BlockEntity) -> &'a mut NbtCompound {
 
-    let mut seq = serializer.serialize_seq(Some(value.len()))?;
-    
-    for (&pos, block_entity) in value {
-        seq.serialize_element(&BlockEntityNbt::from_block_entity(pos, block_entity))?;
-    }
+    comp.insert("x", pos.x);
+    comp.insert("y", pos.y);
+    comp.insert("z", pos.z);
 
-    seq.end()
-
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct BlockEntityNbt {
-    x: i32,
-    y: i32,
-    z: i32,
-    #[serde(flatten)]
-    kind: BlockEntityKindNbt,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "id")]
-enum BlockEntityKindNbt {
-    Chest {
-        #[serde(rename = "Items")]
-        slots: Vec<SlotItemStackNbt>,
-    },
-    Furnace {
-        #[serde(rename = "Items")]
-        slots: Vec<SlotItemStackNbt>,
-    },
-    #[serde(rename = "Trap")]
-    Dispenser {
-        #[serde(rename = "Items")]
-        slots: Vec<SlotItemStackNbt>,
-    },
-    #[serde(rename = "MobSpawner")]
-    Spawner {
-        #[serde(rename = "EntityId", with = "entity_kind_nbt")]
-        entity_kind: EntityKind,
-        #[serde(rename = "Delay")]
-        remaining_ticks: u16,
-    },
-    #[serde(rename = "Music")]
-    NoteBlock {
-        note: u8,
-    },
-    Piston {
-        #[serde(rename = "blockId")]
-        block: i32,
-        #[serde(rename = "blockData")]
-        metadata: i32,
-        facing: i32,
-        progress: f32,
-        extending: bool,
-    },
-    Sign {
-        #[serde(rename = "Text1")]
-        text1: String,
-        #[serde(rename = "Text2")]
-        text2: String,
-        #[serde(rename = "Text3")]
-        text3: String,
-        #[serde(rename = "Text4")]
-        text4: String,
-    },
-    #[serde(rename = "RecordPlayer")]
-    Jukebox {
-        #[serde(rename = "Record")]
-        record: u32
-    },
-}
-
-impl BlockEntityNbt {
-    
-    /// Convert this raw block entity into the position and boxed block entity ready
-    /// to be inserted into the chunk snapshot mapping.
-    pub fn into_block_entity(self) -> (IVec3, Box<BlockEntity>) {
-
-        let block_entity = Box::new(match self.kind {
-            BlockEntityKindNbt::Chest { slots } => {
-                let mut chest = ChestBlockEntity::default();
-                insert_slots(slots, &mut chest.inv[..]);
-                BlockEntity::Chest(chest)
+    match block_entity {
+        BlockEntity::Chest(chest) => {
+            comp.insert("id", "Chest");
+            comp.insert("Items", slot_nbt::to_nbt_from_inv(&chest.inv[..]));
+        }
+        BlockEntity::Furnace(furnace) => {
+            comp.insert("id", "Furnace");
+            comp.insert("Items", slot_nbt::to_nbt_from_inv(&[furnace.input_stack, furnace.fuel_stack, furnace.output_stack]));
+            comp.insert("BurnTime", furnace.burn_remaining_ticks);
+            comp.insert("CookTime", furnace.smelt_ticks);
+        }
+        BlockEntity::Dispenser(dispenser) => {
+            comp.insert("id", "Trap");
+            comp.insert("Items", slot_nbt::to_nbt_from_inv(&dispenser.inv[..]));
+        }
+        BlockEntity::Spawner(spawner) => {
+            comp.insert("id", "MobSpawner");
+            comp.insert("EntityId", entity_kind_nbt::to_nbt(spawner.entity_kind).unwrap_or(format!("Pig")));
+            comp.insert("Delay", spawner.remaining_ticks.min(i16::MAX as _) as i16);
+        }
+        BlockEntity::NoteBlock(note_block) => {
+            comp.insert("id", "Music");
+            comp.insert("note", note_block.note);
+        }
+        BlockEntity::Piston(piston) => {
+            comp.insert("id", "Piston");
+            comp.insert("blockId", piston.block as u32);
+            comp.insert("blockData", piston.metadata as u32);
+            comp.insert("facing", match piston.face {
+                Face::NegY => 0i32,
+                Face::PosY => 1,
+                Face::NegZ => 2,
+                Face::PosZ => 3,
+                Face::NegX => 4,
+                Face::PosX => 5,
+            });
+            comp.insert("progress", piston.progress);
+            comp.insert("extending", piston.extending);
+        }
+        BlockEntity::Sign(sign) => {
+            comp.insert("id", "Sign");
+            for (i, key) in ["Text1", "Text2", "Text3", "Text4"].into_iter().enumerate() {
+                comp.insert(key, sign.lines[i].as_str());
             }
-            BlockEntityKindNbt::Furnace { slots } => {
-                let mut furnace = FurnaceBlockEntity::default();
-                for slot in slots {
-                    match slot.slot {
-                        0 => furnace.input_stack = slot.stack,
-                        1 => furnace.fuel_stack = slot.stack,
-                        2 => furnace.output_stack = slot.stack,
-                        _ => {}
-                    }
-                }
-                BlockEntity::Furnace(furnace)
-            }
-            BlockEntityKindNbt::Dispenser { slots } => {
-                let mut dispenser = DispenserBlockEntity::default();
-                insert_slots(slots, &mut dispenser.inv[..]);
-                BlockEntity::Dispenser(dispenser)
-            }
-            BlockEntityKindNbt::Spawner { entity_kind, remaining_ticks } => {
-                let mut spawner = SpawnerBlockEntity::default();
-                spawner.entity_kind = entity_kind;
-                spawner.remaining_ticks = remaining_ticks as u32;
-                BlockEntity::Spawner(spawner)
-            }
-            BlockEntityKindNbt::NoteBlock { note } => {
-                let mut note_block = NoteBlockBlockEntity::default();
-                note_block.note = note;
-                BlockEntity::NoteBlock(note_block)
-            }
-            BlockEntityKindNbt::Piston { block, metadata, facing, progress, extending } => {
-                let mut piston = PistonBlockEntity::default();
-                piston.block = block as u8;
-                piston.metadata = metadata as u8;
-                piston.face = match facing {
-                    0 => Face::NegY,
-                    1 => Face::PosY,
-                    2 => Face::NegZ,
-                    3 => Face::PosZ,
-                    4 => Face::NegX,
-                    _ => Face::PosX,
-                };
-                piston.progress = progress;
-                piston.extending = extending;
-                BlockEntity::Piston(piston)
-            }
-            BlockEntityKindNbt::Sign { text1, text2, text3, text4 } => {
-                let mut sign = SignBlockEntity::default();
-                sign.lines[0] = text1;
-                sign.lines[1] = text2;
-                sign.lines[2] = text3;
-                sign.lines[3] = text4;
-                BlockEntity::Sign(sign)
-            }
-            BlockEntityKindNbt::Jukebox { record } => {
-                BlockEntity::Jukebox(JukeboxBlockEntity { record })
-            }
-        });
-    
-        let pos = IVec3::new(self.x, self.y, self.z);
-        (pos, block_entity)
-
-    }
-
-    pub fn from_block_entity(pos: IVec3, block_entity: &BlockEntity) -> Self {
-        Self {
-            x: pos.x,
-            y: pos.y,
-            z: pos.z,
-            kind: match block_entity {
-                BlockEntity::Chest(chest) => {
-                    BlockEntityKindNbt::Chest { 
-                        slots: make_slots(&chest.inv[..]),
-                    }
-                }
-                BlockEntity::Furnace(furnace) => {
-                    BlockEntityKindNbt::Furnace { 
-                        slots: vec![
-                            SlotItemStackNbt { slot: 0, stack: furnace.input_stack },
-                            SlotItemStackNbt { slot: 1, stack: furnace.fuel_stack },
-                            SlotItemStackNbt { slot: 2, stack: furnace.output_stack },
-                        ]
-                    }
-                }
-                BlockEntity::Dispenser(dispenser) => {
-                    BlockEntityKindNbt::Chest { 
-                        slots: make_slots(&dispenser.inv[..]),
-                    }
-                }
-                BlockEntity::Spawner(spawner) => {
-                    BlockEntityKindNbt::Spawner { 
-                        entity_kind: spawner.entity_kind, 
-                        remaining_ticks: spawner.remaining_ticks.min(u16::MAX as _) as u16,
-                    }
-                }
-                BlockEntity::NoteBlock(note_block) => {
-                    BlockEntityKindNbt::NoteBlock { 
-                        note: note_block.note,
-                    }
-                }
-                BlockEntity::Piston(piston) => {
-                    BlockEntityKindNbt::Piston { 
-                        block: piston.block as i32, 
-                        metadata: piston.metadata as i32, 
-                        facing: match piston.face {
-                            Face::NegY => 0,
-                            Face::PosY => 1,
-                            Face::NegZ => 2,
-                            Face::PosZ => 3,
-                            Face::NegX => 4,
-                            Face::PosX => 5,
-                        }, 
-                        progress: piston.progress, 
-                        extending: piston.extending,
-                    }
-                }
-                BlockEntity::Sign(sign) => {
-                    BlockEntityKindNbt::Sign { 
-                        text1: sign.lines[0].clone(), 
-                        text2: sign.lines[1].clone(), 
-                        text3: sign.lines[2].clone(), 
-                        text4: sign.lines[3].clone(),
-                    }
-                }
-                BlockEntity::Jukebox(jukebox) => {
-                    BlockEntityKindNbt::Jukebox { 
-                        record: jukebox.record,
-                    }
-                }
-            },
+        }
+        BlockEntity::Jukebox(jukebox) => {
+            comp.insert("id", "RecordPlayer");
+            comp.insert("Record", jukebox.record);
         }
     }
-    
+
+    comp
+
 }

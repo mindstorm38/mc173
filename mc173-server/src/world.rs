@@ -49,15 +49,15 @@ pub struct ServerWorldState {
     /// The server-side time, that is not necessarily in-sync with the world time in case
     /// of tick freeze or stepping. This avoids running in socket timeout issues.
     pub time: u64,
+    /// True when world ticking is frozen, events are still processed by the world no 
+    /// longer runs.
+    pub tick_mode: TickMode,
     /// The chunk source used to load and save the world's chunk.
     storage: ChunkStorage,
     /// Chunks trackers used to send proper block changes packets.
     chunk_trackers: ChunkTrackers,
     /// Entity tracker, each is associated to the entity id.
     entity_trackers: HashMap<u32, EntityTracker>,
-    /// True when world ticking is frozen, events are still processed by the world no 
-    /// longer runs.
-    pub tick_mode: TickMode,
     /// Sliding average tick duration, in seconds.
     tick_duration: f32,
     /// Sliding average interval between two ticks.
@@ -94,10 +94,10 @@ impl ServerWorld {
                 name: name.into(),
                 seed,
                 time: 0,
+                tick_mode: TickMode::Auto,
                 storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(seed), 4),
                 chunk_trackers: ChunkTrackers::new(),
                 entity_trackers: HashMap::new(),
-                tick_mode: TickMode::Auto,
                 tick_duration: 0.0,
                 tick_interval: 0.0,
                 tick_last: Instant::now(),
@@ -216,7 +216,7 @@ impl ServerWorld {
         }
 
         // Drain dirty chunks coordinates and save them.
-        for (cx, cz) in self.state.chunk_trackers.drain_dirty() {
+        while let Some((cx, cz)) = self.state.chunk_trackers.next_save() {
             if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
                 self.state.storage.request_save(snapshot);
             }

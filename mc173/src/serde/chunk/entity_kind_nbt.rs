@@ -2,11 +2,8 @@
 
 use crate::entity::EntityKind;
 
-pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<EntityKind, D::Error> {
-
-    let id: String = serde::Deserialize::deserialize(deserializer)?;
-
-    Ok(match &id[..] {
+pub fn from_nbt(id: &str) -> Option<EntityKind> {
+    Some(match id {
         "Arrow" => EntityKind::Arrow,
         "Snowball" => EntityKind::Snowball,
         "Item" => EntityKind::Item,
@@ -29,13 +26,12 @@ pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<
         "FallingSand" => EntityKind::FallingBlock,
         "Minecart" => EntityKind::Minecart,
         "Boat" => EntityKind::Boat,
-        _ => return Err(serde::de::Error::custom(format!("cannot deserialize entity type: {id}"))),
+        _ => return None
     })
-
 }
 
-pub fn serialize<S: serde::Serializer>(value: &EntityKind, serializer: S) -> Result<S::Ok, S::Error> {
-    serde::Serialize::serialize(match value {
+pub fn to_nbt(kind: EntityKind) -> Option<String> {
+    Some(match kind {
         EntityKind::Item => "Item",
         EntityKind::Painting => "Painting",
         EntityKind::Boat => "Boat",
@@ -58,6 +54,6 @@ pub fn serialize<S: serde::Serializer>(value: &EntityKind, serializer: S) -> Res
         EntityKind::Skeleton => "Skeleton",
         EntityKind::Spider => "Spider",
         EntityKind::Zombie => "Zombie",
-        _ => return Err(serde::ser::Error::custom(format!("cannot serialize entity type: {value:?}"))),
-    }, serializer)
+        _ => return None
+    }.to_string())
 }

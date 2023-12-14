@@ -42,6 +42,247 @@ pub struct NbtCompound {
     inner: BTreeMap<String, Nbt>,
 }
 
+/// This macro is used to generate from/into implementations from inner types to
+/// NBT variant instance.
+macro_rules! impl_nbt_from {
+    ( $variant:ident ( $type:ty ) slice ) => {
+        impl_nbt_from!( $variant ( $type ) );
+        impl<'a> From<&'a [$type]> for Nbt {
+            fn from(value: &'a [$type]) -> Self {
+                Nbt::List(value.iter().map(|&value| Nbt::$variant(value as _)).collect())
+            }
+        }
+    };
+    ( $variant:ident ( $type:ty ) ) => {
+        impl From<$type> for Nbt {
+            fn from(value: $type) -> Self {
+                Nbt::$variant(value as _)
+            }
+        }
+    }
+}
+
+impl_nbt_from!(Byte(bool) slice);
+impl_nbt_from!(Byte(i8) slice);
+impl_nbt_from!(Byte(u8) slice);
+impl_nbt_from!(Short(i16) slice);
+impl_nbt_from!(Short(u16) slice);
+impl_nbt_from!(Int(i32) slice);
+impl_nbt_from!(Int(u32) slice);
+impl_nbt_from!(Long(i64) slice);
+impl_nbt_from!(Long(u64) slice);
+impl_nbt_from!(Float(f32) slice);
+impl_nbt_from!(Double(f64) slice);
+impl_nbt_from!(ByteArray(Vec<u8>));
+impl_nbt_from!(String(String));
+impl_nbt_from!(List(Vec<Nbt>));
+impl_nbt_from!(Compound(NbtCompound));
+
+impl<'a> From<&'a str> for Nbt {
+    fn from(value: &'a str) -> Self {
+        Nbt::String(value.to_string())
+    }
+}
+
+/// Basic methods to interpret a tag as its inner type if possible.
+impl Nbt {
+
+    #[inline]
+    pub fn as_boolean(&self) -> Option<bool> {
+        self.as_byte().map(|b| b != 0)
+    }
+
+    #[inline]
+    pub fn as_byte(&self) -> Option<i8> {
+        match *self {
+            Self::Byte(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_short(&self) -> Option<i16> {
+        match *self {
+            Self::Short(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_int(&self) -> Option<i32> {
+        match *self {
+            Self::Int(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_long(&self) -> Option<i64> {
+        match *self {
+            Self::Long(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_float(&self) -> Option<f32> {
+        match *self {
+            Self::Float(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_double(&self) -> Option<f64> {
+        match *self {
+            Self::Double(n) => Some(n),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_byte_array(&self) -> Option<&[u8]> {
+        match self {
+            Self::ByteArray(buf) => Some(&buf[..]),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            Self::String(string) => Some(string.as_str()),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_list(&self) -> Option<&[Nbt]> {
+        match self {
+            Self::List(list) => Some(&list[..]),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn as_compound(&self) -> Option<&NbtCompound> {
+        match self {
+            Self::Compound(comp) => Some(comp),
+            _ => None
+        }
+    }
+
+    pub fn parse(&self) -> NbtParse<'_> {
+        NbtParse { inner: self, path: String::new() }
+    }
+
+}
+
+/// Basic methods to create and manage keys in a compound.
+impl NbtCompound {
+
+    pub const fn new() -> Self {
+        Self { inner: BTreeMap::new() }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: impl Into<String>, tag: impl Into<Nbt>) {
+        self.inner.insert(key.into(), tag.into());
+    }
+
+    #[inline]
+    pub fn get(&self, key: &str) -> Option<&Nbt> {
+        self.inner.get(key)
+    }
+
+    #[inline]
+    pub fn get_boolean(&self, key: &str) -> Option<bool> {
+        self.get(key).and_then(Nbt::as_boolean)
+    }
+
+    #[inline]
+    pub fn get_byte(&self, key: &str) -> Option<i8> {
+        self.get(key).and_then(Nbt::as_byte)
+    }
+
+    #[inline]
+    pub fn get_short(&self, key: &str) -> Option<i16> {
+        self.get(key).and_then(Nbt::as_short)
+    }
+
+    #[inline]
+    pub fn get_int(&self, key: &str) -> Option<i32> {
+        self.get(key).and_then(Nbt::as_int)
+    }
+
+    #[inline]
+    pub fn get_long(&self, key: &str) -> Option<i64> {
+        self.get(key).and_then(Nbt::as_long)
+    }
+
+    #[inline]
+    pub fn get_float(&self, key: &str) -> Option<f32> {
+        self.get(key).and_then(Nbt::as_float)
+    }
+
+    #[inline]
+    pub fn get_double(&self, key: &str) -> Option<f64> {
+        self.get(key).and_then(Nbt::as_double)
+    }
+
+    #[inline]
+    pub fn get_byte_array(&self, key: &str) -> Option<&[u8]> {
+        self.get(key).and_then(Nbt::as_byte_array)
+    }
+
+    #[inline]
+    pub fn get_string(&self, key: &str) -> Option<&str> {
+        self.get(key).and_then(Nbt::as_string)
+    }
+
+    #[inline]
+    pub fn get_list(&self, key: &str) -> Option<&[Nbt]> {
+        self.get(key).and_then(Nbt::as_list)
+    }
+
+    #[inline]
+    pub fn get_compound(&self, key: &str) -> Option<&NbtCompound> {
+        self.get(key).and_then(Nbt::as_compound)
+    }
+
+}
+
+/// Manual debug implement to shrink the potential huge byte arrays.
+impl fmt::Debug for Nbt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Byte(n) => f.debug_tuple("Byte").field(n).finish(),
+            Self::Short(n) => f.debug_tuple("Short").field(n).finish(),
+            Self::Int(n) => f.debug_tuple("Int").field(n).finish(),
+            Self::Long(n) => f.debug_tuple("Long").field(n).finish(),
+            Self::Float(n) => f.debug_tuple("Float").field(n).finish(),
+            Self::Double(n) => f.debug_tuple("Double").field(n).finish(),
+            Self::ByteArray(buf) => {
+                f.debug_tuple("ByteArray")
+                    .field(&format_args!("({}) {:X?}...", buf.len(), &buf[..buf.len().min(10)]))
+                    .finish()
+            }
+            Self::String(string) => f.debug_tuple("String").field(string).finish(),
+            Self::List(list) => f.debug_tuple("List").field(list).finish(),
+            Self::Compound(compound) => f.debug_tuple("Compound").field(&compound.inner).finish(),
+        }
+    }
+}
 
 /// Deserialize a NBT tag from a reader.
 pub fn from_reader(mut reader: impl Read) -> Result<Nbt, NbtError> {
@@ -143,6 +384,9 @@ fn to_writer_raw(writer: &mut impl Write, tag: &Nbt) -> Result<(), NbtError> {
             writer.write_java_int(len)?;
 
             for item in list {
+                if get_nbt_type_id(item) != type_id {
+                    return Err(NbtError::IllegalTagType);
+                }
                 to_writer_raw(writer, item)?;
             }
 
@@ -180,246 +424,20 @@ fn get_nbt_type_id(tag: &Nbt) -> i8 {
     }
 }
 
-
-/// This macro is used to generate from/into implementations from inner types to
-/// NBT variant instance.
-macro_rules! impl_nbt_from {
-    ( $variant:ident ( $type:ty ) ) => {
-        impl From<$type> for Nbt {
-            fn from(value: $type) -> Self {
-                Nbt::$variant(value as _)
-            }
-        }
-    };
-}
-
-impl_nbt_from!(Byte(bool));
-impl_nbt_from!(Byte(i8));
-impl_nbt_from!(Byte(u8));
-impl_nbt_from!(Short(i16));
-impl_nbt_from!(Short(u16));
-impl_nbt_from!(Int(i32));
-impl_nbt_from!(Int(u32));
-impl_nbt_from!(Long(i64));
-impl_nbt_from!(Long(u64));
-impl_nbt_from!(Float(f32));
-impl_nbt_from!(Double(f64));
-impl_nbt_from!(ByteArray(Vec<u8>));
-impl_nbt_from!(String(String));
-impl_nbt_from!(List(Vec<Nbt>));
-impl_nbt_from!(Compound(NbtCompound));
-
-impl<'a> From<&'a str> for Nbt {
-    fn from(value: &'a str) -> Self {
-        Nbt::String(value.to_string())
-    }
-}
-
-
-/// Basic methods to interpret a tag as its inner type if possible.
-impl Nbt {
-
-    #[inline]
-    pub fn as_boolean(&self) -> Option<bool> {
-        self.as_byte().map(|b| b != 0)
-    }
-
-    #[inline]
-    pub fn as_byte(&self) -> Option<i8> {
-        match *self {
-            Self::Byte(n) => Some(n),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_short(&self) -> Option<i16> {
-        match *self {
-            Self::Short(n) => Some(n),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_int(&self) -> Option<i32> {
-        match *self {
-            Self::Int(n) => Some(n),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_long(&self) -> Option<i64> {
-        match *self {
-            Self::Long(n) => Some(n),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_float(&self) -> Option<f32> {
-        match *self {
-            Self::Float(n) => Some(n),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_double(&self) -> Option<f64> {
-        match *self {
-            Self::Double(n) => Some(n),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_byte_array(&self) -> Option<&[u8]> {
-        match self {
-            Self::ByteArray(buf) => Some(&buf[..]),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_string(&self) -> Option<&str> {
-        match self {
-            Self::String(string) => Some(string.as_str()),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_list(&self) -> Option<&[Nbt]> {
-        match self {
-            Self::List(list) => Some(&list[..]),
-            _ => None
-        }
-    }
-
-    #[inline]
-    pub fn as_compound(&self) -> Option<&NbtCompound> {
-        match self {
-            Self::Compound(comp) => Some(comp),
-            _ => None
-        }
-    }
-
-    pub fn parse(&self) -> NbtParse<'_> {
-        NbtParse { inner: self, path: String::new() }
-    }
-
-}
-
-/// Basic methods to create and manage keys in a compound.
-impl NbtCompound {
-
-    pub fn new() -> Self {
-        Self { inner: BTreeMap::new() }
-    }
-
-    #[inline]
-    pub fn insert(&mut self, key: impl Into<String>, tag: impl Into<Nbt>) {
-        self.inner.insert(key.into(), tag.into());
-    }
-
-    #[inline]
-    pub fn get(&self, key: &str) -> Option<&Nbt> {
-        self.inner.get(key)
-    }
-
-    #[inline]
-    pub fn get_boolean(&self, key: &str) -> Option<bool> {
-        self.get(key).and_then(Nbt::as_boolean)
-    }
-
-    #[inline]
-    pub fn get_byte(&self, key: &str) -> Option<i8> {
-        self.get(key).and_then(Nbt::as_byte)
-    }
-
-    #[inline]
-    pub fn get_short(&self, key: &str) -> Option<i16> {
-        self.get(key).and_then(Nbt::as_short)
-    }
-
-    #[inline]
-    pub fn get_int(&self, key: &str) -> Option<i32> {
-        self.get(key).and_then(Nbt::as_int)
-    }
-
-    #[inline]
-    pub fn get_long(&self, key: &str) -> Option<i64> {
-        self.get(key).and_then(Nbt::as_long)
-    }
-
-    #[inline]
-    pub fn get_float(&self, key: &str) -> Option<f32> {
-        self.get(key).and_then(Nbt::as_float)
-    }
-
-    #[inline]
-    pub fn get_double(&self, key: &str) -> Option<f64> {
-        self.get(key).and_then(Nbt::as_double)
-    }
-
-    #[inline]
-    pub fn get_byte_array(&self, key: &str) -> Option<&[u8]> {
-        self.get(key).and_then(Nbt::as_byte_array)
-    }
-
-    #[inline]
-    pub fn get_string(&self, key: &str) -> Option<&str> {
-        self.get(key).and_then(Nbt::as_string)
-    }
-
-    #[inline]
-    pub fn get_list(&self, key: &str) -> Option<&[Nbt]> {
-        self.get(key).and_then(Nbt::as_list)
-    }
-
-    #[inline]
-    pub fn get_compound(&self, key: &str) -> Option<&NbtCompound> {
-        self.get(key).and_then(Nbt::as_compound)
-    }
-
-}
-
-/// Manual debug implement to shrink the potential huge byte arrays.
-impl fmt::Debug for Nbt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Byte(n) => f.debug_tuple("Byte").field(n).finish(),
-            Self::Short(n) => f.debug_tuple("Short").field(n).finish(),
-            Self::Int(n) => f.debug_tuple("Int").field(n).finish(),
-            Self::Long(n) => f.debug_tuple("Long").field(n).finish(),
-            Self::Float(n) => f.debug_tuple("Float").field(n).finish(),
-            Self::Double(n) => f.debug_tuple("Double").field(n).finish(),
-            Self::ByteArray(buf) => {
-                f.debug_tuple("ByteArray")
-                    .field(&format_args!("({}) {:X?}...", buf.len(), &buf[..buf.len().min(10)]))
-                    .finish()
-            }
-            Self::String(string) => f.debug_tuple("String").field(string).finish(),
-            Self::List(list) => f.debug_tuple("List").field(list).finish(),
-            Self::Compound(compound) => f.debug_tuple("Compound").field(&compound.inner).finish(),
-        }
-    }
-}
-
-
 /// Error type used together with `RegionResult` for every call on region file methods.
 #[derive(thiserror::Error, Debug)]
 pub enum NbtError {
-    #[error("{0}")]
+    #[error("io: {0}")]
     Io(#[from] io::Error),
-    #[error("Illegal tag type.")]
+    #[error("illegal tag type")]
     IllegalTagType,
-    #[error("Illegal decoded length.")]
+    #[error("illegal decoded length")]
     IllegalLength,
 }
 
 
 /// Parsing utility structure for anonymous NBT.
+#[derive(Clone)]
 pub struct NbtParse<'nbt> {
     /// Reference to the anonymous NBT.
     inner: &'nbt Nbt,
@@ -430,12 +448,17 @@ pub struct NbtParse<'nbt> {
 impl<'nbt> NbtParse<'nbt> {
     
     #[inline]
-    fn make_error(self, kind: NbtParseExpected) -> NbtParseError {
-        NbtParseError {
-            path: self.path,
-            expected: kind,
-        }
+    fn make_error(self, expected: &'static str) -> NbtParseError {
+        NbtParseError::new(self.path, expected)
     }
+
+    // #[inline]
+    // pub fn as_custom<T, F>(self, func: F, expected: &'static str) -> Result<T, NbtParseError>
+    // where
+    //     F: FnOnce() -> Option<T>,
+    // {
+    //     func()
+    // }
 
     #[inline]
     pub fn as_boolean(self) -> Result<bool, NbtParseError> {
@@ -444,49 +467,49 @@ impl<'nbt> NbtParse<'nbt> {
 
     #[inline]
     pub fn as_byte(self) -> Result<i8, NbtParseError> {
-        self.inner.as_byte().ok_or_else(|| self.make_error(NbtParseExpected::Byte))
+        self.inner.as_byte().ok_or_else(|| self.make_error("byte"))
     }
 
     #[inline]
     pub fn as_short(self) -> Result<i16, NbtParseError> {
-        self.inner.as_short().ok_or_else(|| self.make_error(NbtParseExpected::Short))
+        self.inner.as_short().ok_or_else(|| self.make_error("short"))
     }
 
     #[inline]
     pub fn as_int(self) -> Result<i32, NbtParseError> {
-        self.inner.as_int().ok_or_else(|| self.make_error(NbtParseExpected::Int))
+        self.inner.as_int().ok_or_else(|| self.make_error("int"))
     }
 
     #[inline]
     pub fn as_long(self) -> Result<i64, NbtParseError> {
-        self.inner.as_long().ok_or_else(|| self.make_error(NbtParseExpected::Long))
+        self.inner.as_long().ok_or_else(|| self.make_error("long"))
     }
 
     #[inline]
     pub fn as_float(self) -> Result<f32, NbtParseError> {
-        self.inner.as_float().ok_or_else(|| self.make_error(NbtParseExpected::Float))
+        self.inner.as_float().ok_or_else(|| self.make_error("float"))
     }
 
     #[inline]
     pub fn as_double(self) -> Result<f64, NbtParseError> {
-        self.inner.as_double().ok_or_else(|| self.make_error(NbtParseExpected::Double))
+        self.inner.as_double().ok_or_else(|| self.make_error("double"))
     }
 
     #[inline]
     pub fn as_byte_array(self) -> Result<&'nbt [u8], NbtParseError> {
-        self.inner.as_byte_array().ok_or_else(|| self.make_error(NbtParseExpected::ByteArray))
+        self.inner.as_byte_array().ok_or_else(|| self.make_error("byte array"))
     }
 
     #[inline]
     pub fn as_string(self) -> Result<&'nbt str, NbtParseError> {
-        self.inner.as_string().ok_or_else(|| self.make_error(NbtParseExpected::String))
+        self.inner.as_string().ok_or_else(|| self.make_error("string"))
     }
 
     #[inline]
     pub fn as_list(self) -> Result<NbtListParse<'nbt>, NbtParseError> {
         match self.inner.as_list() {
             Some(inner) => Ok(NbtListParse { inner, path: self.path }),
-            None => Err(self.make_error(NbtParseExpected::List))
+            None => Err(self.make_error("list"))
         }
     }
 
@@ -495,7 +518,7 @@ impl<'nbt> NbtParse<'nbt> {
         // If successful we wrap the compound into a parse structure to keep the path.
         match self.inner.as_compound() {
             Some(inner) => Ok(NbtCompoundParse { inner, path: self.path }),
-            None => Err(self.make_error(NbtParseExpected::Compound))
+            None => Err(self.make_error("compound"))
         }
     }
 
@@ -512,6 +535,7 @@ impl<'nbt> NbtParse<'nbt> {
 }
 
 /// Parsing utility structure for NBT list.
+#[derive(Clone)]
 pub struct NbtListParse<'nbt> {
     /// Reference to the parsed NBT data.
     inner: &'nbt [Nbt],
@@ -527,7 +551,7 @@ impl<'nbt> NbtListParse<'nbt> {
         let path = format!("{}/{index}", self.path);
         match self.inner.get(index) {
             Some(inner) => Ok(NbtParse { inner, path }),
-            None => Err(NbtParseError { path, expected: NbtParseExpected::Item })
+            None => Err(NbtParseError::new(path, "list value"))
         }
     }
     
@@ -587,6 +611,11 @@ impl<'nbt> NbtListParse<'nbt> {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[inline]
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -596,9 +625,19 @@ impl<'nbt> NbtListParse<'nbt> {
         self.inner
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = NbtParse<'_>> + '_ {
+        self.inner.iter()
+            .enumerate()
+            .map(|(i, inner)| {
+                let path = format!("{}/{i}", self.path);
+                NbtParse { inner, path }
+            })
+    }
+
 }
 
 /// Parsing utility structure for a NBT compound.
+#[derive(Clone)]
 pub struct NbtCompoundParse<'nbt> {
     /// Reference to the NBT compound.
     inner: &'nbt NbtCompound,
@@ -614,7 +653,7 @@ impl<'nbt> NbtCompoundParse<'nbt> {
         let path = format!("{}/{key}", self.path);
         match self.inner.get(key) {
             Some(inner) => Ok(NbtParse { inner, path }),
-            None => Err(NbtParseError { path, expected: NbtParseExpected::Item })
+            None => Err(NbtParseError::new(path, "compound value"))
         }
     }
 
@@ -674,6 +713,11 @@ impl<'nbt> NbtCompoundParse<'nbt> {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[inline]
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -688,28 +732,32 @@ impl<'nbt> NbtCompoundParse<'nbt> {
 
 /// A parsing error as returned by [`NbtParse`] and [`NbtCompoundParse`] wrappers.
 #[derive(thiserror::Error, Debug)]
-#[error("{path}: expected {expected:?}")]
-pub struct NbtParseError {
-    /// The path to the failed parsing.
-    pub path: String,
-    pub expected: NbtParseExpected,
+#[error("{}: expected {}", self.path(), self.expected())]
+pub struct NbtParseError(Box<NbtParseErrorInner>);
+
+#[derive(Debug)]
+struct NbtParseErrorInner {
+    /// The path of the tag that caused an error.
+    path: String,
+    /// The type of item expected at the path.
+    expected: &'static str,
 }
 
-/// A type of expected value for a [`NbtParseError`].
-#[derive(Debug)]
-pub enum NbtParseExpected {
-    /// Expected a compound or list item at this path.
-    Item,
-    Byte,
-    Short,
-    Int,
-    Long,
-    Float,
-    Double,
-    ByteArray,
-    String,
-    List,
-    Compound,
+impl NbtParseError {
+
+    /// Create a new parse error.
+    pub fn new(path: String, expected: &'static str) -> Self {
+        Self(Box::new(NbtParseErrorInner { path, expected }))
+    }
+
+    pub fn path(&self) -> &str {
+        &self.0.path
+    }
+
+    pub fn expected(&self) -> &'static str {
+        self.0.expected
+    }
+
 }
 
 

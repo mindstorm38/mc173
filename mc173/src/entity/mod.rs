@@ -419,7 +419,7 @@ pub enum PaintingOrientation {
     PosZ,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaintingArt {
     #[default]
     Kebab,

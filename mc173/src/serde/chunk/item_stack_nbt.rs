@@ -1,29 +1,20 @@
 //! NBT serialization and deserialization for [`ItemStack`] type.
 
+use crate::serde::new_nbt::{NbtParseError, NbtCompound, NbtCompoundParse};
 use crate::item::ItemStack;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ItemStackNbt {
-    id: u16,
-    #[serde(rename = "Count")]
-    size: i8,
-    #[serde(rename = "Damage")]
-    damage: u16,
+/// Create an item stack from a NBT compound.
+pub fn from_nbt(comp: NbtCompoundParse) -> Result<ItemStack, NbtParseError> {
+    let id = comp.get_short("id")? as u16;
+    let size = comp.get_byte("Count")?.max(0) as u16;
+    let damage = comp.get_short("Damage")? as u16;
+    Ok(ItemStack { id, size, damage })
 }
 
-pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<ItemStack, D::Error> {
-    let nbt: ItemStackNbt = serde::Deserialize::deserialize(deserializer)?;
-    Ok(ItemStack { 
-        id: nbt.id, 
-        size: nbt.size.max(0) as u16, 
-        damage: nbt.damage,
-    })
-}
-
-pub fn serialize<S: serde::Serializer>(value: &ItemStack, serializer: S) -> Result<S::Ok, S::Error> {
-    serde::Serialize::serialize(&ItemStackNbt {
-        id: value.id,
-        size: value.size.min(i8::MAX as _) as i8,
-        damage: value.damage,
-    }, serializer)
+/// Encode an item stack into a NBT compound.
+pub fn to_nbt(comp: &mut NbtCompound, stack: ItemStack) -> &mut NbtCompound {
+    comp.insert("id", stack.id);
+    comp.insert("Count", stack.size.min(i8::MAX as _) as i8);
+    comp.insert("Damage", stack.damage);
+    comp
 }

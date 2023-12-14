@@ -1,6 +1,7 @@
 //! Chunk tracking.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::{Instant, Duration};
 use std::sync::Arc;
 
 use glam::IVec3;
@@ -14,6 +15,10 @@ use crate::proto::{OutPacket, self};
 use crate::player::ServerPlayer;
 
 
+/// Minimum time interval for saving a chunk.
+const CHUNK_SAVE_MIN_INTERVAL: Duration = Duration::from_secs(5);
+
+
 /// This data structure contains all chunk trackers for a world. It can be used to 
 /// efficiently send block changes to clients.
 #[derive(Debug)]
@@ -22,6 +27,9 @@ pub struct ChunkTrackers {
     inner: HashMap<(i32, i32), ChunkTracker>,
     /// A set of chunks marked as dirty and to be saved later.
     dirty: HashSet<(i32, i32)>,
+    /// Queue of chunks to be saved, sorted by time of arrival, because `Instant::now`
+    /// should not go backward.
+    save_queue: VecDeque<(i32, i32, Instant)>,
 }
 
 impl ChunkTrackers {
@@ -31,6 +39,7 @@ impl ChunkTrackers {
         Self {
             inner: HashMap::new(),
             dirty: HashSet::new(),
+            save_queue: VecDeque::new(),
         }
     }
 
@@ -53,7 +62,10 @@ impl ChunkTrackers {
 
     /// Mark a chunk dirty, to be saved later.
     pub fn set_dirty(&mut self, cx: i32, cz: i32) {
-        self.dirty.insert((cx, cz));
+        if self.dirty.insert((cx, cz)) {
+            // Only if the chunk was not already dirty, add it to the save queue.
+            self.save_queue.push_back((cx, cz, Instant::now()));
+        }
     }
 
     /// Update the given player list to send new block changes into account. The given
@@ -64,9 +76,16 @@ impl ChunkTrackers {
         }
     }
 
-    /// Drain dirty chunks and get an iterator of all dirty chunk coordinates.
-    pub fn drain_dirty(&mut self) -> impl Iterator<Item = (i32, i32)> + '_ {
-        self.dirty.drain()
+    /// Get the next chunk to save, if any.
+    pub fn next_save(&mut self) -> Option<(i32, i32)> {
+        let (_, _, instant) = self.save_queue.front()?;
+        if instant.elapsed() >= CHUNK_SAVE_MIN_INTERVAL {
+            let (cx, cz, _) = self.save_queue.pop_front().unwrap();
+            debug_assert!(self.dirty.remove(&(cx, cz)));
+            Some((cx, cz))
+        } else {
+            None
+        }
     }
 
 }

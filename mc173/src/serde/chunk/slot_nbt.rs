@@ -1,35 +1,41 @@
 //! Common NBT serde functions for item slots.
 
+use crate::serde::new_nbt::{NbtParseError, NbtCompoundParse, NbtCompound, NbtListParse, Nbt};
 use crate::item::ItemStack;
 
 use super::item_stack_nbt;
 
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct SlotItemStackNbt {
-    #[serde(rename = "Slot")]
-    pub slot: u8,
-    #[serde(with = "item_stack_nbt", flatten)]
-    pub stack: ItemStack,
+/// Create an slot and item stack from a NBT compound.
+pub fn from_nbt(comp: NbtCompoundParse) -> Result<(u8, ItemStack), NbtParseError> {
+    let slot = comp.get_byte("Slot")? as u8;
+    let stack = item_stack_nbt::from_nbt(comp)?;
+    Ok((slot, stack))
 }
 
-/// Insert a vector of slots into an inventory while checking correctness of slots.
-pub fn insert_slots(slots: Vec<SlotItemStackNbt>, inv: &mut [ItemStack]) {
-    for slot in slots {
-        if (slot.slot as usize) < inv.len() {
-            inv[slot.slot as usize] = slot.stack;
+/// Encode a slot and item stack into a NBT compound.
+pub fn to_nbt(comp: &mut NbtCompound, slot: u8, stack: ItemStack) -> &mut NbtCompound {
+    comp.insert("Slot", slot);
+    item_stack_nbt::to_nbt(comp, stack)
+}
+
+pub fn from_nbt_to_inv(list: NbtListParse, inv: &mut [ItemStack]) -> Result<(), NbtParseError> {
+    for item in list.iter() {
+        let (slot, stack) = from_nbt(item.as_compound()?)?;
+        if (slot as usize) < inv.len() {
+            inv[slot as usize] = stack;
         }
     }
+    Ok(())
 }
 
-/// Make a raw NBT slots vector from an inventory.
-pub fn make_slots(inv: &[ItemStack]) -> Vec<SlotItemStackNbt> {
-    inv.iter()
-        .enumerate()
-        .filter(|&(slot, stack)| !stack.is_empty() && slot <= 255)
-        .map(|(slot, stack)| SlotItemStackNbt {
-            slot: slot as u8,
-            stack: *stack,
-        })
-        .collect()
+pub fn to_nbt_from_inv(inv: &[ItemStack]) -> Vec<Nbt> {
+    let mut list = Vec::new();
+    for (index, stack) in inv.iter().copied().enumerate() {
+        if index < 256 && !stack.is_empty() {
+            let mut comp = NbtCompound::new();
+            to_nbt(&mut comp, index as u8, stack);
+            list.push(comp.into());
+        }
+    }
+    list
 }

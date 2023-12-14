@@ -1,609 +1,324 @@
 //! NBT serialization and deserialization for `Vec<Box<Entity>>` type.
 
-use std::cell::RefCell;
-use std::borrow::Cow;
-
 use glam::IVec3;
-
-use serde::de::{Deserializer, Visitor, SeqAccess};
-use serde::ser::Serializer;
 
 use crate::entity::{self as e, 
     Entity, 
-    Base, Projectile, Living,
+    Base, BaseKind, Projectile, ProjectileKind, Living, LivingKind,
     PaintingOrientation, PaintingArt};
 
+use crate::serde::new_nbt::{NbtCompoundParse, NbtCompound, NbtParseError};
 use crate::item::ItemStack;
 
-use super::slot_nbt::{SlotItemStackNbt, insert_slots, make_slots};
 use super::item_stack_nbt;
+use super::slot_nbt;
 
 
-// Various thread local vectors that are used to avoid frequent reallocation of 
-// temporary vector used in the logic code.
-thread_local! {
-    /// This thread local vector is used to temporally store entities or block entities 
-    /// indices that should be removed just after the update loop.
-    static SERIALIZE_ENTITIES: RefCell<Vec<EntityNbt>> = const { RefCell::new(Vec::new()) };
-}
+pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
 
+    let mut base = Base::default();
+    base.persistent = true;
 
-pub fn deserialize<'a, 'de, D: Deserializer<'de>>(deserializer: D) -> Result<Cow<'a, [Box<Entity>]>, D::Error> {
-
-    /// Internal type to visit the sequence of entities.
-    struct SeqVisitor;
-    impl<'de> Visitor<'de> for SeqVisitor {
-
-        type Value = Vec<Box<Entity>>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(formatter, "a sequence")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>, 
-        {
-            let mut entities = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-            while let Some(nbt) = seq.next_element::<EntityNbt>()? {
-                entities.push(nbt.into_entity());
-            }
-            Ok(entities)
-        }
-
+    // Position list.
+    for (i, nbt) in comp.get_list("Pos")?.iter().enumerate().take(3) {
+        base.pos[i] = nbt.as_double()?;
     }
 
-    deserializer.deserialize_seq(SeqVisitor).map(Cow::Owned)
-    
-}
-
-pub fn serialize<'a, S: Serializer>(value: &Cow<'a, [Box<Entity>]>, serializer: S) -> Result<S::Ok, S::Error> {
-    SERIALIZE_ENTITIES.with_borrow_mut(move |entities_nbt| {
-        entities_nbt.extend(value.iter().filter_map(|entity| EntityNbt::from_entity(&entity)));
-        serializer.collect_seq(entities_nbt.drain(..))
-    })
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct EntityNbt {
-    #[serde(rename = "Pos")]
-    pos: (f64, f64, f64),
-    #[serde(rename = "Motion")]
-    vel: (f64, f64, f64),
-    #[serde(rename = "Rotation")]
-    look: (f32, f32),
-    #[serde(rename = "FallDistance", default)]
-    fall_distance: f32,
-    #[serde(rename = "Fire", default)]
-    fire_time: i16,
-    #[serde(rename = "Air", default)]
-    air_time: i16,
-    #[serde(rename = "OnGround", default)]
-    on_ground: bool,
-    #[serde(flatten)]
-    kind: EntityKindNbt,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "id")]
-enum EntityKindNbt {
-    Arrow {
-        #[serde(flatten)]
-        projectile: ProjectileEntityNbt,
-        #[serde(rename = "player")]
-        from_player: bool,
-    },
-    Snowball {
-        #[serde(flatten)]
-        projectile: ProjectileEntityNbt,
-    },
-    Item {
-        #[serde(rename = "Health", default)]
-        health: i16,
-        #[serde(rename = "Age", default)]
-        lifetime: u32,
-        #[serde(rename = "Item", with = "item_stack_nbt")]
-        stack: ItemStack,
-    },
-    Painting {
-        #[serde(rename = "Dir")]
-        dir: i8,
-        #[serde(rename = "Motive")]
-        art: PaintingArt,
-        #[serde(rename = "TileX")]
-        x_block: i32,
-        #[serde(rename = "TileY")]
-        y_block: i32,
-        #[serde(rename = "TileZ")]
-        z_block: i32,
-    },
-    Creeper {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-        powered: bool,
-    },
-    Skeleton {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Spider {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Giant {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Zombie {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Slime {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-        #[serde(rename = "Size")]
-        size: i32,
-    },
-    Ghast {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    PigZombie {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-        #[serde(rename = "Anger")]
-        anger: i16,
-    },
-    Pig {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-        #[serde(rename = "Saddle")]
-        saddle: bool,
-    },
-    Sheep {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-        #[serde(rename = "Sheared")]
-        sheared: bool,
-        #[serde(rename = "Color")]
-        color: u8,
-    },
-    Cow {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Chicken {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Squid {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-    },
-    Wolf {
-        #[serde(flatten)]
-        living: LivingEntityNbt,
-        #[serde(rename = "Angry", default)]
-        angry: bool,
-        #[serde(rename = "Sitting", default)]
-        sitting: bool,
-        #[serde(rename = "Owner", default)]
-        owner: String,
-    },
-    #[serde(rename = "PrimedTnt")]
-    Tnt {
-        #[serde(rename = "Fuse")]
-        fuse: i8,
-    },
-    #[serde(rename = "FallingSand")]
-    FallingBlock {
-        #[serde(rename = "Tile")]
-        block: u8,
-    },
-    Minecart {
-        #[serde(rename = "Type")]
-        kind: i32,
-        #[serde(flatten, default)]
-        chest: Option<MinecartChestEntityNbt>,
-        #[serde(flatten, default)]
-        furnace: Option<MinecartFurnaceEntityNbt>,
-    },
-    Boat {},
-}
-
-/// The projectile NBT is really weird for MC, this means that projectiles cannot be 
-/// saved beyond i16 range?
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ProjectileEntityNbt {
-    #[serde(rename = "xTile")]
-    block_x: i16,
-    #[serde(rename = "yTile")]
-    block_y: i16,
-    #[serde(rename = "zTile")]
-    block_z: i16,
-    #[serde(rename = "inTile")]
-    in_block: u8,
-    #[serde(rename = "inData")]
-    in_metadata: u8,
-    #[serde(rename = "inGround")]
-    in_ground: bool,
-    shake: i8,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct LivingEntityNbt {
-    #[serde(rename = "Health", default = "living_entity_default_health")]
-    health: i16,
-    #[serde(rename = "HurtTime")]
-    hurt_time: i16,
-    #[serde(rename = "DeathTime")]
-    death_time: i16,
-    #[serde(rename = "AttackTime")]
-    attack_time: i16,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct MinecartChestEntityNbt {
-    #[serde(rename = "Items")]
-    slots: Vec<SlotItemStackNbt>,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct MinecartFurnaceEntityNbt {
-    #[serde(rename = "PushX")]
-    push_x: f64,
-    #[serde(rename = "PushZ")]
-    push_z: f64,
-    fuel: i16,
-}
-
-/// Default value for health of living entities.
-#[inline(always)]
-fn living_entity_default_health() -> i16 {
-    10
-}
-
-impl EntityNbt {
-
-    /// Transform this raw entity NBT into a boxed entity depending on the internal
-    /// variant of the entity.
-    fn into_entity(self) -> Box<Entity> {
-
-        let mut entity = match self.kind {
-            EntityKindNbt::Arrow { projectile, from_player: _ } =>
-                e::Arrow::new_with(|b, p, _| projectile.apply_entity(b, p)),
-            EntityKindNbt::Snowball { projectile } =>
-                e::Snowball::new_with(|b, p, _| projectile.apply_entity(b, p)),
-            EntityKindNbt::Item { health, lifetime, stack } =>
-                e::Item::new_with(|b, item| {
-                    b.health = health.max(0) as u32;
-                    b.lifetime = lifetime;
-                    item.stack = stack;
-                }),
-            EntityKindNbt::Painting { dir, art, x_block, y_block, z_block } =>
-                e::Painting::new_with(|_, painting| {
-                    painting.art = art;
-                    painting.orientation = match dir {
-                        0 => PaintingOrientation::NegZ,
-                        1 => PaintingOrientation::NegX,
-                        2 => PaintingOrientation::PosZ,
-                        _ => PaintingOrientation::PosX,
-                    };
-                    painting.block_pos.x = x_block;
-                    painting.block_pos.y = y_block;
-                    painting.block_pos.z = z_block;
-                }),
-            EntityKindNbt::Creeper { living, powered } =>
-                e::Creeper::new_with(|b, l, creeper| {
-                    living.apply_entity(b, l);
-                    creeper.powered = powered;
-                }),
-            EntityKindNbt::Skeleton { living } => 
-                e::Skeleton::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Spider { living } => 
-                e::Spider::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Giant { living } => 
-                e::Giant::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Zombie { living } => 
-                e::Zombie::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Slime { living, size } =>
-                e::Slime::new_with(|b, l, slime| {
-                    living.apply_entity(b, l);
-                    slime.size = size.clamp(0, 255) as u8;
-                }),
-            EntityKindNbt::Ghast { living } => 
-                e::Ghast::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::PigZombie { living, anger } => 
-                e::PigZombie::new_with(|b, l, pig_zombie| {
-                    living.apply_entity(b, l);
-                    pig_zombie.anger = anger != 0;
-                }),
-            EntityKindNbt::Pig { living, saddle } =>
-                e::Pig::new_with(|b, l, pig| {
-                    living.apply_entity(b, l);
-                    pig.saddle = saddle;
-                }),
-            EntityKindNbt::Sheep { living, sheared, color } =>
-                e::Sheep::new_with(|b, l, sheep| {
-                    living.apply_entity(b, l);
-                    sheep.sheared = sheared;
-                    sheep.color = color;
-                }),
-            EntityKindNbt::Cow { living } =>
-                e::Cow::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Chicken { living } =>
-                e::Chicken::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Squid { living } => 
-                e::Squid::new_with(|b, l, _| living.apply_entity(b, l)),
-            EntityKindNbt::Wolf { living, angry, sitting, owner } => 
-                e::Wolf::new_with(|b, l, wolf| {
-                    living.apply_entity(b, l);
-                    wolf.angry = angry;
-                    wolf.sitting = sitting;
-                    wolf.owner = (!owner.is_empty()).then_some(owner);
-                }),
-            EntityKindNbt::Tnt { fuse } =>
-                e::Tnt::new_with(|_, tnt| {
-                    tnt.fuse_ticks = fuse.max(0) as u32;
-                }),
-            EntityKindNbt::FallingBlock { block } =>
-                e::FallingBlock::new_with(|_, falling_block| {
-                    falling_block.block_id = block;
-                }),
-            EntityKindNbt::Minecart { kind, chest, furnace } =>
-                e::Minecart::new_with(|_, minecart| {
-
-                    match kind {
-                        1 => { // Chest minecart
-                            if let Some(chest) = chest {
-                                let mut inv: Box<[ItemStack; 27]> = Box::default();
-                                insert_slots(chest.slots, &mut inv[..]);
-                                *minecart = e::Minecart::Chest { inv };
-                            }
-                        }
-                        2 => { // Furnace minecart
-                            if let Some(furnace) = furnace {
-                                *minecart = e::Minecart::Furnace { 
-                                    fuel: furnace.fuel.max(0) as u32,
-                                    push_x: furnace.push_x,
-                                    push_z: furnace.push_z,
-                                }
-                            }
-                        }
-                        _ => {} // Normal minecart, no need to change default.
-                    }
-
-                }),
-            EntityKindNbt::Boat {  } => 
-                e::Boat::new_with(|_, _| {}),
-        };
-
-        let base = &mut entity.0;
-        // Deserialized entities are persistent by definition.
-        base.persistent = true;
-        // Position.
-        base.pos.x = self.pos.0;
-        base.pos.y = self.pos.1;
-        base.pos.z = self.pos.2;
-        // Velocity.
-        base.vel.x = self.vel.0;
-        base.vel.y = self.vel.1;
-        base.vel.z = self.vel.2;
-        // Look.
-        base.look.x = self.look.0;
-        base.look.y = self.look.1;
-        // Misc.
-        base.fall_distance = self.fall_distance;
-        base.fire_time = self.fire_time.max(0) as u32;
-        base.air_time = self.air_time.max(0) as u32;
-        base.on_ground = self.on_ground;
-        
-        entity
-
+    // Velocity list.
+    for (i, nbt) in comp.get_list("Motion")?.iter().enumerate().take(3) {
+        base.vel[i] = nbt.as_double()?;
     }
 
-    fn from_entity(entity: &Entity) -> Option<Self> {
+    // Yaw, pitch list.
+    for (i, nbt) in comp.get_list("Rotation")?.iter().enumerate().take(2) {
+        base.look[i] = nbt.as_float()?;
+    }
 
-        let Entity(base, base_kind) = entity;
+    base.fall_distance = comp.get_float("FallDistance").unwrap_or_default();
+    base.fire_time = comp.get_short("Fire").unwrap_or_default().max(0) as u32;
+    base.air_time = comp.get_short("Air").unwrap_or_default().max(0) as u32;
+    base.on_ground = comp.get_boolean("OnGround").unwrap_or_default();
 
-        if !base.persistent {
-            return None;
+    let id = comp.get_string("id")?;
+    let base_kind = match id {
+        "Item" => {
+
+            base.health = comp.get_short("Health").unwrap_or_default().max(0) as u32;
+            base.lifetime = comp.get_int("lifetime").unwrap_or_default().max(0) as u32;
+
+            let mut item = e::Item::default();
+            item.stack = item_stack_nbt::from_nbt(comp.get_compound("Item")?)?;
+            BaseKind::Item(item)
+
         }
-
-        Some(Self {
-            pos: (base.pos.x, base.pos.y, base.pos.z),
-            vel: (base.vel.x, base.vel.y, base.vel.z),
-            look: (base.look.x, base.look.y),
-            fall_distance: base.fall_distance,
-            fire_time: base.fire_time.min(i16::MAX as _) as i16,
-            air_time: base.air_time.min(i16::MAX as _) as i16,
-            on_ground: base.on_ground,
-            kind: match base_kind {
-                e::BaseKind::Item(item) =>
-                    EntityKindNbt::Item { 
-                        health: base.health.min(i16::MAX as _) as i16, 
-                        lifetime: base.lifetime, 
-                        stack: item.stack,
-                    },
-                e::BaseKind::Painting(painting) =>
-                    EntityKindNbt::Painting { 
-                        dir: match painting.orientation {
-                            PaintingOrientation::NegZ => 0,
-                            PaintingOrientation::NegX => 1,
-                            PaintingOrientation::PosZ => 2,
-                            PaintingOrientation::PosX => 3,
-                        }, 
-                        art: painting.art, 
-                        x_block: painting.block_pos.x, 
-                        y_block: painting.block_pos.y, 
-                        z_block: painting.block_pos.z,
-                    },
-                e::BaseKind::Boat(_boat) =>
-                    EntityKindNbt::Boat { },
-                e::BaseKind::Minecart(e::Minecart::Normal) =>
-                    EntityKindNbt::Minecart { kind: 0, chest: None, furnace: None },
-                e::BaseKind::Minecart(e::Minecart::Chest { inv }) =>
-                    EntityKindNbt::Minecart { 
-                        kind: 1, 
-                        chest: Some(MinecartChestEntityNbt { 
-                            slots: make_slots(&inv[..]),
-                        }), 
-                        furnace: None,
-                    },
-                &e::BaseKind::Minecart(e::Minecart::Furnace { fuel, push_x, push_z }) =>
-                    EntityKindNbt::Minecart { 
-                        kind: 2, 
-                        chest: None, 
-                        furnace: Some(MinecartFurnaceEntityNbt { 
-                            push_x, 
-                            push_z, 
-                            fuel: fuel.min(i16::MAX as _) as i16,
-                        }),
-                    },
-                e::BaseKind::FallingBlock(falling_block) => 
-                    EntityKindNbt::FallingBlock { 
-                        block: falling_block.block_id 
-                    },
-                e::BaseKind::Tnt(tnt) => 
-                    EntityKindNbt::Tnt { 
-                        fuse: tnt.fuse_ticks.min(i8::MAX as _) as i8 
-                    },
-                e::BaseKind::Projectile(projectile, projectile_kind) => {
-
-                    let projectile = ProjectileEntityNbt::from_entity(base, projectile);
-
-                    match projectile_kind {
-                        e::ProjectileKind::Arrow(_) => 
-                            EntityKindNbt::Arrow { 
-                                projectile, 
-                                from_player: false,
-                            },
-                        e::ProjectileKind::Snowball(_) => 
-                            EntityKindNbt::Snowball { projectile },
-                        // Other projectile entities cannot be serialized.
-                        _ => return None,
-                    }
-
+        "Painting" => BaseKind::Painting(e::Painting {
+            block_pos: IVec3 {
+                x: comp.get_int("TileX")?,
+                y: comp.get_int("TileY")?,
+                z: comp.get_int("TileZ")?,
+            },
+            orientation: match comp.get_byte("Dir")? {
+                0 => PaintingOrientation::NegZ,
+                1 => PaintingOrientation::NegX,
+                2 => PaintingOrientation::PosZ,
+                _ => PaintingOrientation::PosX,
+            },
+            art: PaintingArt::Kebab, // FIXME:
+            ..Default::default()
+        }),
+        "PrimedTnt" => BaseKind::Tnt(e::Tnt {
+            fuse_ticks: comp.get_byte("Fuse")?.max(0) as u32,
+        }),
+        "FallingSand" => BaseKind::FallingBlock(e::FallingBlock {
+            block_id: comp.get_byte("Tile")? as u8,
+            ..Default::default()
+        }),
+        "Minecart" => {
+            BaseKind::Minecart(match comp.get_int("Type")? {
+                1 => {
+                    let mut inv: Box<[ItemStack; 27]> = Box::default();
+                    slot_nbt::from_nbt_to_inv(comp.get_list("Items")?, &mut inv[..])?;
+                    e::Minecart::Chest { inv }
                 }
-                e::BaseKind::Living(living, living_kind) => {
-
-                    let living = LivingEntityNbt::from_entity(base, living);
-
-                    match living_kind {
-                        e::LivingKind::Ghast(_) => 
-                            EntityKindNbt::Ghast { living },
-                        e::LivingKind::Slime(slime) => 
-                            EntityKindNbt::Slime { 
-                                living,
-                                size: slime.size as i32,
-                            },
-                        e::LivingKind::Pig(pig) => 
-                            EntityKindNbt::Pig { 
-                                living,
-                                saddle: pig.saddle,
-                            },
-                        e::LivingKind::Chicken(_) =>
-                            EntityKindNbt::Chicken { living },
-                        e::LivingKind::Cow(_) => 
-                            EntityKindNbt::Cow { living },
-                        e::LivingKind::Sheep(sheep) =>
-                            EntityKindNbt::Sheep { 
-                                living,
-                                sheared: sheep.sheared, 
-                                color: sheep.color,
-                            },
-                        e::LivingKind::Squid(_) => 
-                            EntityKindNbt::Squid { living },
-                        e::LivingKind::Wolf(wolf) => 
-                            EntityKindNbt::Wolf { 
-                                living, 
-                                angry: wolf.angry, 
-                                sitting: wolf.sitting, 
-                                owner: wolf.owner.clone().unwrap_or_default(),
-                            },
-                        e::LivingKind::Creeper(creeper) => 
-                            EntityKindNbt::Creeper { 
-                                living, 
-                                powered: creeper.powered,
-                            },
-                        e::LivingKind::Giant(_) => 
-                            EntityKindNbt::Giant { living },
-                        e::LivingKind::PigZombie(pig_zombie) => 
-                            EntityKindNbt::PigZombie { 
-                                living,
-                                anger: pig_zombie.anger as i16,
-                            },
-                        e::LivingKind::Skeleton(_) => 
-                            EntityKindNbt::Skeleton { living },
-                        e::LivingKind::Spider(_) => 
-                            EntityKindNbt::Spider { living },
-                        e::LivingKind::Zombie(_) => 
-                            EntityKindNbt::Zombie { living },
-                        // Other living entities cannot be serialized.
-                        _ => return None,
+                2 => {
+                    e::Minecart::Furnace { 
+                        fuel: comp.get_short("fuel")?.max(0) as u32,
+                        push_x: comp.get_double("PushX")?,
+                        push_z: comp.get_double("PushZ")?,
                     }
-
                 }
-                // Other entities could not be serialized in NBT.
-                _ => return None,
+                _ => e::Minecart::Normal
+            })
+        }
+        "Boat" => BaseKind::Boat(e::Boat::default()),
+        "Arrow" |
+        "Snowball" => {
+
+            let mut projectile = Projectile::default();
+
+            if comp.get_boolean("inGround")? {
+                projectile.block_hit = Some((
+                    IVec3 {
+                        x: comp.get_short("xTile")? as i32,
+                        y: comp.get_short("yTile")? as i32,
+                        z: comp.get_short("zTile")? as i32,
+                    },
+                    comp.get_byte("inTile")? as u8,
+                    comp.get_byte("inData")? as u8
+                ));
             }
-        })
 
-    }
+            projectile.shake = comp.get_byte("shake")?.max(0) as u8;
+
+            let projectile_kind = match id {
+                "Arrow" => ProjectileKind::Arrow(e::Arrow::default()),
+                "Snowball" => ProjectileKind::Snowball(e::Snowball::default()),
+                _ => unreachable!()
+            };
+
+            BaseKind::Projectile(projectile, projectile_kind)
+
+        }
+        "Creeper" |
+        "Skeleton" |
+        "Spider" |
+        "Giant" |
+        "Zombie" |
+        "Slime" |
+        "Ghast" |
+        "PigZombie" |
+        "Pig" |
+        "Sheep" |
+        "Cow" |
+        "Chicken" |
+        "Squid" |
+        "Wolf" => {
+
+            base.health = comp.get_short("Health").unwrap_or(10).max(0) as u32;
+
+            let mut living = Living::default();
+            living.hurt_time = comp.get_short("HurtTime")?.max(0) as u16;
+            living.death_time = comp.get_short("DeathTime")?.max(0) as u16;
+            living.attack_time = comp.get_short("AttackTime")?.max(0) as u16;
+
+            let living_kind = match id {
+                "Creeper" => LivingKind::Creeper(e::Creeper {
+                    powered: comp.get_boolean("powered")?,
+                }),
+                "Skeleton" => LivingKind::Skeleton(e::Skeleton::default()),
+                "Spider" => LivingKind::Spider(e::Spider::default()),
+                "Giant" => LivingKind::Giant(e::Giant::default()),
+                "Zombie" => LivingKind::Zombie(e::Zombie::default()),
+                "Slime" => LivingKind::Slime(e::Slime {
+                    size: comp.get_int("Size")?.clamp(0, 255) as u8,
+                }),
+                "Ghast" => LivingKind::Ghast(e::Ghast::default()),
+                "PigZombie" => LivingKind::PigZombie(e::PigZombie {
+                    anger: comp.get_short("Anger")? != 0,
+                }),
+                "Pig" => LivingKind::Pig(e::Pig {
+                    saddle: comp.get_boolean("Saddle")?,
+                }),
+                "Sheep" => LivingKind::Sheep(e::Sheep {
+                    sheared: comp.get_boolean("Sheared")?,
+                    color: comp.get_byte("Color")? as u8,
+                }),
+                "Cow" => LivingKind::Cow(e::Cow::default()),
+                "Chicken" => LivingKind::Chicken(e::Chicken::default()),
+                "Squid" => LivingKind::Squid(e::Squid::default()),
+                "Wolf" => LivingKind::Wolf(e::Wolf {
+                    angry: comp.get_boolean("Angry")?,
+                    sitting: comp.get_boolean("Sitting")?,
+                    owner: {
+                        let owner = comp.get_string("Owner")?;
+                        (!owner.is_empty()).then(|| owner.to_string())
+                    },
+                }),
+                _ => unreachable!()
+            };
+
+            BaseKind::Living(living, living_kind)
+
+        }
+        _ => return Err(NbtParseError::new(format!("{}/id", comp.path()), "valid entity id"))
+    };
+
+    Ok(Box::new(Entity(base, base_kind)))
 
 }
 
-impl ProjectileEntityNbt {
+pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut NbtCompound> {
 
-    /// Apply this projectile entity NBT to the given data structures.
-    fn apply_entity(self, _base: &mut Base, projectile: &mut Projectile) {
-        
-        if self.in_ground {
-            projectile.block_hit = Some((
-                IVec3::new(self.block_x as i32, self.block_y as i32, self.block_z as i32),
-                self.in_block,
-                self.in_metadata,
-            ));
-        } else {
-            projectile.block_hit = None;
+    let Entity(base, base_kind) = entity;
+
+    match base_kind {
+        BaseKind::Item(item) => {
+
+            comp.insert("id", "Item");
+            comp.insert("Health", base.health.min(i16::MAX as _) as i16);
+            comp.insert("lifetime", base.lifetime);
+
+            let mut item_comp = NbtCompound::new();
+            item_stack_nbt::to_nbt(&mut item_comp, item.stack);
+            comp.insert("Item", item_comp);
+
         }
+        BaseKind::Painting(painting) => {
+            comp.insert("id", "Painting");
+            comp.insert("TileX", painting.block_pos.x);
+            comp.insert("TileY", painting.block_pos.y);
+            comp.insert("TileZ", painting.block_pos.z);
+            comp.insert("Dir", match painting.orientation {
+                PaintingOrientation::NegZ => 0i8,
+                PaintingOrientation::NegX => 1,
+                PaintingOrientation::PosZ => 2,
+                PaintingOrientation::PosX => 3,
+            });
+            comp.insert("Motive", "Kebab");
+        }
+        BaseKind::Boat(_) => {
+            comp.insert("id", "Boat");
+        }
+        BaseKind::Minecart(e::Minecart::Normal) => {
+            comp.insert("id", "Minecart");
+        }
+        BaseKind::Minecart(e::Minecart::Chest { inv }) => {
+            comp.insert("id", "Minecart");
+            comp.insert("Items", slot_nbt::to_nbt_from_inv(&inv[..]));
+        }
+        &BaseKind::Minecart(e::Minecart::Furnace { push_x, push_z, fuel }) => {
+            comp.insert("id", "Minecart");
+            comp.insert("fuel", fuel.min(i16::MAX as _) as i16);
+            comp.insert("PushX", push_x);
+            comp.insert("PushZ", push_z);
+        }
+        BaseKind::Fish(_) => return None, // Not serializable
+        BaseKind::LightningBolt(_) => return None, // Not serializable
+        BaseKind::FallingBlock(falling_block) => {
+            comp.insert("id", "FallingSand");
+            comp.insert("Tile", falling_block.block_id);
+        }
+        BaseKind::Tnt(tnt) => {
+            comp.insert("id", "PrimedTnt");
+            comp.insert("Fuse", tnt.fuse_ticks.min(i8::MAX as _) as i8);
+        }
+        BaseKind::Projectile(projectile, projectile_kind) => {
 
-        projectile.shake = self.shake.max(0) as u8;
+            match projectile_kind {
+                ProjectileKind::Arrow(_) => comp.insert("id", "Arrow"),
+                ProjectileKind::Snowball(_) => comp.insert("id", "Snowball"),
+                ProjectileKind::Egg(_) => return None, // Not serializable
+                ProjectileKind::Fireball(_) => return None, // Not serializable
+            }
 
-    }
+            let (pos, block, metadata) = projectile.block_hit.unwrap_or_default();
+            comp.insert("xTile", pos.x as i16);
+            comp.insert("yTile", pos.y as i16);
+            comp.insert("zTile", pos.z as i16);
+            comp.insert("inTile", block);
+            comp.insert("inData", metadata);
+            comp.insert("shake", projectile.shake.min(i8::MAX as _) as i8);
 
-    fn from_entity(_base: &Base, projectile: &Projectile) -> Self {
-        let (pos, block, metadata) = projectile.block_hit.unwrap_or_default();
-        Self {
-            block_x: pos.x as i16,
-            block_y: pos.y as i16,
-            block_z: pos.z as i16,
-            in_block: block,
-            in_metadata: metadata,
-            in_ground: projectile.block_hit.is_some(),
-            shake: projectile.shake.min(i8::MAX as _) as i8,
+        }
+        BaseKind::Living(living, living_kind) => {
+
+            match living_kind {
+                LivingKind::Ghast(_) => comp.insert("id", "Ghast"),
+                LivingKind::Slime(slime) => {
+                    comp.insert("id", "Slime");
+                    comp.insert("Size", slime.size as u32);
+                }
+                LivingKind::Pig(pig) => {
+                    comp.insert("id", "Pig");
+                    comp.insert("Saddle", pig.saddle);
+                }
+                LivingKind::Chicken(_) => comp.insert("id", "Chicken"),
+                LivingKind::Cow(_) => comp.insert("id", "Cow"),
+                LivingKind::Sheep(sheep) => {
+                    comp.insert("id", "Sheep");
+                    comp.insert("Sheared", sheep.sheared);
+                    comp.insert("Color", sheep.color);
+                }
+                LivingKind::Squid(_) => comp.insert("id", "Squid"),
+                LivingKind::Wolf(wolf) => {
+                    comp.insert("id", "Wolf");
+                    comp.insert("Angry", wolf.angry);
+                    comp.insert("Sitting", wolf.sitting);
+                    comp.insert("Owner", wolf.owner.clone().unwrap_or_default());
+                }
+                LivingKind::Creeper(creeper) => {
+                    comp.insert("id", "Creeper");
+                    comp.insert("powered", creeper.powered);
+                }
+                LivingKind::Giant(_) => comp.insert("id", "Giant"),
+                LivingKind::PigZombie(pig_zombie) => {
+                    comp.insert("id", "PigZombie");
+                    comp.insert("Anger", pig_zombie.anger as i16);
+                }
+                LivingKind::Skeleton(_) => comp.insert("id", "Skeleton"),
+                LivingKind::Spider(_) => comp.insert("id", "Spider"),
+                LivingKind::Zombie(_) => comp.insert("id", "Zombie"),
+                // Other living entities cannot be serialized.
+                _ => return None, // Not serializable
+            }
+
+            comp.insert("Health", base.health.min(i16::MAX as _) as i16);
+            comp.insert("HurtTime", living.hurt_time.min(i16::MAX as _) as i16);
+            comp.insert("DeathTime", living.death_time.min(i16::MAX as _) as i16);
+            comp.insert("AttackTime", living.attack_time.min(i16::MAX as _) as i16);
+
         }
     }
 
-}
+    // Inserting here to we don't insert if the entity cannot be serialized.
+    comp.insert("Pos", &base.pos.to_array()[..]);
+    comp.insert("Motion", &base.vel.to_array()[..]);
+    comp.insert("Rotation", &base.look.to_array()[..]);
+    comp.insert("FallDistance", base.fall_distance);
+    comp.insert("Fire", base.fire_time.min(i16::MAX as _) as i16);
+    comp.insert("Air", base.air_time.min(i16::MAX as _) as i16);
+    comp.insert("OnGround", base.on_ground);
 
-impl LivingEntityNbt {
-
-    /// Apply this projectile entity NBT to the given data structures.
-    fn apply_entity(self, base: &mut Base, living: &mut Living) {
-        base.health = self.health.max(0) as u32;
-        living.hurt_time = self.hurt_time.max(0) as u16;
-        living.death_time = self.death_time.max(0) as u16;
-        living.attack_time = self.attack_time.max(0) as u16;
-    }
-
-    fn from_entity(base: &Base, living: &Living) -> Self {
-        Self {
-            health: base.health.min(i16::MAX as _) as i16,
-            hurt_time: living.hurt_time.min(i16::MAX as _) as i16,
-            death_time: living.death_time.min(i16::MAX as _) as i16,
-            attack_time: living.attack_time.min(i16::MAX as _) as i16,
-        }
-    }
+    Some(comp)
 
 }
