@@ -15,7 +15,7 @@ use crate::entity::EntityKind;
 use crate::item::ItemStack;
 use crate::util::Face;
 
-use crate::serde::new_nbt::{NbtParseError, NbtCompound, NbtCompoundParse};
+use crate::serde::nbt::{NbtParseError, NbtCompound, NbtCompoundParse};
 
 use super::entity_kind_nbt;
 use super::slot_nbt;

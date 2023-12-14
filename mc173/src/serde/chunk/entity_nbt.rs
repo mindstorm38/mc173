@@ -7,7 +7,7 @@ use crate::entity::{self as e,
     Base, BaseKind, Projectile, ProjectileKind, Living, LivingKind,
     PaintingOrientation, PaintingArt};
 
-use crate::serde::new_nbt::{NbtCompoundParse, NbtCompound, NbtParseError};
+use crate::serde::nbt::{NbtCompoundParse, NbtCompound, NbtParseError};
 use crate::item::ItemStack;
 
 use super::item_stack_nbt;

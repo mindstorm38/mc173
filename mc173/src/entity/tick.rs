@@ -409,7 +409,7 @@ fn  tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living
         }
     }
 
-    const ANIMAL_MOVE_SPEED: f32 = 0.1;
+    const ANIMAL_MOVE_SPEED: f32 = 0.7;
 
     match living_kind {
         LivingKind::Player(_) => (),  // For now we do nothing.

@@ -2,7 +2,7 @@
 
 use crate::world::ChunkSnapshot;
 
-use super::new_nbt::{Nbt, NbtParseError, NbtCompound};
+use super::nbt::{Nbt, NbtParseError, NbtCompound};
 
 pub mod block_entity_nbt;
 pub mod entity_kind_nbt;

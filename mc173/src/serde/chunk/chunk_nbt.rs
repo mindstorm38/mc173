@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::serde::new_nbt::{NbtCompoundParse, NbtCompound, NbtParseError, Nbt};
+use crate::serde::nbt::{NbtCompoundParse, NbtCompound, NbtParseError, Nbt};
 use crate::world::ChunkSnapshot;
 
 use super::block_entity_nbt;

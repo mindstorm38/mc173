@@ -15,8 +15,8 @@ use std::io;
 use crossbeam_channel::TryRecvError;
 use crossbeam_channel::{select, bounded, Sender, Receiver, RecvError};
 
-use crate::serde::new_nbt::NbtError;
-use crate::serde::new_nbt::NbtParseError;
+use crate::serde::nbt::NbtError;
+use crate::serde::nbt::NbtParseError;
 use crate::serde::region::{RegionDir, RegionError};
 use crate::world::{ChunkSnapshot, World};
 use crate::gen::ChunkGenerator;
@@ -275,7 +275,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
             Err(err) => return Err(StorageError::Region(err))
         };
 
-        let root_tag = crate::serde::new_nbt::from_reader(reader)?;
+        let root_tag = crate::serde::nbt::from_reader(reader)?;
         let mut snapshot = crate::serde::chunk::from_nbt(&root_tag)?;
         let chunk = Arc::get_mut(&mut snapshot.chunk).unwrap();
         
@@ -499,7 +499,7 @@ impl<G: ChunkGenerator> StorageWorker<G> {
 
         let mut writer = region.write_chunk(cx, cz);
         let root_tag = crate::serde::chunk::to_nbt(snapshot);
-        crate::serde::new_nbt::to_writer(&mut writer, &root_tag)?;
+        crate::serde::nbt::to_writer(&mut writer, &root_tag)?;
         writer.flush_chunk()?;
 
         Ok(())
