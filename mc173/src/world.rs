@@ -698,7 +698,8 @@ impl World {
         BlocksInIter::new(self, min, max)
     }
 
-    /// Iterate over all entities in the world.
+    /// Iterate over all entities in the world. The currently updated entity is not 
+    /// included in this iterator.
     pub fn iter_entities(&self) -> impl Iterator<Item = (u32, &Entity)> {
         self.entities.iter()
             .filter_map(|comp| 

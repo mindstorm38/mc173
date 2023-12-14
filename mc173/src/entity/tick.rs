@@ -854,10 +854,16 @@ fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Li
 /// Tick a slime entity AI.
 /// 
 /// REF: EntitySlime::updatePlayerActionState
-fn tick_slime_ai(_world: &mut World, _id: u32, base: &mut Base, living: &mut Living, slime: &mut Slime) {
+fn tick_slime_ai(world: &mut World, _id: u32, base: &mut Base, living: &mut Living, slime: &mut Slime) {
 
     // TODO: despawn entity if too far away from player
-    // TODO: face nearest player
+
+    // Searching the closest player entities behind 16.0 blocks.
+    let closest_player = find_closest_player_entity(world, base.pos, 16.0);
+
+    if let Some(closest_player) = closest_player {
+        base.update_look_at_by_step(closest_player.0.pos, Vec2::new(10.0f32.to_radians(), 20.0f32.to_radians()));
+    }
 
     let mut set_jumping = false;
     if base.on_ground {
@@ -870,7 +876,10 @@ fn tick_slime_ai(_world: &mut World, _id: u32, base: &mut Base, living: &mut Liv
     if set_jumping {
         
         slime.jump_remaining_time = base.rand.next_int_bounded(20) as u32 + 10;
-        // TODO: if tracking a player, divide time by 3
+
+        if closest_player.is_some() {
+            slime.jump_remaining_time /= 3;
+        }
 
         living.jumping = true;
         living.accel_strafing = 1.0 - base.rand.next_float() * 2.0;
@@ -968,4 +977,15 @@ fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u8) -
 
     vel.normalize()
 
+}
+
+fn find_closest_player_entity(world: &World, center: DVec3, dist: f64) -> Option<&Entity> {
+    let max_dist_sq = dist.powi(2);
+    world.iter_entities()
+        .map(|(_, entity)| entity)
+        .filter(|entity| matches!(entity.1, BaseKind::Living(_, LivingKind::Player(_))))
+        .map(|entity| (entity, entity.0.pos.distance_squared(center)))
+        .filter(|&(_, dist_sq)| dist_sq <= max_dist_sq)
+        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(entity, _)| entity)
 }
