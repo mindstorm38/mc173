@@ -150,6 +150,8 @@ pub struct Base {
     /// Lifetime of the entity since it was spawned in the world, it increase at every
     /// world tick.
     pub lifetime: u32,
+    /// Height of the eyes above position.
+    pub eye_height: f32,
     /// Set to true when the entity is able to pickup surrounding items and arrows on
     /// ground, if so a pickup event is triggered, but the item or arrow is not actually
     /// picked up, it's up to the event listener to decide. Disabled by default.
@@ -207,8 +209,6 @@ pub struct Living {
     pub yaw_velocity: f32,
     /// True if this entity is trying to jump.
     pub jumping: bool,
-    /// If this entity can attack others, this defines its attack strength.
-    pub attack_strength: i32,
     /// If this entity is looking at another one.
     pub look_target: Option<LookTarget>,
     /// The path this creature needs to follow.
@@ -405,7 +405,7 @@ pub struct LookTarget {
     /// The entity id to look at.
     pub entity_id: u32,
     /// Ticks remaining before stop looking at it.
-    pub ticks_remaining: u32,
+    pub remaining_time: u32,
 }
 
 /// A result of the path finder.

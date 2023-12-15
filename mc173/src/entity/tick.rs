@@ -36,6 +36,7 @@ impl Entity {
 }
 
 
+// Thread local variables internally used to reduce allocation overhead.
 thread_local! {
     /// Temporary entity id storage.
     static ENTITY_ID: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
@@ -61,6 +62,7 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
     // from the current position.
     if !base.coherent {
         base.size = calc_size(base_kind);
+        base.eye_height = calc_eye_height(base, base_kind);
         base.update_bounding_box_from_pos();
     } else if base.controlled {
         base.update_bounding_box_from_pos();
@@ -197,8 +199,103 @@ fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut 
     }
 
     // If this entity is living, there is more to do.
-    if let BaseKind::Living(living, _) = base_kind {
-        tick_living_state(world, id, base, living);
+    if let BaseKind::Living(living, living_kind) = base_kind {
+        tick_living_state(world, id, base, living, living_kind);
+    }
+
+}
+
+/// REF: EntityLiving::onEntityUpdate
+fn tick_living_state(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
+
+    // Suffocate entities if inside opaque cubes (except for sleeping players).
+    let mut check_suffocate = true;
+    if let LivingKind::Human(human) = living_kind {
+        check_suffocate = !human.sleeping;
+    }
+
+    if check_suffocate {
+        for i in 0u8..8 {
+            
+            let delta = DVec3 {
+                x: (((i >> 0) & 1) as f64 - 0.5) * base.size.width as f64 * 0.9,
+                y: (((i >> 1) & 1) as f64 - 0.5) * 0.1 + base.eye_height as f64,
+                z: (((i >> 2) & 1) as f64 - 0.5) * base.size.width as f64 * 0.9,
+            };
+
+            if world.is_block_opaque_cube(base.pos.add(delta).floor().as_ivec3()) {
+                // One damage per tick (not overwriting if already set to higher).
+                living.hurt_damage = living.hurt_damage.max(1);
+                break;
+            }
+
+        }
+    }
+
+    // Decrease countdowns.
+    living.attack_time = living.attack_time.saturating_sub(1);
+    living.hurt_time = living.hurt_time.saturating_sub(1);
+
+    // If some damage have to be applied...
+    if living.health != 0 && living.hurt_damage != 0 {
+
+        /// The hurt time when hit for the first time.
+        /// PARITY: The Notchian impl doesn't actually use hurt time but another variable
+        ///  that have the exact same behavior, so we use hurt time here to be more,
+        ///  consistent. We also avoid the divide by two thing that is useless.
+        const HURT_INITIAL_TIME: u16 = 10;
+
+        // Calculate the actual damage dealt on this tick depending on cooldown.
+        let mut actual_damage = 0;
+        if living.hurt_time == 0 {
+            
+            living.hurt_time = HURT_INITIAL_TIME;
+            living.hurt_last_damage = living.hurt_damage;
+            actual_damage = living.hurt_damage;
+            world.push_event(Event::Entity { id, inner: EntityEvent::Damage });
+
+            if let Some(origin) = living.hurt_origin {
+                let mut dir = origin - base.pos;
+                dir.y = 0.0; // We ignore verticle delta.
+                while dir.length_squared() < 1.0e-4 {
+                    dir = DVec3 {
+                        x: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                        y: 0.0,
+                        z: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                    }
+                }
+                base.update_knock_back(dir);
+            }
+
+        } else if living.hurt_damage > living.hurt_last_damage {
+            actual_damage = living.hurt_damage - living.hurt_last_damage;
+            living.hurt_last_damage = living.hurt_damage;
+        }
+
+        // Damage are reset after being applied.
+        living.hurt_damage = 0;
+
+        // Apply damage.
+        if actual_damage != 0 {
+            living.health = living.health.saturating_sub(actual_damage);
+            // TODO: For players, take armor into account.
+        }
+
+    }
+
+    if living.health == 0 {
+
+        // If this is the first death tick, push event.
+        if living.death_time == 0 {
+            world.push_event(Event::Entity { id, inner: EntityEvent::Dead });
+        }
+
+        living.death_time += 1;
+        if living.death_time > 20 {
+            // TODO: Drop loots
+            world.remove_entity(id);
+        }
+
     }
 
 }
@@ -450,24 +547,30 @@ fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living,
         }
     }
 
-    const ANIMAL_MOVE_SPEED: f32 = 0.7;
+    fn path_weight_mob(world: &mut World, pos: IVec3) -> f32 {
+        0.5 - world.get_brightness(pos).unwrap_or(0.0)
+    }
+
+    const DEFAULT_MOVE_SPEED: f32 = 0.7;
+    const ZOMBIE_MOVE_SPEED: f32 = 0.5;
+    const SPIDER_MOVE_SPEED: f32 = 0.8;
 
     match living_kind {
         LivingKind::Human(_) => (),  // For now we do nothing.
         LivingKind::Ghast(_) => todo!(),
         LivingKind::Slime(slime) => tick_slime_ai(world, id, base, living, slime),
-        LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
-        LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
-        LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
-        LivingKind::Sheep(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
+        LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
+        LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
+        LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
+        LivingKind::Sheep(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
         LivingKind::Squid(_) => todo!(),
         LivingKind::Wolf(_) => todo!(),
-        LivingKind::Creeper(_) => todo!(),
-        LivingKind::Giant(_) => todo!(),
-        LivingKind::PigZombie(_) => todo!(),
-        LivingKind::Skeleton(_) => todo!(),
-        LivingKind::Spider(_) => todo!(),
-        LivingKind::Zombie(_) => todo!(),
+        LivingKind::Creeper(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_mob),
+        LivingKind::Giant(_) => tick_creature_ai(world, id, base, living, ZOMBIE_MOVE_SPEED, path_weight_mob),
+        LivingKind::PigZombie(_) => tick_creature_ai(world, id, base, living, ZOMBIE_MOVE_SPEED, path_weight_mob),
+        LivingKind::Skeleton(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_mob),
+        LivingKind::Spider(_) => tick_creature_ai(world, id, base, living, SPIDER_MOVE_SPEED, path_weight_mob),
+        LivingKind::Zombie(_) => tick_creature_ai(world, id, base, living, ZOMBIE_MOVE_SPEED, path_weight_mob),
     }
 
     if living.jumping {
@@ -639,78 +742,6 @@ fn tick_living_vel(_world: &mut World, _id: u32, base: &mut Base, living: &mut L
     
 }
 
-/// REF: EntityLiving::onEntityUpdate
-fn tick_living_state(world: &mut World, id: u32, base: &mut Base, living: &mut Living) {
-
-    // TODO: Damage entity if inside block
-
-    living.attack_time = living.attack_time.saturating_sub(1);
-    living.hurt_time = living.hurt_time.saturating_sub(1);
-
-    // If some damage have to be applied...
-    if living.health != 0 && living.hurt_damage != 0 {
-
-        /// The hurt time when hit for the first time.
-        /// PARITY: The Notchian impl doesn't actually use hurt time but another variable
-        ///  that have the exact same behavior, so we use hurt time here to be more,
-        ///  consistent. We also avoid the divide by two thing that is useless.
-        const HURT_INITIAL_TIME: u16 = 10;
-
-        // Calculate the actual damage dealt on this tick depending on cooldown.
-        let mut actual_damage = 0;
-        if living.hurt_time == 0 {
-            
-            living.hurt_time = HURT_INITIAL_TIME;
-            living.hurt_last_damage = living.hurt_damage;
-            actual_damage = living.hurt_damage;
-            world.push_event(Event::Entity { id, inner: EntityEvent::Damage });
-
-            if let Some(origin) = living.hurt_origin {
-                let mut dir = origin - base.pos;
-                dir.y = 0.0; // We ignore verticle delta.
-                while dir.length_squared() < 1.0e-4 {
-                    dir = DVec3 {
-                        x: (base.rand.next_double() - base.rand.next_double()) * 0.01,
-                        y: 0.0,
-                        z: (base.rand.next_double() - base.rand.next_double()) * 0.01,
-                    }
-                }
-                base.update_knock_back(dir);
-            }
-
-        } else if living.hurt_damage > living.hurt_last_damage {
-            actual_damage = living.hurt_damage - living.hurt_last_damage;
-            living.hurt_last_damage = living.hurt_damage;
-        }
-
-        // Damage are reset after being applied.
-        living.hurt_damage = 0;
-
-        // Apply damage.
-        if actual_damage != 0 {
-            living.health = living.health.saturating_sub(actual_damage);
-            // TODO: For players, take armor into account.
-        }
-
-    }
-
-    if living.health == 0 {
-
-        // If this is the first death tick, push event.
-        if living.death_time == 0 {
-            world.push_event(Event::Entity { id, inner: EntityEvent::Dead });
-        }
-
-        living.death_time += 1;
-        if living.death_time > 20 {
-            // TODO: Drop loots
-            world.remove_entity(id);
-        }
-
-    }
-
-}
-
 /// REF: EntityLiving::updatePlayerActionState
 fn tick_living_ai(world: &mut World, _id: u32, base: &mut Base, living: &mut Living) {
 
@@ -730,8 +761,8 @@ fn tick_living_ai(world: &mut World, _id: u32, base: &mut Base, living: &mut Liv
     // the target should end or is too far away.
     if let Some(target) = &mut living.look_target {
 
-        target.ticks_remaining -= 1;
-        let mut target_release = target.ticks_remaining == 0;
+        target.remaining_time -= 1;
+        let mut target_release = target.remaining_time == 0;
 
         if let Some(target_entity) = world.get_entity(target.entity_id) {
             // TODO: Fix the Y value, in order to look at eye height.
@@ -990,6 +1021,16 @@ fn calc_size(base_kind: &mut BaseKind) -> Size {
         BaseKind::Living(_, LivingKind::Skeleton(_)) => Size::new(0.6, 1.8),
         BaseKind::Living(_, LivingKind::Spider(_)) => Size::new(1.4, 0.9),
         BaseKind::Living(_, LivingKind::Zombie(_)) => Size::new(0.6, 1.8),
+    }
+}
+
+/// Calculate height height for the given entity.
+fn calc_eye_height(base: &Base, base_kind: &BaseKind) -> f32 {
+    match base_kind {
+        BaseKind::Living(_, LivingKind::Human(_)) => 1.62,
+        BaseKind::Living(_, LivingKind::Wolf(_)) => base.size.height * 0.8,
+        BaseKind::Living(_, _) => base.size.height * 0.85,
+        _ => 0.0,
     }
 }
 
