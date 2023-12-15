@@ -28,25 +28,20 @@ pub struct EntityTracker {
     /// This countdown is reset when the absolute position is sent, if the absolute 
     /// position has not been sent for 400 ticks (20 seconds), it's resent.
     absolute_countdown_time: u16,
+    /// True when the velocity must be sent when changing.
+    vel_enable: bool,
     /// Last known position of the entity.
     pos: (i32, i32, i32),
+    /// Last known velocity of the entity.
+    vel: (i16, i16, i16),
     /// Last known look of the entity.
     look: (i8, i8),
     /// Last encoded position sent to clients.
     sent_pos: (i32, i32, i32),
-    /// Last encoded look sent to clients.
-    sent_look: (i8, i8),
-    /// If this tracker should track entity velocity, this contains the tracker.
-    vel: Option<EntityVelocityTracker>,
-}
-
-/// Some entity velocity tracking if enabled for that entity.
-#[derive(Debug)]
-struct EntityVelocityTracker {
-    /// Last known velocity of the entity.
-    vel: (i16, i16, i16),
     /// Last encoded velocity sent to clients.
     sent_vel: (i16, i16, i16),
+    /// Last encoded look sent to clients.
+    sent_look: (i8, i8),
 }
 
 impl EntityTracker {
@@ -56,7 +51,7 @@ impl EntityTracker {
     /// position and look are encoded.
     pub fn new(id: u32, entity: &Entity) -> Self {
 
-        let (distance, interval, velocity) = match entity.kind() {
+        let (distance, interval, vel_enable) = match entity.kind() {
             EntityKind::Player => (512, 2, false),
             EntityKind::Fish => (64, 5, true),
             EntityKind::Arrow => (64, 20, false),
@@ -80,14 +75,13 @@ impl EntityTracker {
             interval,
             time: 0,
             absolute_countdown_time: 0,
+            vel_enable,
             pos: (0, 0, 0),
             look: (0, 0),
+            vel: (0, 0, 0),
             sent_pos: (0, 0, 0),
+            sent_vel: (0, 0, 0),
             sent_look: (0, 0),
-            vel: velocity.then_some(EntityVelocityTracker { 
-                vel: (0, 0, 0),
-                sent_vel: (0, 0, 0),
-            }),
         };
         
         tracker.set_pos(entity.0.pos);
@@ -114,12 +108,10 @@ impl EntityTracker {
 
     /// Update the last known velocity of this entity.
     pub fn set_vel(&mut self, vel: DVec3) {
-        if let Some(tracker) = &mut self.vel {
-            // The Notchian client clamps the input velocity, this ensure that the scaled 
-            // vector is in i16 range or integers.
-            let scaled = vel.clamp(DVec3::splat(-3.9), DVec3::splat(3.9)).mul(8000.0).as_ivec3();
-            tracker.vel = (scaled.x as i16, scaled.y as i16, scaled.z as i16);
-        }
+        // The Notchian client clamps the input velocity, this ensure that the scaled 
+        // vector is in i16 range or integers.
+        let scaled = vel.clamp(DVec3::splat(-3.9), DVec3::splat(3.9)).mul(8000.0).as_ivec3();
+        self.vel = (scaled.x as i16, scaled.y as i16, scaled.z as i16);
     }
 
     /// Tick this entity tracker and update players if needed. Only the players that
@@ -204,34 +196,39 @@ impl EntityTracker {
             self.sent_look = self.look;
         }
 
-        // If velocity tracking is enabled...
-        if let Some(tracker) = &mut self.vel {
-            // We differ from the Notchian server because we don't check for the distance.
-            let dvx = tracker.vel.0 as i32 - tracker.sent_vel.0 as i32;
-            let dvy = tracker.vel.1 as i32 - tracker.sent_vel.1 as i32;
-            let dvz = tracker.vel.2 as i32 - tracker.sent_vel.2 as i32;
-            // If any axis velocity change by 0.0125 (100 when encoded *8000).
-            if dvx.abs() > 100 || dvy.abs() > 100 || dvz.abs() > 100 {
-                for player in players {
-                    if player.tracked_entities.contains(&self.id) {
-                        player.send(OutPacket::EntityVelocity(proto::EntityVelocityPacket {
-                            entity_id: self.id,
-                            vx: tracker.vel.0,
-                            vy: tracker.vel.1,
-                            vz: tracker.vel.2,
-                        }));
-                    }
-                }
-                tracker.sent_vel = tracker.vel;
-            }
-        }
-
         if let Some(packet) = move_packet {
             for player in players {
                 if player.tracked_entities.contains(&self.id) {
                     player.send(packet.clone());
                 }
             }
+        }
+
+        // If velocity tracking is enabled...
+        if self.vel_enable {
+
+            // We differ from the Notchian server because we don't check for the distance.
+            let dvx = self.vel.0 as i32 - self.sent_vel.0 as i32;
+            let dvy = self.vel.1 as i32 - self.sent_vel.1 as i32;
+            let dvz = self.vel.2 as i32 - self.sent_vel.2 as i32;
+            // If any axis velocity change by 0.0125 (100 when encoded *8000).
+            if dvx.abs() > 100 || dvy.abs() > 100 || dvz.abs() > 100 {
+                
+                for player in players {
+                    if player.tracked_entities.contains(&self.id) {
+                        player.send(OutPacket::EntityVelocity(proto::EntityVelocityPacket {
+                            entity_id: self.id,
+                            vx: self.vel.0,
+                            vy: self.vel.1,
+                            vz: self.vel.2,
+                        }));
+                    }
+                }
+        
+                self.sent_vel = self.vel;
+
+            }
+            
         }
 
     }
@@ -368,9 +365,7 @@ impl EntityTracker {
             x: self.sent_pos.0, 
             y: self.sent_pos.1, 
             z: self.sent_pos.2, 
-            velocity: vel.then(|| {
-                self.vel.as_ref().expect("expected velocity to be tracked").sent_vel
-            })
+            velocity: vel.then(|| self.sent_vel)
         }));
     }
 
