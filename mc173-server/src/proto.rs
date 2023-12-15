@@ -488,7 +488,7 @@ pub struct EntityStatusPacket {
     /// - 6 (Wolf): Make smoke particles
     /// - 7 (Wolf): Make hearts particles
     /// - 8 (Wolf): Make wolf shaking
-    pub status: i8,
+    pub status: u8,
 }
 
 /// Packet 39
@@ -1109,7 +1109,7 @@ impl net::OutPacket for OutPacket {
             OutPacket::EntityStatus(packet) => {
                 write.write_u8(38)?;
                 write.write_java_int(packet.entity_id as i32)?;
-                write.write_java_byte(packet.status)?;
+                write.write_java_byte(packet.status as i8)?;
             }
             OutPacket::EntityRide(packet) => {
                 write.write_u8(39)?;

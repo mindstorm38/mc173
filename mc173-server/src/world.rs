@@ -192,6 +192,10 @@ impl ServerWorld {
                         self.handle_entity_velocity(id, vel),
                     EntityEvent::Pickup { target_id } => 
                         self.handle_entity_pickup(id, target_id),
+                    EntityEvent::Damage => 
+                        self.handle_entity_status(id, 2),
+                    EntityEvent::Dead => 
+                        self.handle_entity_status(id, 3),
                 }
                 Event::BlockEntity { pos, inner } => match inner {
                     BlockEntityEvent::Set =>
@@ -424,6 +428,18 @@ impl ServerWorld {
             }
         }
 
+    }
+
+    /// Handle an entity damage/dead or other status for an entity.
+    fn handle_entity_status(&mut self, id: u32, status: u8) {
+        for player in &self.players {
+            if player.tracked_entities.contains(&id) {
+                player.send(OutPacket::EntityStatus(proto::EntityStatusPacket {
+                    entity_id: id,
+                    status,
+                }));
+            }
+        }
     }
 
     /// HAndle a block entity set event.

@@ -1316,6 +1316,10 @@ pub enum EntityEvent {
         /// The id of the picked up entity.
         target_id: u32,
     },
+    /// The entity is damaged and the damage animation should be played by frontend.
+    Damage,
+    /// The entity is dead and the dead animation should be played by frontend.
+    Dead,
 }
 
 #[derive(Debug, Clone, PartialEq)]

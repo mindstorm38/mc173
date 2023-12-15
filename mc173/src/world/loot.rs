@@ -32,7 +32,7 @@ impl World {
             base.vel.y = 0.2;
             base.vel.z = self.rand.next_double() * 0.2 - 0.1;
             item.stack = stack;
-            item.frozen_ticks = 10;
+            item.frozen_time = 10;
         });
 
         self.spawn_entity(entity);

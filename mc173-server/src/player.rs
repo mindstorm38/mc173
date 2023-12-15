@@ -1231,7 +1231,7 @@ impl ServerPlayer {
 
             }
 
-            item.frozen_ticks = 40;
+            item.frozen_time = 40;
             item.stack = stack;
             
         });

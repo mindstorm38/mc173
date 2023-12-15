@@ -170,7 +170,7 @@ fn tick_base_state(world: &mut World, id: u32, base: &mut Base, base_kind: &mut 
 
                 match &entity.1 {
                     BaseKind::Item(item) => {
-                        if item.frozen_ticks == 0 {
+                        if item.frozen_time == 0 {
                             picked_up_entities.push(entity_id);
                         }
                     }
@@ -312,8 +312,8 @@ fn tick_base_pos(world: &mut World, _id: u32, base: &mut Base, delta: DVec3, ste
 /// REF: EntityItem::onUpdate
 fn tick_item(world: &mut World, id: u32, base: &mut Base, item: &mut Item) {
 
-    if item.frozen_ticks > 0 {
-        item.frozen_ticks -= 1;
+    if item.frozen_time > 0 {
+        item.frozen_time -= 1;
     }
 
     // Update item velocity.
@@ -647,12 +647,51 @@ fn tick_living_state(world: &mut World, id: u32, _base: &mut Base, living: &mut 
     living.attack_time = living.attack_time.saturating_sub(1);
     living.hurt_time = living.hurt_time.saturating_sub(1);
 
+    // If some damage have to be applied...
+    if living.health != 0 && living.hurt_damage != 0 {
+
+        /// The hurt time when hit for the first time.
+        /// PARITY: The Notchian impl doesn't actually use hurt time but another variable
+        ///  that have the exact same behavior, so we use hurt time here to be more,
+        ///  consistent. We also avoid the divide by two thing that is useless.
+        const HURT_INITIAL_TIME: u16 = 10;
+
+        // Calculate the actual damage dealt on this tick depending on cooldown.
+        let mut actual_damage = 0;
+        if living.hurt_time == 0 {
+            living.hurt_time = HURT_INITIAL_TIME;
+            living.hurt_last_damage = living.hurt_damage;
+            actual_damage = living.hurt_damage;
+            world.push_event(Event::Entity { id, inner: EntityEvent::Damage });
+        } else if living.hurt_damage > living.hurt_last_damage {
+            actual_damage = living.hurt_damage - living.hurt_last_damage;
+            living.hurt_last_damage = living.hurt_damage;
+        }
+
+        // Damage are reset after being applied.
+        living.hurt_damage = 0;
+
+        // Apply damage.
+        if actual_damage != 0 {
+            living.health = living.health.saturating_sub(actual_damage);
+            // TODO: For players, take armor into account.
+        }
+
+    }
+
     if living.health == 0 {
+
+        // If this is the first death tick, push event.
+        if living.death_time == 0 {
+            world.push_event(Event::Entity { id, inner: EntityEvent::Dead });
+        }
+
         living.death_time += 1;
         if living.death_time > 20 {
             // TODO: Drop loots
             world.remove_entity(id);
         }
+
     }
 
 }

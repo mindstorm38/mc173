@@ -181,12 +181,17 @@ pub struct Base {
 pub struct Living {
     /// The health.
     pub health: u16,
-    /// TODO:
-    pub attack_time: u16,
-    /// The countdown reset when hurt.
-    pub hurt_time: u16,
-    /// The last received damage.
+    /// The damage to inflict on next tick, this damage is removed from the health on the
+    /// next tick only if `hurt_time` is zero, only the difference with the last damage in
+    /// `hurt_last_damage` is applied before updating it.
     pub hurt_damage: u16,
+    /// The last damage inflicted to the entity during `hurt_time`, this is used to only
+    /// damage for the maximum damage inflicted while `hurt_time` is not zero.
+    pub hurt_last_damage: u16,
+    /// Hurt countdown, read `hurt_damage` documentation.
+    pub hurt_time: u16,
+    /// TBD.
+    pub attack_time: u16,
     /// The death timer, increasing each tick when no health, after 20 ticks the entity
     /// is definitely removed from the world.
     pub death_time: u16,
@@ -222,8 +227,8 @@ pub struct Item {
     pub stack: ItemStack,
     /// The item health.
     pub health: u16,
-    /// Tick count before this item entity can be picked up.
-    pub frozen_ticks: u32,
+    /// Remaining time for this item to be picked up by entities that have `can_pickup`.
+    pub frozen_time: u32,
 }
 
 #[derive(Debug, Clone, Default)]
