@@ -10,6 +10,7 @@ pub mod projectile;
 pub mod living;
 
 pub mod tick;
+pub mod interact;
 
 
 /// Kind of entity, without actual data. This enumeration can be used to construct a
@@ -152,7 +153,6 @@ pub struct Base {
     /// Set to true when the entity is able to pickup surrounding items and arrows on
     /// ground, if so a pickup event is triggered, but the item or arrow is not actually
     /// picked up, it's up to the event listener to decide. Disabled by default.
-    /// TODO: Make it work.
     pub can_pickup: bool,
     /// No clip is used to disable collision check when moving the entity, if no clip is
     /// false, then the entity will be constrained by bounding box in its way.
@@ -181,8 +181,14 @@ pub struct Base {
 pub struct Living {
     /// The health.
     pub health: u16,
+    /// TODO:
     pub attack_time: u16,
+    /// The countdown reset when hurt.
     pub hurt_time: u16,
+    /// The last received damage.
+    pub hurt_damage: u16,
+    /// The death timer, increasing each tick when no health, after 20 ticks the entity
+    /// is definitely removed from the world.
     pub death_time: u16,
     /// The strafing acceleration.
     pub accel_strafing: f32,

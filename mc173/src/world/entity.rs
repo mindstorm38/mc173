@@ -1,0 +1,3 @@
+//! Interaction with entities.
+
+

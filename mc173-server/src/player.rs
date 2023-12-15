@@ -180,6 +180,8 @@ impl ServerPlayer {
                 self.handle_window_close(world, packet),
             InPacket::Animation(packet) =>
                 self.handle_animation(world, packet),
+            InPacket::Interact(packet) =>
+                self.handle_interact(world, packet),
             _ => warn!("unhandled packet from #{}: {packet:?}", self.client.id())
         }
 
@@ -277,7 +279,10 @@ impl ServerPlayer {
 
                 entity.0.persistent = true;
                 entity.0.pos = self.pos;
-                entity.0.health = 20;
+
+                if let e::BaseKind::Living(living, _) = &mut entity.1 {
+                    living.health = 20;
+                }
 
                 let entity_id = world.spawn_entity(entity);
                 self.send_chat(format!("§aEntity spawned:§r {entity_id}"));
@@ -497,10 +502,10 @@ impl ServerPlayer {
                     if world.get_time() >= min_time {
                         world.break_block(pos);
                     } else {
-                        warn!("incoherent break time, expected {min_time} but got {}", world.get_time());
+                        warn!("from {}, incoherent break time, expected {min_time} but got {}", self.username, world.get_time());
                     }
                 } else {
-                    warn!("incoherent break position, expected  {}, got {}", pos, state.pos);
+                    warn!("from {}, incoherent break position, expected  {}, got {}", self.username, pos, state.pos);
                 }
             }
         } else if packet.status == 4 {
@@ -588,7 +593,7 @@ impl ServerPlayer {
         if slot >= 0 && slot < 9 {
             self.hand_slot = slot as u8;
         } else {
-            warn!("invalid hand slot: {slot}");
+            warn!("from {}, invalid hand slot: {slot}", self.username);
         }
     }
 
@@ -618,7 +623,7 @@ impl ServerPlayer {
 
             let slot_handle = self.make_window_slot_handle(world, packet.window_id, packet.slot);
             let Some(mut slot_handle) = slot_handle else {
-                warn!("cannot find a handle for slot {} in window {}", packet.slot, packet.window_id);
+                warn!("from {}, cannot find a handle for slot {} in window {}", self.username, packet.slot, packet.window_id);
                 return;
             };
 
@@ -780,6 +785,35 @@ impl ServerPlayer {
 
     fn handle_animation(&mut self, _world: &mut World, _packet: proto::AnimationPacket) {
         // TODO: Send animation to other players.
+    }
+
+    /// Handle an entity interaction.
+    fn handle_interact(&mut self, world: &mut World, packet: proto::InteractPacket) {
+        
+        if self.entity_id != packet.player_entity_id {
+            warn!("from {}, incoherent interact entity: {}, expected: {}", self.username, packet.player_entity_id, self.entity_id);
+        }
+        let Some(target_entity) = world.get_entity_mut(packet.target_entity_id) else {
+            warn!("from {}, incoherent interact entity target: {}", self.username, packet.target_entity_id);
+            return;
+        };
+
+        if self.pos.distance_squared(target_entity.0.pos) >= 36.0 {
+            warn!("from {}, incoherent interact entity distance", self.username);
+            return;
+        }
+
+        let hand_stack = self.main_inv[self.hand_slot as usize];
+
+        if packet.left_click {
+
+            // TODO: Critical damage if vel.y < 0
+            target_entity.hurt_with(hand_stack.id, 0, Some(self.pos));
+
+        } else {
+            
+        }
+
     }
 
     /// Open the given window kind on client-side by sending appropriate packet. A new
@@ -966,13 +1000,13 @@ impl ServerPlayer {
 
         // Check coherency of server/client windows.
         if self.window.id != window_id {
-            warn!("incoherent window id, expected {}, got {} from client", self.window.id, window_id);
+            warn!("from {}, incoherent window id, expected {}, got {} from client", self.username, self.window.id, window_id);
             return None;
         }
 
         // This avoid temporary cast issues afterward, even if we keep the signed type.
         if slot < 0 {
-            warn!("negative slot {slot} received for window {window_id}");
+            warn!("from {}, negative slot {slot} received for window {window_id}", self.username);
             return None;
         }
 

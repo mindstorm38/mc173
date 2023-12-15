@@ -482,6 +482,12 @@ pub struct EntityPositionAndLookPacket {
 #[derive(Debug, Clone)]
 pub struct EntityStatusPacket {
     pub entity_id: u32,
+    /// Statuses supported by the Notchian client:
+    /// - 2 (Living): Attack animation on the entity
+    /// - 3 (Living): Death animation on the entity
+    /// - 6 (Wolf): Make smoke particles
+    /// - 7 (Wolf): Make hearts particles
+    /// - 8 (Wolf): Make wolf shaking
     pub status: i8,
 }
 

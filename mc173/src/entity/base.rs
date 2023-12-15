@@ -63,6 +63,19 @@ impl Base {
         self.update_look_by_step(Vec2::new(yaw, pitch), step);
     }
 
+    /// Apply knock back to this entity's velocity.
+    pub fn update_knock_back(&mut self, dir: DVec3) {
+
+        let mut accel = dir.normalize_or_zero();
+        accel.y -= 1.0;
+
+        self.vel_dirty = true;
+        self.vel /= 2.0;
+        self.vel -= accel * 0.4;
+        self.vel.y = self.vel.y.min(0.4);
+
+    }
+
 }
 
 impl BaseKind {

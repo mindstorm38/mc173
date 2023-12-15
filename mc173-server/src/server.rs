@@ -195,14 +195,14 @@ impl Server {
             .next()
             .expect("invalid offline player world name");
 
-        let entity = e::Human::new_with(|base, _, player| {
-            player.username = packet.username.clone();
+        let entity = e::Human::new_with(|base, living, player| {
             base.pos = offline_player.pos;
             base.look = offline_player.look;
             base.persistent = false;
             base.can_pickup = true;
             base.controlled = true;
-            base.health = 20;
+            living.health = 20;
+            player.username = packet.username.clone();
         });
 
         let entity_id = world.world.spawn_entity(entity);

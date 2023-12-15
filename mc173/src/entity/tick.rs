@@ -8,7 +8,7 @@ use std::ops::Add;
 
 use glam::{DVec3, IVec3, Vec2};
 
-use log::{trace, log_enabled, Level};
+use log::trace;
 
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
@@ -87,17 +87,17 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
 
     tick_base_state(world, id, base, base_kind);
 
-    // Only trace each second.
-    if base.lifetime % 4 == 0 && base.pos_dirty && log_enabled!(Level::Trace) {
-        let kind = base_kind.entity_kind();
-        let bb_size = base.bb.size();
-        trace!("entity #{id} ({kind:?}), pos: {:.2}/{:.2}/{:.2}, bb: {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2} ({:.2}/{:.2}/{:.2})", 
-            base.pos.x, base.pos.y, base.pos.z, 
-            base.bb.min.x, base.bb.min.y, base.bb.min.z,
-            base.bb.max.x, base.bb.max.y, base.bb.max.z,
-            bb_size.x, bb_size.y, bb_size.z,
-        );
-    }
+    // // Only trace each second.
+    // if base.lifetime % 4 == 0 && base.pos_dirty && log_enabled!(Level::Trace) {
+    //     let kind = base_kind.entity_kind();
+    //     let bb_size = base.bb.size();
+    //     trace!("entity #{id} ({kind:?}), pos: {:.2}/{:.2}/{:.2}, bb: {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2} ({:.2}/{:.2}/{:.2})", 
+    //         base.pos.x, base.pos.y, base.pos.z, 
+    //         base.bb.min.x, base.bb.min.y, base.bb.min.z,
+    //         base.bb.max.x, base.bb.max.y, base.bb.max.z,
+    //         bb_size.x, bb_size.y, bb_size.z,
+    //     );
+    // }
 
 }
 
