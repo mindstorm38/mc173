@@ -640,16 +640,17 @@ fn tick_living_vel(_world: &mut World, _id: u32, base: &mut Base, living: &mut L
 }
 
 /// REF: EntityLiving::onEntityUpdate
-fn tick_living_state(world: &mut World, id: u32, base: &mut Base, living: &mut Living) {
+fn tick_living_state(world: &mut World, id: u32, _base: &mut Base, living: &mut Living) {
 
     // TODO: Damage entity if inside block
 
     living.attack_time = living.attack_time.saturating_sub(1);
     living.hurt_time = living.hurt_time.saturating_sub(1);
 
-    if base.health == 0 {
+    if living.health == 0 {
         living.death_time += 1;
         if living.death_time > 20 {
+            // TODO: Drop loots
             world.remove_entity(id);
         }
     }

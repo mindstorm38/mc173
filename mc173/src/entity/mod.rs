@@ -171,8 +171,6 @@ pub struct Base {
     pub fire_time: u32,
     /// Remaining air ticks to breathe.
     pub air_time: u32,
-    /// The health.
-    pub health: u32,
     /// If this entity is ridden, this contains its entity id.
     pub rider_id: Option<u32>,
     /// The random number generator used for this entity.
@@ -181,6 +179,8 @@ pub struct Base {
 
 #[derive(Debug, Clone, Default)]
 pub struct Living {
+    /// The health.
+    pub health: u16,
     pub attack_time: u16,
     pub hurt_time: u16,
     pub death_time: u16,
@@ -214,6 +214,8 @@ pub struct Projectile {
 pub struct Item {
     /// The item stack represented by this entity.
     pub stack: ItemStack,
+    /// The item health.
+    pub health: u16,
     /// Tick count before this item entity can be picked up.
     pub frozen_ticks: u32,
 }

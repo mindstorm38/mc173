@@ -43,10 +43,10 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
     let base_kind = match id {
         "Item" => {
 
-            base.health = comp.get_short("Health").unwrap_or_default().max(0) as u32;
-            base.lifetime = comp.get_int("lifetime").unwrap_or_default().max(0) as u32;
-
+            base.lifetime = comp.get_int("Age").unwrap_or_default().max(0) as u32;
+            
             let mut item = e::Item::default();
+            item.health = comp.get_short("Health").unwrap_or_default().max(0) as u16;
             item.stack = item_stack_nbt::from_nbt(comp.get_compound("Item")?)?;
             BaseKind::Item(item)
 
@@ -134,9 +134,9 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
         "Squid" |
         "Wolf" => {
 
-            base.health = comp.get_short("Health").unwrap_or(10).max(0) as u32;
-
+            
             let mut living = Living::default();
+            living.health = comp.get_short("Health").unwrap_or(10).max(0) as u16;
             living.hurt_time = comp.get_short("HurtTime")?.max(0) as u16;
             living.death_time = comp.get_short("DeathTime")?.max(0) as u16;
             living.attack_time = comp.get_short("AttackTime")?.max(0) as u16;
@@ -196,8 +196,8 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
         BaseKind::Item(item) => {
 
             comp.insert("id", "Item");
-            comp.insert("Health", base.health.min(i16::MAX as _) as i16);
-            comp.insert("lifetime", base.lifetime);
+            comp.insert("Age", base.lifetime);
+            comp.insert("Health", item.health.min(i16::MAX as _) as i16);
 
             let mut item_comp = NbtCompound::new();
             item_stack_nbt::to_nbt(&mut item_comp, item.stack);
@@ -303,7 +303,7 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
                 _ => return None, // Not serializable
             }
 
-            comp.insert("Health", base.health.min(i16::MAX as _) as i16);
+            comp.insert("Health", living.health.min(i16::MAX as _) as i16);
             comp.insert("HurtTime", living.hurt_time.min(i16::MAX as _) as i16);
             comp.insert("DeathTime", living.death_time.min(i16::MAX as _) as i16);
             comp.insert("AttackTime", living.attack_time.min(i16::MAX as _) as i16);
