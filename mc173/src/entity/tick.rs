@@ -74,13 +74,13 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
         match base_kind {
             BaseKind::Item(item) => tick_item(world, id, base, item),
             BaseKind::Painting(painting) => tick_painting(world, id, base, painting),
-            BaseKind::Boat(_) => todo!(),
-            BaseKind::Minecart(_) => todo!(),
-            BaseKind::Fish(_) => todo!(),
-            BaseKind::LightningBolt(_) => todo!(),
+            BaseKind::Boat(_) => (),
+            BaseKind::Minecart(_) => (),
+            BaseKind::Fish(_) => (),
+            BaseKind::LightningBolt(_) => (),
             BaseKind::FallingBlock(falling_block) => tick_falling_block(world, id, base, falling_block),
-            BaseKind::Tnt(_) => todo!(),
-            BaseKind::Projectile(_, _) => todo!(),
+            BaseKind::Tnt(_) => (),
+            BaseKind::Projectile(_, _) => (),
             BaseKind::Living(living, living_kind) => tick_living(world, id, base, living, living_kind),
         }
     }
@@ -640,7 +640,7 @@ fn tick_living_vel(_world: &mut World, _id: u32, base: &mut Base, living: &mut L
 }
 
 /// REF: EntityLiving::onEntityUpdate
-fn tick_living_state(world: &mut World, id: u32, _base: &mut Base, living: &mut Living) {
+fn tick_living_state(world: &mut World, id: u32, base: &mut Base, living: &mut Living) {
 
     // TODO: Damage entity if inside block
 
@@ -659,10 +659,25 @@ fn tick_living_state(world: &mut World, id: u32, _base: &mut Base, living: &mut 
         // Calculate the actual damage dealt on this tick depending on cooldown.
         let mut actual_damage = 0;
         if living.hurt_time == 0 {
+            
             living.hurt_time = HURT_INITIAL_TIME;
             living.hurt_last_damage = living.hurt_damage;
             actual_damage = living.hurt_damage;
             world.push_event(Event::Entity { id, inner: EntityEvent::Damage });
+
+            if let Some(origin) = living.hurt_origin {
+                let mut dir = origin - base.pos;
+                dir.y = 0.0; // We ignore verticle delta.
+                while dir.length_squared() < 1.0e-4 {
+                    dir = DVec3 {
+                        x: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                        y: 0.0,
+                        z: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                    }
+                }
+                base.update_knock_back(dir);
+            }
+
         } else if living.hurt_damage > living.hurt_last_damage {
             actual_damage = living.hurt_damage - living.hurt_last_damage;
             living.hurt_last_damage = living.hurt_damage;

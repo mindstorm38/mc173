@@ -222,13 +222,16 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
         }
         BaseKind::Minecart(e::Minecart::Normal) => {
             comp.insert("id", "Minecart");
+            comp.insert("Type", 0i32);
         }
         BaseKind::Minecart(e::Minecart::Chest { inv }) => {
             comp.insert("id", "Minecart");
+            comp.insert("Type", 1i32);
             comp.insert("Items", slot_nbt::to_nbt_from_inv(&inv[..]));
         }
         &BaseKind::Minecart(e::Minecart::Furnace { push_x, push_z, fuel }) => {
             comp.insert("id", "Minecart");
+            comp.insert("Type", 2i32);
             comp.insert("fuel", fuel.min(i16::MAX as _) as i16);
             comp.insert("PushX", push_x);
             comp.insert("PushZ", push_z);

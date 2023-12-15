@@ -185,6 +185,10 @@ pub struct Living {
     /// next tick only if `hurt_time` is zero, only the difference with the last damage in
     /// `hurt_last_damage` is applied before updating it.
     pub hurt_damage: u16,
+    /// If needed, this represent the origin of the `hurt_damage`, if any. This is used
+    /// to apply a knock back from this direction. The knock back is only applied when
+    /// `hurt_time` is zero.
+    pub hurt_origin: Option<DVec3>,
     /// The last damage inflicted to the entity during `hurt_time`, this is used to only
     /// damage for the maximum damage inflicted while `hurt_time` is not zero.
     pub hurt_last_damage: u16,
