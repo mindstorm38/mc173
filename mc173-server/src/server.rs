@@ -195,7 +195,7 @@ impl Server {
             .next()
             .expect("invalid offline player world name");
 
-        let entity = e::Player::new_with(|base, _, player| {
+        let entity = e::Human::new_with(|base, _, player| {
             player.username = packet.username.clone();
             base.pos = offline_player.pos;
             base.look = offline_player.look;

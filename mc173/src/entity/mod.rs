@@ -80,7 +80,7 @@ pub enum ProjectileKind {
 #[derive(Debug, Clone)]
 pub enum LivingKind {
     // Not categorized
-    Player(Player),
+    Human(Human),
     Ghast(Ghast),
     Slime(Slime),
     // Animal
@@ -284,7 +284,7 @@ pub struct Fireball { }
 pub struct Snowball { }
 
 #[derive(Debug, Clone, Default)]
-pub struct Player {
+pub struct Human {
     /// The player username.
     pub username: String,
     /// True when the player is sleeping.
@@ -482,7 +482,7 @@ impl EntityKind {
             }
             _ => {
                 BaseKind::Living(def(), match self {
-                    EntityKind::Player => LivingKind::Player(def()),
+                    EntityKind::Player => LivingKind::Human(def()),
                     EntityKind::Ghast => LivingKind::Ghast(def()),
                     EntityKind::Slime => LivingKind::Slime(def()),
                     EntityKind::Pig => LivingKind::Pig(def()),
@@ -578,7 +578,7 @@ impl_new_with!(Projectile:
     Snowball);
 
 impl_new_with!(Living: 
-    Player,
+    Human,
     Ghast,
     Slime,
     Pig,

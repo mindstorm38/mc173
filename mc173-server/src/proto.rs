@@ -98,7 +98,7 @@ pub enum OutPacket {
     /// An entity play an animation.
     EntityAnimation(AnimationPacket),
     /// A player entity to spawn.
-    PlayerSpawn(PlayerSpawnPacket),
+    HumanSpawn(HumanSpawnPacket),
     /// An item entity to spawn.
     ItemSpawn(ItemSpawnPacket),
     /// An entity has picked up an entity on ground.
@@ -336,7 +336,7 @@ pub struct ActionPacket {
 
 /// Packet 20
 #[derive(Debug, Clone)]
-pub struct PlayerSpawnPacket {
+pub struct HumanSpawnPacket {
     pub entity_id: u32,
     pub username: String,
     pub x: i32,
@@ -990,7 +990,7 @@ impl net::OutPacket for OutPacket {
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_byte(packet.animate as i8)?;
             }
-            OutPacket::PlayerSpawn(packet) => {
+            OutPacket::HumanSpawn(packet) => {
                 write.write_u8(20)?;
                 write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_string16(&packet.username)?;

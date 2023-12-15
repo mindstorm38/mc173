@@ -453,7 +453,7 @@ fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living,
     const ANIMAL_MOVE_SPEED: f32 = 0.7;
 
     match living_kind {
-        LivingKind::Player(_) => (),  // For now we do nothing.
+        LivingKind::Human(_) => (),  // For now we do nothing.
         LivingKind::Ghast(_) => todo!(),
         LivingKind::Slime(slime) => tick_slime_ai(world, id, base, living, slime),
         LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, ANIMAL_MOVE_SPEED, path_weight_animal),
@@ -911,7 +911,7 @@ fn calc_size(base_kind: &mut BaseKind) -> Size {
         BaseKind::Projectile(_, ProjectileKind::Egg(_)) =>Size::new(0.5, 0.5),
         BaseKind::Projectile(_, ProjectileKind::Fireball(_)) => Size::new(1.0, 1.0),
         BaseKind::Projectile(_, ProjectileKind::Snowball(_)) => Size::new(0.5, 0.5),
-        BaseKind::Living(_, LivingKind::Player(player)) => {
+        BaseKind::Living(_, LivingKind::Human(player)) => {
             if player.sleeping {
                 Size::new(0.2, 0.2)
             } else {
@@ -983,7 +983,7 @@ fn find_closest_player_entity(world: &World, center: DVec3, dist: f64) -> Option
     let max_dist_sq = dist.powi(2);
     world.iter_entities()
         .map(|(_, entity)| entity)
-        .filter(|entity| matches!(entity.1, BaseKind::Living(_, LivingKind::Player(_))))
+        .filter(|entity| matches!(entity.1, BaseKind::Living(_, LivingKind::Human(_))))
         .map(|entity| (entity, entity.0.pos.distance_squared(center)))
         .filter(|&(_, dist_sq)| dist_sq <= max_dist_sq)
         .min_by(|(_, a), (_, b)| a.total_cmp(b))

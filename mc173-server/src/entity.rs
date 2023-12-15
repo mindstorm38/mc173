@@ -311,7 +311,7 @@ impl EntityTracker {
             }
             BaseKind::Living(_, living_kind) => {
                 match living_kind {
-                    LivingKind::Player(pl) => self.spawn_player_entity_player(player, pl),
+                    LivingKind::Human(pl) => self.spawn_player_entity_human(player, pl),
                     LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56, vec![]),
                     LivingKind::Slime(slime) => self.spawn_player_entity_mob(player, 55, vec![
                         proto::Metadata::new_byte(16, slime.size as i8),
@@ -334,8 +334,8 @@ impl EntityTracker {
 
     }
 
-    fn spawn_player_entity_player(&self, player: &ServerPlayer, pl: &e::Player) {
-        player.send(OutPacket::PlayerSpawn(proto::PlayerSpawnPacket {
+    fn spawn_player_entity_human(&self, player: &ServerPlayer, pl: &e::Human) {
+        player.send(OutPacket::HumanSpawn(proto::HumanSpawnPacket {
             entity_id: self.id,
             username: pl.username.clone(),
             x: self.sent_pos.0, 
