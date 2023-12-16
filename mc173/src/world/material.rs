@@ -55,7 +55,7 @@ impl World {
 
     /// Return true if the block at position is the given one. 
     #[inline]
-    pub fn is_block(&mut self, pos: IVec3, id: u8) -> bool {
+    pub fn is_block(&self, pos: IVec3, id: u8) -> bool {
         if let Some((pos_id, _)) = self.get_block(pos) {
             pos_id == id
         } else {

@@ -3,10 +3,10 @@
 //! This module gives in documentation the reference to the Java methods, as known from
 //! the decompilation of Minecraft b1.7.3 by RetroMCP.
 
+use std::ops::{Add, Sub};
 use std::cell::RefCell;
-use std::ops::Add;
 
-use glam::{DVec3, IVec3, Vec2};
+use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use log::trace;
 
@@ -21,7 +21,7 @@ use super::{Entity, Size, Path,
     BaseKind, ProjectileKind, LivingKind, 
     Base, Living, 
     Item, Painting, FallingBlock, 
-    Slime};
+    Slime, LookTarget};
 
 
 /// This implementation is just a wrapper to call all the inner tick functions.
@@ -63,9 +63,9 @@ fn tick_base(world: &mut World, id: u32, base: &mut Base, base_kind: &mut BaseKi
     if !base.coherent {
         base.size = calc_size(base_kind);
         base.eye_height = calc_eye_height(base, base_kind);
-        base.update_bounding_box_from_pos();
+        update_bounding_box_from_pos(base);
     } else if base.controlled {
-        base.update_bounding_box_from_pos();
+        update_bounding_box_from_pos(base);
     }
 
     // Increase the entity lifetime, used by some entities and is interesting for debug.
@@ -232,6 +232,8 @@ fn tick_living_state(world: &mut World, id: u32, base: &mut Base, living: &mut L
         }
     }
 
+    // TODO: Air time underwater
+
     // Decrease countdowns.
     living.attack_time = living.attack_time.saturating_sub(1);
     living.hurt_time = living.hurt_time.saturating_sub(1);
@@ -264,7 +266,7 @@ fn tick_living_state(world: &mut World, id: u32, base: &mut Base, living: &mut L
                         z: (base.rand.next_double() - base.rand.next_double()) * 0.01,
                     }
                 }
-                base.update_knock_back(dir);
+                update_knock_back(base, dir);
             }
 
         } else if living.hurt_damage > living.hurt_last_damage {
@@ -402,7 +404,7 @@ fn tick_base_pos(world: &mut World, _id: u32, base: &mut Base, delta: DVec3, ste
 
     }
 
-    base.update_pos_from_bounding_box();
+    update_pos_from_bounding_box(base);
 
 }
 
@@ -539,39 +541,7 @@ fn tick_falling_block(world: &mut World, id: u32, base: &mut Base, falling_block
 /// REF: EntityLiving::onUpdate
 fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
 
-    fn path_weight_animal(world: &mut World, pos: IVec3) -> f32 {
-        if world.is_block(pos - IVec3::Y, block::GRASS) {
-            10.0
-        } else {
-            world.get_brightness(pos).unwrap_or(0.0) - 0.5
-        }
-    }
-
-    fn path_weight_mob(world: &mut World, pos: IVec3) -> f32 {
-        0.5 - world.get_brightness(pos).unwrap_or(0.0)
-    }
-
-    const DEFAULT_MOVE_SPEED: f32 = 0.7;
-    const ZOMBIE_MOVE_SPEED: f32 = 0.5;
-    const SPIDER_MOVE_SPEED: f32 = 0.8;
-
-    match living_kind {
-        LivingKind::Human(_) => (),  // For now we do nothing.
-        LivingKind::Ghast(_) => todo!(),
-        LivingKind::Slime(slime) => tick_slime_ai(world, id, base, living, slime),
-        LivingKind::Pig(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
-        LivingKind::Chicken(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
-        LivingKind::Cow(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
-        LivingKind::Sheep(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_animal),
-        LivingKind::Squid(_) => todo!(),
-        LivingKind::Wolf(_) => todo!(),
-        LivingKind::Creeper(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_mob),
-        LivingKind::Giant(_) => tick_creature_ai(world, id, base, living, ZOMBIE_MOVE_SPEED, path_weight_mob),
-        LivingKind::PigZombie(_) => tick_creature_ai(world, id, base, living, ZOMBIE_MOVE_SPEED, path_weight_mob),
-        LivingKind::Skeleton(_) => tick_creature_ai(world, id, base, living, DEFAULT_MOVE_SPEED, path_weight_mob),
-        LivingKind::Spider(_) => tick_creature_ai(world, id, base, living, SPIDER_MOVE_SPEED, path_weight_mob),
-        LivingKind::Zombie(_) => tick_creature_ai(world, id, base, living, ZOMBIE_MOVE_SPEED, path_weight_mob),
-    }
+    tick_living_ai(world, id, base, living, living_kind);
 
     if living.jumping {
         if base.in_water || base.in_lava {
@@ -589,6 +559,356 @@ fn tick_living(world: &mut World, id: u32, base: &mut Base, living: &mut Living,
 
     tick_living_pos(world, id, base, living, living_kind);
     tick_living_push(world, id, base);
+
+}
+
+/// REF: EntityLiving::updatePlayerActionState
+fn tick_living_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
+
+    /// Multiplier for random yaw velocity: 20 deg
+    const YAW_VELOCITY_MUL: f32 = 0.3490658503988659;
+    /// Maximum distance for looking at a target.
+    const LOOK_AT_MAX_DIST: f64 = 8.0;
+    /// Default look step when looking at a target.
+    const LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.6981317007977318);
+    /// Slow look step used for sitting dogs.
+    const SLOW_LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.3490658503988659);
+
+    let handled = match living_kind {
+        LivingKind::Human(_) => true,  // For now we do nothing.
+        LivingKind::Ghast(_) => true,
+        LivingKind::Squid(_) => true,
+        LivingKind::Slime(slime) => tick_slime_ai(world, id, base, living, slime),
+        // All other unmatched entity kinds are ground creature.
+        _ => tick_ground_ai(world, id, base, living, living_kind),
+    };
+
+    // If the entity-specific AI has been handled, do not run the default AI.
+    if handled {
+        return;
+    }
+
+    // TODO: Handle kill when closest player is too far away.
+
+    living.accel_strafing = 0.0;
+    living.accel_forward = 0.0;
+
+    if base.rand.next_float() < 0.02 {
+        if let Some((target_entity_id, _)) = find_closest_player_entity(world, base.pos, LOOK_AT_MAX_DIST) {
+            living.look_target = Some(LookTarget {
+                entity_id: target_entity_id,
+                remaining_time: base.rand.next_int_bounded(20) as u32 + 10,
+            });
+        } else {
+            living.yaw_velocity = (base.rand.next_float() - 0.5) * YAW_VELOCITY_MUL;
+        }
+    }
+
+    // If the entity should have a target, just look at it if possible, and stop if
+    // the target should end or is too far away.
+    if let Some(target) = &mut living.look_target {
+
+        target.remaining_time = target.remaining_time.saturating_sub(1);
+        let mut target_release = target.remaining_time == 0;
+
+        if let Some(Entity(target_base, _)) = world.get_entity(target.entity_id) {
+            
+            let mut look_step = LOOK_STEP;
+            if let LivingKind::Wolf(wolf) = living_kind {
+                if wolf.sitting {
+                    look_step = SLOW_LOOK_STEP;
+                }
+            }
+
+            update_look_at_entity_by_step(base, target_base, look_step);
+            
+            if target_base.pos.distance_squared(base.pos) > LOOK_AT_MAX_DIST.powi(2) {
+                target_release = false;
+            }
+
+        } else {
+            // Entity is dead.
+            target_release = false;
+        }
+
+        if target_release {
+            living.look_target = None;
+        }
+
+    } else {
+
+        if base.rand.next_float() < 0.05 {
+            living.yaw_velocity = (base.rand.next_float() - 0.5) * YAW_VELOCITY_MUL;
+        }
+
+        base.look.x += living.yaw_velocity;
+        base.look.y = 0.0;
+        base.look_dirty = true;
+
+    }
+
+    if base.in_water || base.in_lava {
+        living.jumping = base.rand.next_float() < 0.8;
+    }
+
+}
+
+/// Tick an ground creature (animal/mob) entity AI.
+/// 
+/// REF: EntityCreature::updatePlayerActionState
+fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) -> bool {
+
+    /// Maximum distance for the path finder.
+    const PATH_FINDER_MAX_DIST: f32 = 16.0;
+    /// Look step when looking at an attacked entity: 30/30 deg
+    const LOOK_STEP: Vec2 = Vec2::new(0.5235987755982988, 0.5235987755982988);
+
+    let mut has_attacked = false;
+    // Keep the entity reference to avoid querying too much the world.
+    let mut attack_target_base = None;
+
+    // Start by finding an attack target, or attack the existing one.
+    if let Some(target_id) = living.attack_target {
+
+        if let Some(Entity(target_base, _)) = world.get_entity(target_id) {
+            attack_target_base = Some(target_base);
+            // TODO: Seen: attack, not seen: release attack (creeper)
+            // TODO: has_attacked = true
+        } else {
+            // Entity is no longer existing, target lost.
+            trace!("entity #{id}, attack target is dead");
+            living.attack_target = None;
+        }
+
+    } else  {
+        
+        // Depending on the entity, we search an attack target or not...
+        let search_around = match living_kind {
+            LivingKind::Creeper(_) => true,
+            LivingKind::Giant(_) => true,
+            LivingKind::Skeleton(_) => true,
+            LivingKind::Zombie(_) => true,
+            LivingKind::PigZombie(pig_zombie) => pig_zombie.anger,
+            LivingKind::Wolf(wolf) => wolf.angry,
+            LivingKind::Spider(_) => calc_entity_brightness(world, base) < 0.5,
+            _ => false,
+        };
+
+        if search_around {
+            if let Some((target_id, Entity(target_base, _))) = find_closest_player_entity(world, base.pos, 16.0) {
+                trace!("entity #{id}, found entity #{target_id} to attack");
+                attack_target_base = Some(target_base);
+                living.attack_target = Some(target_id);
+                living.path = PathFinder::new(world).find_path_from_bounding_box(base.bb, target_base.pos, PATH_FINDER_MAX_DIST).map(Path::from);
+            }
+        }
+
+    }
+
+    // If the entity has not attacked its target entity and is path finder toward it, 
+    // there is 95% chance too go into the then branch.
+    if has_attacked || attack_target_base.is_none() || (living.path.is_some() && base.rand.next_int_bounded(20) != 0) {
+        // If the entity has not attacked and if the path is not none, there is 1.25% 
+        // chance to recompute the path, if the path is none there is 2.484375% chance.
+        if !has_attacked && ((living.path.is_none() && base.rand.next_int_bounded(80) == 0) || base.rand.next_int_bounded(80) == 0) {
+
+            // The path weight function depends on the entity type.
+            let weight_func = match living_kind {
+                LivingKind::Pig(_) |
+                LivingKind::Chicken(_) |
+                LivingKind::Cow(_) |
+                LivingKind::Sheep(_) |
+                LivingKind::Wolf(_) => path_weight_animal,
+                LivingKind::Creeper(_) |
+                LivingKind::PigZombie(_) |
+                LivingKind::Skeleton(_) |
+                LivingKind::Spider(_) |
+                LivingKind::Zombie(_) => path_weight_mob,
+                LivingKind::Giant(_) => path_weight_giant,
+                // We should not match other entities but we never known...
+                _ => path_weight_default,
+            };
+            
+            let best_pos = (0..10)
+                .map(|_| {
+                    IVec3 {
+                        x: base.pos.x.add((base.rand.next_int_bounded(13) - 6) as f64).floor() as i32,
+                        y: base.pos.y.add((base.rand.next_int_bounded(7) - 3) as f64).floor() as i32,
+                        z: base.pos.z.add((base.rand.next_int_bounded(13) - 6) as f64).floor() as i32,
+                    }
+                })
+                .map(|pos| (pos, weight_func(world, pos)))
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                .unwrap().0;
+
+            trace!("entity #{id}, path finding: {best_pos}");
+
+            let best_pos = best_pos.as_dvec3() + 0.5;
+            if let Some(points) = PathFinder::new(world).find_path_from_bounding_box(base.bb, best_pos, PATH_FINDER_MAX_DIST) {
+                trace!("entity #{id}, path found");
+                living.path = Some(Path::from(points));
+            }
+            
+        }
+    } else {
+        // NOTE: Here we are guaranteed that attack target is present.
+        let target_base = attack_target_base.unwrap();
+        living.path = PathFinder::new(world).find_path_from_bounding_box(base.bb, target_base.pos, PATH_FINDER_MAX_DIST).map(Path::from);
+    }
+
+    if let Some(path) = &mut living.path {
+
+        // // Debug particles, lava = remaining, water = done.
+        // if base.lifetime % 10 == 0 {
+        //     for (i, pos) in path.points.iter().copied().enumerate() {
+        //         if i < path.index {
+        //             world.push_event(Event::DebugParticle { pos, block: block::WATER_STILL });
+        //         } else {
+        //             world.push_event(Event::DebugParticle { pos, block: block::LAVA_STILL });
+        //         }
+        //     }
+        // }
+
+        if base.rand.next_int_bounded(100) != 0 {
+
+            let bb_size = base.bb.size();
+            let double_width = bb_size.x * 2.0;
+
+            let mut next_pos = None;
+            
+            while let Some(pos) = path.point() {
+
+                let mut pos = pos.as_dvec3();
+                pos.x += (bb_size.x + 1.0) * 0.5;
+                pos.z += (bb_size.z + 1.0) * 0.5;
+
+                // Advance the path to the next point only if distance to current one is 
+                // too short. We only check the horizontal distance, because Y delta is 0.
+                let pos_dist_sq = pos.distance_squared(DVec3::new(base.pos.x, pos.y, base.pos.z));
+                if pos_dist_sq < double_width * double_width {
+                    trace!("entity #{id}, path pos to short: {pos}, dist: {} < {}", pos_dist_sq.sqrt(), double_width);
+                    path.advance();
+                } else {
+                    next_pos = Some(pos);
+                    break;
+                }
+
+            }
+
+            living.jumping = false;
+
+            if let Some(next_pos) = next_pos {
+
+                trace!("entity #{id}, path next pos: {next_pos}");
+
+                let dx = next_pos.x - base.pos.x;
+                let dy = next_pos.y - base.bb.min.y.add(0.5).floor();
+                let dz = next_pos.z - base.pos.z;
+
+                let move_speed = match living_kind {
+                    LivingKind::Giant(_) |
+                    LivingKind::Zombie(_) |
+                    LivingKind::PigZombie(_) => 0.5,
+                    LivingKind::Spider(_) => 0.8,
+                    _ => 0.5,
+                };
+
+                living.accel_forward = move_speed;
+                base.look.x = f64::atan2(dz, dx) as f32 - std::f32::consts::FRAC_PI_2;
+                base.look_dirty = true;
+
+                // Make some weird strafing if we just attacked the player.
+                if has_attacked {
+                    if let Some(target_base) = attack_target_base {
+                        let dx = target_base.pos.x - base.pos.x;
+                        let dz = target_base.pos.z - base.pos.z;
+                        base.look.x = f64::atan2(dz, dx) as f32 - std::f32::consts::FRAC_PI_2;
+                        living.accel_strafing = -base.look.x.sin() * living.accel_forward;
+                        living.accel_forward = base.look.x.cos() * living.accel_forward;
+                    }
+                }
+
+                if dy > 0.0 {
+                    living.jumping = true;
+                }
+
+            } else {
+                trace!("entity #{id}, path finished");
+                living.path = None;
+            }
+
+            // Look at the player we are attacking.
+            if let Some(target_base) = attack_target_base {
+                update_look_at_entity_by_step(base, target_base, LOOK_STEP);
+            }
+
+            // TODO: If collided horizontal and no path, then jump
+
+            if base.rand.next_float() < 0.8 && (base.in_water || base.in_lava) {
+                trace!("entity #{id}, jumping because of 80% chance or water/lava");
+                living.jumping = true;
+            }
+
+            // Return true because the AI is handled by this function.
+            return true;
+
+        } else {
+            trace!("entity #{id}, forget path because 1% chance")
+        }
+
+    }
+
+    // If we can't run a path finding AI, fallback to the default immobile AI.
+    living.path = None;
+    false
+
+}
+
+/// Tick a slime entity AI.
+/// 
+/// REF: EntitySlime::updatePlayerActionState
+fn tick_slime_ai(world: &mut World, _id: u32, base: &mut Base, living: &mut Living, slime: &mut Slime) -> bool {
+
+    /// Look step for slime: 10/20 deg
+    const LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.3490658503988659);
+
+    // TODO: despawn entity if too far away from player
+
+    // Searching the closest player entities behind 16.0 blocks.
+    let closest_player = find_closest_player_entity(world, base.pos, 16.0);
+    if let Some((_, Entity(closest_base, _))) = closest_player {
+        update_look_at_entity_by_step(base, closest_base, LOOK_STEP);
+    }
+
+    let mut set_jumping = false;
+    if base.on_ground {
+        slime.jump_remaining_time = slime.jump_remaining_time.saturating_sub(1);
+        if slime.jump_remaining_time == 0 {
+            set_jumping = true;
+        }
+    }
+
+    if set_jumping {
+        
+        slime.jump_remaining_time = base.rand.next_int_bounded(20) as u32 + 10;
+
+        if closest_player.is_some() {
+            slime.jump_remaining_time /= 3;
+        }
+
+        living.jumping = true;
+        living.accel_strafing = 1.0 - base.rand.next_float() * 2.0;
+        living.accel_forward = slime.size as f32;
+
+    } else {
+        living.jumping = false;
+        if base.on_ground {
+            living.accel_strafing = 0.0;
+            living.accel_forward = 0.0;
+        }
+    }
+
+    true
 
 }
 
@@ -742,245 +1062,9 @@ fn tick_living_vel(_world: &mut World, _id: u32, base: &mut Base, living: &mut L
     
 }
 
-/// REF: EntityLiving::updatePlayerActionState
-fn tick_living_ai(world: &mut World, _id: u32, base: &mut Base, living: &mut Living) {
-
-    // TODO: Handle kill when closest player is too far away.
-
-    living.accel_strafing = 0.0;
-    living.accel_forward = 0.0;
-
-    // Maximum of 8 block to look at.
-    let look_target_range_squared = 8.0 * 8.0;
-
-    if base.rand.next_float() < 0.02 {
-        // TODO: Look at closest player (max 8 blocks).
-    }
-
-    // If the entity should have a target, just look at it if possible, and stop if
-    // the target should end or is too far away.
-    if let Some(target) = &mut living.look_target {
-
-        target.remaining_time -= 1;
-        let mut target_release = target.remaining_time == 0;
-
-        if let Some(target_entity) = world.get_entity(target.entity_id) {
-            // TODO: Fix the Y value, in order to look at eye height.
-            let target_pos = target_entity.0.pos;
-            // TODO: Pitch step should be an argument, 40 by default, but 20 for 
-            // sitting dogs.
-            base.update_look_at_by_step(target_pos, Vec2::new(10f32.to_radians(), 40f32.to_radians()));
-            // Indicate if the entity is still in range.
-            if target_pos.distance_squared(base.pos) > look_target_range_squared {
-                target_release = false;
-            }
-        } else {
-            // Entity is dead.
-            target_release = false;
-        }
-
-        if target_release {
-            living.look_target = None;
-        }
-
-    } else {
-
-        if base.rand.next_float() < 0.05 {
-            living.yaw_velocity = (base.rand.next_float() - 0.5) * 20f32.to_radians();
-        }
-
-        base.look.x += living.yaw_velocity;
-        base.look.y = 0.0;
-        base.look_dirty = true;
-
-    }
-
-    if base.in_water || base.in_lava {
-        living.jumping = base.rand.next_float() < 0.8;
-    }
-
-}
-
-/// Tick an creature (animal/mob) entity AI.
-/// 
-/// REF: EntityCreature::updatePlayerActionState
-fn tick_creature_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Living, 
-    move_speed: f32, 
-    weight_func: fn(&mut World, IVec3) -> f32,
-) {
-
-    // TODO: Work on mob AI with attacks...
-
-    // If the path is not none, try finding a new path every second on average.
-    if living.path.is_none() || base.rand.next_int_bounded(20) != 0 {
-        // Find a new path every 4 seconds on average.
-        if base.rand.next_int_bounded(80) == 0 {
-
-            if living.path.is_none() {
-                trace!("entity #{id}, path finding because path none");
-            } else {
-                trace!("entity #{id}, path finding because 5% chance");
-            }
-            
-            let best_pos = (0..10)
-                .map(|_| {
-                    IVec3 {
-                        x: base.pos.x.add((base.rand.next_int_bounded(13) - 6) as f64).floor() as i32,
-                        y: base.pos.y.add((base.rand.next_int_bounded(7) - 3) as f64).floor() as i32,
-                        z: base.pos.z.add((base.rand.next_int_bounded(13) - 6) as f64).floor() as i32,
-                    }
-                })
-                .map(|pos| (pos, weight_func(world, pos)))
-                .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                .unwrap().0;
-
-            trace!("entity #{id}, path finding: {best_pos}");
-
-            let best_pos = best_pos.as_dvec3() + 0.5;
-            if let Some(points) = PathFinder::new(world).find_path_from_bounding_box(base.bb, best_pos, 18.0) {
-                // println!("== update_creature_path: new path found to {best_pos}");
-                trace!("entity #{id}, path found: {points:?}");
-                living.path = Some(Path {
-                    points,
-                    index: 0,
-                });
-            }
-                
-        }
-    }
-
-    if let Some(path) = &mut living.path {
-
-        // Debug particles, lava = remaining, water = done.
-        if base.lifetime % 10 == 0 {
-            for (i, pos) in path.points.iter().copied().enumerate() {
-                if i < path.index {
-                    world.push_event(Event::DebugParticle { pos, block: block::WATER_STILL });
-                } else {
-                    world.push_event(Event::DebugParticle { pos, block: block::LAVA_STILL });
-                }
-            }
-        }
-
-        if base.rand.next_int_bounded(100) != 0 {
-
-            let bb_size = base.bb.size();
-            let double_width = bb_size.x * 2.0;
-
-            let mut next_pos = None;
-            
-            while let Some(pos) = path.point() {
-
-                let mut pos = pos.as_dvec3();
-                pos.x += (bb_size.x + 1.0) * 0.5;
-                pos.z += (bb_size.z + 1.0) * 0.5;
-
-                // Advance the path to the next point only if distance to current one is 
-                // too short. We only check the horizontal distance, because Y delta is 0.
-                let pos_dist_sq = pos.distance_squared(DVec3::new(base.pos.x, pos.y, base.pos.z));
-                if pos_dist_sq < double_width * double_width {
-                    trace!("entity #{id}, path pos to short: {pos}, dist: {} < {}", pos_dist_sq.sqrt(), double_width);
-                    path.advance();
-                } else {
-                    next_pos = Some(pos);
-                    break;
-                }
-
-            }
-
-            living.jumping = false;
-
-            if let Some(next_pos) = next_pos {
-
-                trace!("entity #{id}, path next pos: {next_pos}");
-
-                let dx = next_pos.x - base.pos.x;
-                let dy = next_pos.y - base.bb.min.y.add(0.5).floor();
-                let dz = next_pos.z - base.pos.z;
-
-                let target_yaw = f64::atan2(dz, dx) as f32 - std::f32::consts::FRAC_PI_2;
-                // let delta_yaw = target_yaw - base.look.x;
-
-                living.accel_forward = move_speed;
-                base.look.x = target_yaw;
-                base.look_dirty = true;
-
-                if dy > 0.0 {
-                    living.jumping = true;
-                }
-
-            } else {
-                trace!("entity #{id}, path finished");
-                living.path = None;
-            }
-
-            // TODO: If player to attack
-
-            // TODO: If collided horizontal and no path, then jump
-
-            if base.rand.next_float() < 0.8 && (base.in_water || base.in_lava) {
-                trace!("entity #{id}, jumping because of 80% chance or water/lava");
-                living.jumping = true;
-            }
-
-            return;
-
-        } else {
-            trace!("entity #{id}, forget path because 1% chance")
-        }
-
-    }
-
-    // If we can't run a path finding AI, fallback to the default immobile AI.
-    living.path = None;
-    tick_living_ai(world, id, base, living);
-
-}
-
-/// Tick a slime entity AI.
-/// 
-/// REF: EntitySlime::updatePlayerActionState
-fn tick_slime_ai(world: &mut World, _id: u32, base: &mut Base, living: &mut Living, slime: &mut Slime) {
-
-    // TODO: despawn entity if too far away from player
-
-    // Searching the closest player entities behind 16.0 blocks.
-    let closest_player = find_closest_player_entity(world, base.pos, 16.0);
-
-    if let Some(closest_player) = closest_player {
-        base.update_look_at_by_step(closest_player.0.pos, Vec2::new(10.0f32.to_radians(), 20.0f32.to_radians()));
-    }
-
-    let mut set_jumping = false;
-    if base.on_ground {
-        slime.jump_remaining_time = slime.jump_remaining_time.saturating_sub(1);
-        if slime.jump_remaining_time == 0 {
-            set_jumping = true;
-        }
-    }
-
-    if set_jumping {
-        
-        slime.jump_remaining_time = base.rand.next_int_bounded(20) as u32 + 10;
-
-        if closest_player.is_some() {
-            slime.jump_remaining_time /= 3;
-        }
-
-        living.jumping = true;
-        living.accel_strafing = 1.0 - base.rand.next_float() * 2.0;
-        living.accel_forward = slime.size as f32;
-
-    } else {
-        living.jumping = false;
-        if base.on_ground {
-            living.accel_strafing = 0.0;
-            living.accel_forward = 0.0;
-        }
-    }
-
-}
-
+// =========================== //
+// Below are utility functions //
+// =========================== //
 
 /// Calculate the initial size of an entity, this is only called when not coherent.
 fn calc_size(base_kind: &mut BaseKind) -> Size {
@@ -1075,13 +1159,128 @@ fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u8) -
 
 }
 
-fn find_closest_player_entity(world: &World, center: DVec3, dist: f64) -> Option<&Entity> {
+fn calc_entity_brightness(world: &World, base: &Base) -> f32 {
+    let mut check_pos = base.pos;
+    check_pos.y += base.size.height as f64 * 0.66;
+    world.get_brightness(check_pos.floor().as_ivec3()).unwrap_or(0.0)
+}
+
+fn find_closest_player_entity(world: &World, center: DVec3, dist: f64) -> Option<(u32, &Entity)> {
     let max_dist_sq = dist.powi(2);
     world.iter_entities()
-        .map(|(_, entity)| entity)
-        .filter(|entity| matches!(entity.1, BaseKind::Living(_, LivingKind::Human(_))))
-        .map(|entity| (entity, entity.0.pos.distance_squared(center)))
-        .filter(|&(_, dist_sq)| dist_sq <= max_dist_sq)
-        .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(entity, _)| entity)
+        .filter(|(_, entity)| matches!(entity.1, BaseKind::Living(_, LivingKind::Human(_))))
+        .map(|(entity_id, entity)| (entity_id, entity, entity.0.pos.distance_squared(center)))
+        .filter(|&(_, _, dist_sq)| dist_sq <= max_dist_sq)
+        .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
+        .map(|(entity_id, entity, _)| (entity_id, entity))
+}
+
+/// This function recompute the current bounding box from the position and the last
+/// size that was used to create it.
+fn update_bounding_box_from_pos(base: &mut Base) {
+    let half_width = (base.size.width / 2.0) as f64;
+    let height = base.size.height as f64;
+    let center = base.size.center as f64;
+    base.bb = BoundingBox {
+        min: base.pos - DVec3::new(half_width, center, half_width),
+        max: base.pos + DVec3::new(half_width, height - center, half_width),
+    };
+    // Entity position and bounding are coherent.
+    base.coherent = true;
+}
+
+/// This position recompute the current position based on the bounding box' position
+/// the size that was used to create it.
+fn update_pos_from_bounding_box(base: &mut Base) {
+    
+    let center = base.size.center as f64;
+    let new_pos = DVec3 {
+        x: (base.bb.min.x + base.bb.max.x) / 2.0,
+        y: base.bb.min.y + center,
+        z: (base.bb.min.z + base.bb.max.z) / 2.0,
+    };
+
+    if new_pos != base.pos {
+        base.pos = new_pos;
+        base.pos_dirty = true;
+    }
+    
+}
+
+/// Modify the look angles of this entity, limited to the given step. 
+/// We need to call this function many time to reach the desired look.
+fn update_look_by_step(base: &mut Base, look: Vec2, step: Vec2) {
+    
+    let look_norm = Vec2 {
+        // Yaw can be normalized between 0 and tau
+        x: look.x.rem_euclid(std::f32::consts::TAU),
+        // Pitch however needs to be normalized between -pi/2 and pi/2
+        y: look.y,
+    };
+
+    let delta = look_norm.sub(base.look).min(step);
+    if delta != Vec2::ZERO {
+        base.look_dirty = true;
+        base.look += delta;
+    }
+
+}
+
+/// Modify the look angles to point to a given target step by step. The eye height is
+/// included in the calculation in order to make the head looking at target.
+fn update_look_at_by_step(base: &mut Base, target: DVec3, step: Vec2) {
+    
+    let mut delta = target - base.pos;
+    delta.y -= base.eye_height as f64;
+
+    let horizontal_dist = delta.xz().length();
+    let yaw = f64::atan2(delta.z, delta.x) as f32 - std::f32::consts::FRAC_PI_2;
+    let pitch = -f64::atan2(delta.y, horizontal_dist) as f32;
+    update_look_by_step(base, Vec2::new(yaw, pitch), step);
+
+}
+
+/// Almost the same as [`update_look_at_by_step`] but the target is another entity base,
+/// this function will make the entity look at the eyes of the target one.
+fn update_look_at_entity_by_step(base: &mut Base, target_base: &Base, step: Vec2) {
+    let mut target = target_base.pos;
+    target.y += target_base.eye_height as f64;
+    update_look_at_by_step(base, target, step);
+}
+
+/// Apply knock back to this entity's velocity.
+fn update_knock_back(base: &mut Base, dir: DVec3) {
+
+    let mut accel = dir.normalize_or_zero();
+    accel.y -= 1.0;
+
+    base.vel_dirty = true;
+    base.vel /= 2.0;
+    base.vel -= accel * 0.4;
+    base.vel.y = base.vel.y.min(0.4);
+
+}
+
+/// Path weight function for animals.
+fn path_weight_animal(world: &World, pos: IVec3) -> f32 {
+    if world.is_block(pos - IVec3::Y, block::GRASS) {
+        10.0
+    } else {
+        world.get_brightness(pos).unwrap_or(0.0) - 0.5
+    }
+}
+
+/// Path weight function for mobs.
+fn path_weight_mob(world: &World, pos: IVec3) -> f32 {
+    0.5 - world.get_brightness(pos).unwrap_or(0.0)
+}
+
+/// Path weight function for Giant.
+fn path_weight_giant(world: &World, pos: IVec3) -> f32 {
+    world.get_brightness(pos).unwrap_or(0.0) - 0.5
+}
+
+/// Path weight function by default.
+fn path_weight_default(_world: &World, _pos: IVec3) -> f32 {
+    0.0
 }

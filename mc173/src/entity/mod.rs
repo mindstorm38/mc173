@@ -150,7 +150,7 @@ pub struct Base {
     /// Lifetime of the entity since it was spawned in the world, it increase at every
     /// world tick.
     pub lifetime: u32,
-    /// Height of the eyes above position.
+    /// Height of the eyes, this is an Y offset from the position.
     pub eye_height: f32,
     /// Set to true when the entity is able to pickup surrounding items and arrows on
     /// ground, if so a pickup event is triggered, but the item or arrow is not actually
@@ -211,6 +211,8 @@ pub struct Living {
     pub jumping: bool,
     /// If this entity is looking at another one.
     pub look_target: Option<LookTarget>,
+    /// If this entity is attacking another one.
+    pub attack_target: Option<u32>,
     /// The path this creature needs to follow.
     pub path: Option<Path>,
 }
@@ -382,19 +384,19 @@ pub struct Size {
     /// Height of the bounding box.
     pub height: f32,
     /// Define the center of the bounding box on Y axis.
-    pub height_center: f32,
+    pub center: f32,
 }
 
 impl Size {
 
     /// New size with the Y position at the bottom center of the bounding box.
     pub fn new(width: f32, height: f32) -> Self {
-        Self { width, height, height_center: 0.0 }
+        Self { width, height, center: 0.0 }
     }
 
     /// New size with the Y position at the center of the bounding box.
     pub fn new_centered(width: f32, height: f32) -> Self {
-        Self { width, height, height_center: height / 2.0 }
+        Self { width, height, center: height / 2.0 }
     }
 
 }
@@ -413,6 +415,12 @@ pub struct LookTarget {
 pub struct Path {
     pub points: Vec<IVec3>,
     pub index: usize,
+}
+
+impl From<Vec<IVec3>> for Path {
+    fn from(points: Vec<IVec3>) -> Self {
+        Self { points, index: 0 }
+    }
 }
 
 impl Path {
