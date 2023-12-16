@@ -79,6 +79,21 @@ impl BoundingBox {
         other.max.z > self.min.z && other.min.z < self.max.z
     }
 
+    /// Return true if this bounding box intersects with the given one on the X axis.
+    pub fn intersects_x(self, other: Self) -> bool {
+        other.max.x > self.min.x && other.min.x < self.max.x
+    }
+
+    /// Return true if this bounding box intersects with the given one on the Y axis.
+    pub fn intersects_y(self, other: Self) -> bool {
+        other.max.y > self.min.y && other.min.y < self.max.y
+    }
+
+    /// Return true if this bounding box intersects with the given one on the Z axis.
+    pub fn intersects_z(self, other: Self) -> bool {
+        other.max.z > self.min.z && other.min.z < self.max.z
+    }
+
     /// Return true if this bounding box contains the given point.
     pub fn contains(self, point: DVec3) -> bool {
         point.x > self.min.x && point.x < self.max.x &&
@@ -153,7 +168,7 @@ impl BoundingBox {
     }
 
     /// Compute an intersection of a ray into this bounding box. If this ray intersects
-    /// this box, the new vector that stops in the first face is returned.
+    /// this box, the new vector that hit the first face is returned.
     pub fn calc_ray_trace(self, origin: DVec3, ray: DVec3) -> Option<(DVec3, Face)> {
 
         if ray.x * ray.x >= 1e-7 {

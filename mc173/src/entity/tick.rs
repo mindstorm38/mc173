@@ -671,10 +671,16 @@ fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Livi
     // Start by finding an attack target, or attack the existing one.
     if let Some(target_id) = living.attack_target {
 
-        if let Some(Entity(target_base, _)) = world.get_entity(target_id) {
-            attack_target_base = Some(target_base);
-            // TODO: Seen: attack, not seen: release attack (creeper)
-            // TODO: has_attacked = true
+        if let Some(target) = world.get_entity(target_id) {
+
+            attack_target_base = Some(target);
+
+            if can_eye_track(world, base, &target.0) {
+                has_attacked = tick_attack_ai(world, id, base, living, living_kind, target);
+            } else {
+                // Cooldown attack
+            }
+
         } else {
             // Entity is no longer existing, target lost.
             trace!("entity #{id}, attack target is dead");
@@ -696,11 +702,11 @@ fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Livi
         };
 
         if search_around {
-            if let Some((target_id, Entity(target_base, _))) = find_closest_player_entity(world, base.pos, 16.0) {
+            if let Some((target_id, target)) = find_closest_player_entity(world, base.pos, 16.0) {
                 trace!("entity #{id}, found entity #{target_id} to attack");
-                attack_target_base = Some(target_base);
+                attack_target_base = Some(target);
                 living.attack_target = Some(target_id);
-                living.path = PathFinder::new(world).find_path_from_bounding_box(base.bb, target_base.pos, PATH_FINDER_MAX_DIST).map(Path::from);
+                living.path = PathFinder::new(world).find_path_from_bounding_box(base.bb, target.0.pos, PATH_FINDER_MAX_DIST).map(Path::from);
             }
         }
 
@@ -753,22 +759,11 @@ fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Livi
         }
     } else {
         // NOTE: Here we are guaranteed that attack target is present.
-        let target_base = attack_target_base.unwrap();
+        let Entity(target_base, _) = attack_target_base.unwrap();
         living.path = PathFinder::new(world).find_path_from_bounding_box(base.bb, target_base.pos, PATH_FINDER_MAX_DIST).map(Path::from);
     }
 
     if let Some(path) = &mut living.path {
-
-        // // Debug particles, lava = remaining, water = done.
-        // if base.lifetime % 10 == 0 {
-        //     for (i, pos) in path.points.iter().copied().enumerate() {
-        //         if i < path.index {
-        //             world.push_event(Event::DebugParticle { pos, block: block::WATER_STILL });
-        //         } else {
-        //             world.push_event(Event::DebugParticle { pos, block: block::LAVA_STILL });
-        //         }
-        //     }
-        // }
 
         if base.rand.next_int_bounded(100) != 0 {
 
@@ -820,7 +815,7 @@ fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Livi
 
                 // Make some weird strafing if we just attacked the player.
                 if has_attacked {
-                    if let Some(target_base) = attack_target_base {
+                    if let Some(Entity(target_base, _)) = attack_target_base {
                         let dx = target_base.pos.x - base.pos.x;
                         let dz = target_base.pos.z - base.pos.z;
                         base.look.x = f64::atan2(dz, dx) as f32 - std::f32::consts::FRAC_PI_2;
@@ -839,7 +834,7 @@ fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Livi
             }
 
             // Look at the player we are attacking.
-            if let Some(target_base) = attack_target_base {
+            if let Some(Entity(target_base, _)) = attack_target_base {
                 update_look_at_entity_by_step(base, target_base, LOOK_STEP);
             }
 
@@ -861,6 +856,64 @@ fn tick_ground_ai(world: &mut World, id: u32, base: &mut Base, living: &mut Livi
 
     // If we can't run a path finding AI, fallback to the default immobile AI.
     living.path = None;
+    false
+
+}
+
+/// Trigger an attack of the entity to the given entity. This function returns true to
+/// indicate a poss
+/// 
+/// REF: EntityCreature::attackEntity
+fn tick_attack_ai(world: &World, _id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind, target: &Entity) -> bool {
+
+    // A living entity can only attack another living entity.
+    let Entity(target_base, BaseKind::Living(_target_living, _)) = target else {
+        return false;
+    };
+
+    let dist = target_base.pos.distance(base.pos);
+
+    // Spider have special logic to jump if they cannot reach the player, but also to 
+    // avoid attacking when bright enough.
+    if let LivingKind::Spider(_) = living_kind {
+
+        // If the brightness has changed, there if 1% chance to loose target.
+        if calc_entity_brightness(world, base) > 0.5 && base.rand.next_int_bounded(100) == 0 {
+            living.attack_target = None;
+            return false;
+        } else {
+            // If the target is too far to attack, there is 10% chance of climbing.
+            if dist > 2.0 && dist < 6.0 && base.rand.next_int_bounded(10) == 0 {
+                if base.on_ground {
+                    let delta = target_base.pos.xz() - base.pos.xz();
+                    let h_dist = delta.length();
+                    let h_vel = delta / h_dist * 0.5 * 0.8 + base.vel.xz() * 0.2;
+                    base.vel_dirty = true;
+                    base.vel = DVec3::new(h_vel.x, 0.4, h_vel.y);
+                }
+                return false;
+            } else {
+                // Fallthrough to common attack logic...
+            }
+        }
+
+    }
+
+    if living.attack_time == 0 && dist < 2.0 && target_base.bb.intersects_y(target_base.bb) {
+
+        let _attack_damage = match living_kind {
+            LivingKind::Giant(_) => 50,
+            LivingKind::PigZombie(_) => 5,
+            LivingKind::Zombie(_) => 5,
+            _ => 2,
+        };
+
+        living.attack_time = 20;
+        // FIXME: Cannot mutate living because we also have world.
+        // target_living.hurt_damage = target_living.hurt_damage.max(attack_damage);
+
+    }
+
     false
 
 }
@@ -1119,6 +1172,13 @@ fn calc_eye_height(base: &Base, base_kind: &BaseKind) -> f32 {
     }
 }
 
+/// Calculate the eye position of the given entity.
+fn calc_eye_pos(base: &Base) -> DVec3 {
+    let mut pos = base.pos;
+    pos.y += base.eye_height as f64;
+    pos
+}
+
 /// Calculate the velocity of a fluid at given position, this depends on neighbor blocks.
 /// This calculation will only take the given material into account, this material should
 /// be a fluid material (water/lava), and the given metadata should be the one of the
@@ -1162,7 +1222,7 @@ fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u8) -
 
 fn calc_entity_brightness(world: &World, base: &Base) -> f32 {
     let mut check_pos = base.pos;
-    check_pos.y += base.size.height as f64 * 0.66;
+    check_pos.y += (base.size.height * 0.66 - base.size.center) as f64;
     world.get_brightness(check_pos.floor().as_ivec3()).unwrap_or(0.0)
 }
 
@@ -1215,7 +1275,7 @@ fn update_look_by_step(base: &mut Base, look: Vec2, step: Vec2) {
     let look_norm = Vec2 {
         // Yaw can be normalized between 0 and tau
         x: look.x.rem_euclid(std::f32::consts::TAU),
-        // Pitch however needs to be normalized between -pi/2 and pi/2
+        // Pitch however is not normalized.
         y: look.y,
     };
 
@@ -1230,23 +1290,17 @@ fn update_look_by_step(base: &mut Base, look: Vec2, step: Vec2) {
 /// Modify the look angles to point to a given target step by step. The eye height is
 /// included in the calculation in order to make the head looking at target.
 fn update_look_at_by_step(base: &mut Base, target: DVec3, step: Vec2) {
-    
-    let mut delta = target - base.pos;
-    delta.y -= base.eye_height as f64;
-
+    let delta = target - calc_eye_pos(base);
     let horizontal_dist = delta.xz().length();
     let yaw = f64::atan2(delta.z, delta.x) as f32 - std::f32::consts::FRAC_PI_2;
     let pitch = -f64::atan2(delta.y, horizontal_dist) as f32;
     update_look_by_step(base, Vec2::new(yaw, pitch), step);
-
 }
 
 /// Almost the same as [`update_look_at_by_step`] but the target is another entity base,
 /// this function will make the entity look at the eyes of the target one.
 fn update_look_at_entity_by_step(base: &mut Base, target_base: &Base, step: Vec2) {
-    let mut target = target_base.pos;
-    target.y += target_base.eye_height as f64;
-    update_look_at_by_step(base, target, step);
+    update_look_at_by_step(base, calc_eye_pos(target_base), step);
 }
 
 /// Apply knock back to this entity's velocity.
@@ -1284,4 +1338,11 @@ fn path_weight_giant(world: &World, pos: IVec3) -> f32 {
 /// Path weight function by default.
 fn path_weight_default(_world: &World, _pos: IVec3) -> f32 {
     0.0
+}
+
+/// Return true if the entity can eye track the target entity, this use ray tracing.
+fn can_eye_track(world: &World, base: &Base, target_base: &Base) -> bool {
+    let origin = calc_eye_pos(base);
+    let ray = calc_eye_pos(target_base) - origin;
+    world.ray_trace_blocks(origin, ray, false).is_none()
 }

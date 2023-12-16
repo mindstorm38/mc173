@@ -5,6 +5,8 @@ use std::ops::Add;
 
 use glam::{IVec3, DVec3};
 
+use tracing::instrument;
+
 use crate::util::{BoundingBox, Face};
 use crate::block;
 
@@ -120,6 +122,7 @@ impl World {
 
     /// Ray trace from an origin point and return the first colliding blocks, either 
     /// entity or block. Caller can choose to hit fluid blocks or not.
+    #[instrument(level = "debug", skip_all)]
     pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, fluid: bool) -> Option<(IVec3, Face)> {
         
         let ray_norm = ray.normalize();
