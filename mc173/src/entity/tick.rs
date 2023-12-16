@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
-use log::trace;
+use tracing::{trace, instrument};
 
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
@@ -28,6 +28,7 @@ use super::{Entity, Size, Path,
 impl Entity {
 
     /// This this entity from its id in a world.
+    #[instrument(level = "debug", skip_all)]
     pub fn tick(&mut self, world: &mut World, id: u32) {
         // This function just forwards to the correct tick method.
         tick_base(world, id, &mut self.0, &mut self.1);

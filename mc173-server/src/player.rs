@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use glam::{DVec3, Vec2, IVec3};
 
-use log::warn;
+use tracing::{warn, instrument};
 
 use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress};
 use mc173::world::interact::Interaction;
@@ -153,6 +153,7 @@ impl ServerPlayer {
     }
 
     /// Handle an incoming packet from this player.
+    #[instrument(skip_all)]
     pub fn handle(&mut self, world: &mut World, state: &mut ServerWorldState, packet: InPacket) {
         
         match packet {
@@ -1242,6 +1243,7 @@ impl ServerPlayer {
     }
 
     /// Update the chunks sent to this player.
+    #[instrument(skip_all)]
     pub fn update_chunks(&mut self, world: &World) {
 
         let (ocx, ocz) = chunk::calc_entity_chunk_pos(self.pos);

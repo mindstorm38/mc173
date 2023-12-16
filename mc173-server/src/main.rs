@@ -19,10 +19,12 @@ pub mod server;
 /// Storing true while the server should run.
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
+
+/// Entrypoint!
 pub fn main() {
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    
+    init_tracing();
+
     ctrlc::set_handler(|| RUNNING.store(false, Ordering::Relaxed)).unwrap();
 
     let mut server = server::Server::bind("127.0.0.1:25565".parse().unwrap()).unwrap();
@@ -33,4 +35,29 @@ pub fn main() {
 
     server.save();
     
+}
+
+/// Initialize tracing to output into the console.
+fn init_tracing() {
+
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::EnvFilter;
+    use tracing_flame::FlameLayer;
+
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("debug"))
+        .unwrap();
+
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    let (flame_layer, _) = FlameLayer::with_file("./tracing.folded").unwrap();
+    let flame_layer = flame_layer.with_file_and_line(false);
+    
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .with(flame_layer)
+        .init();
+
 }

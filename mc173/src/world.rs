@@ -12,7 +12,7 @@ use std::mem;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexSet;
 
-use log::trace;
+use tracing::{trace, instrument};
 
 use crate::biome::Biome;
 use crate::chunk::{Chunk, 
@@ -747,6 +747,7 @@ impl World {
     
     /// Tick the world, this ticks all entities.
     /// TODO: Guard this from being called recursively from tick functions.
+    #[instrument(skip_all)]
     pub fn tick(&mut self) {
 
         if self.time % 20 == 0 {
@@ -773,6 +774,7 @@ impl World {
     }
 
     /// Update current weather in the world.
+    #[instrument(skip_all)]
     fn tick_weather(&mut self) {
 
         // No weather in the nether.
@@ -802,6 +804,7 @@ impl World {
 
     /// Update the sky light value depending on the current time, it is then used to get
     /// the real light value of blocks.
+    #[instrument(skip_all)]
     fn tick_sky_light(&mut self) {
 
         let time_wrapped = self.time % 24000;
@@ -831,6 +834,7 @@ impl World {
     }
 
     /// Internal function to tick the internal scheduler.
+    #[instrument(skip_all)]
     fn tick_blocks(&mut self) {
 
         debug_assert_eq!(self.scheduled_ticks.len(), self.scheduled_ticks_states.len());
@@ -893,6 +897,7 @@ impl World {
     }
 
     /// Internal function to tick all entities.
+    #[instrument(skip_all)]
     fn tick_entities(&mut self) {
 
         // Update every entity's bounding box prior to actually ticking.
@@ -1035,6 +1040,7 @@ impl World {
 
     }
 
+    #[instrument(skip_all)]
     fn tick_block_entities(&mut self) {
 
         let mut indices_to_remove = INDICES_TO_REMOVE.take();
@@ -1114,6 +1120,7 @@ impl World {
     }
 
     /// Tick pending light updates.
+    #[instrument(skip_all)]
     fn tick_light(&mut self) {
 
         // IMPORTANT NOTE: This algorithm is terrible but works, I've been trying to come

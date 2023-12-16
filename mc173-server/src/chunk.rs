@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use glam::IVec3;
 
-use log::trace;
+use tracing::trace;
 
 use mc173::chunk::{Chunk, self};
 use mc173::world::World;

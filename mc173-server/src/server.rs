@@ -7,7 +7,7 @@ use std::io;
 
 use glam::{Vec2, DVec3};
 
-use log::{warn, info};
+use tracing::{warn, info, instrument};
 
 use mc173::world::{Dimension, Weather};
 use mc173::entity::{self as e};
@@ -82,7 +82,22 @@ impl Server {
     }
 
     /// Run a single tick on the server network and worlds.
+    #[instrument(skip_all)]
     pub fn tick(&mut self) -> io::Result<()> {
+
+        self.tick_net()?;
+
+        for world in &mut self.worlds {
+            world.tick();
+        }
+
+        Ok(())
+
+    }
+
+    /// Tick the network and accept incoming events.
+    #[instrument(skip_all)]
+    fn tick_net(&mut self) -> io::Result<()> {
 
         // Poll all network events.
         while let Some(event) = self.net.poll()? {
@@ -96,10 +111,6 @@ impl Server {
             }
         }
 
-        for world in &mut self.worlds {
-            world.tick();
-        }
-
         Ok(())
 
     }
@@ -111,6 +122,7 @@ impl Server {
     }
 
     /// Handle a lost client.
+    #[instrument(skip_all)]
     fn handle_lost(&mut self, client: NetworkClient, error: Option<io::Error>) {
 
         info!("lost client #{}: {:?}", client.id(), error);
@@ -131,6 +143,7 @@ impl Server {
 
     }
 
+    #[instrument(skip_all)]
     fn handle_packet(&mut self, client: NetworkClient, packet: InPacket) {
         
         // println!("[{client:?}] Packet: {packet:?}");
@@ -149,6 +162,7 @@ impl Server {
     }
 
     /// Handle a packet for a client that is in handshaking state.
+    #[instrument(skip_all)]
     fn handle_handshaking(&mut self, client: NetworkClient, packet: InPacket) {
         match packet {
             InPacket::KeepAlive => {}
@@ -162,6 +176,7 @@ impl Server {
 
     /// Handle a handshake from a client that is still handshaking, there is no 
     /// restriction.
+    #[instrument(skip_all)]
     fn handle_handshake(&mut self, client: NetworkClient) {
         self.net.send(client, OutPacket::Handshake(proto::OutHandshakePacket {
             server: "-".to_string(),
@@ -169,6 +184,7 @@ impl Server {
     }
 
     /// Handle a login after handshake.
+    #[instrument(skip_all)]
     fn handle_login(&mut self, client: NetworkClient, packet: proto::InLoginPacket) {
 
         if packet.protocol_version != 14 {

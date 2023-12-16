@@ -2,7 +2,7 @@
 
 use glam::{IVec3, DVec3};
 
-use log::warn;
+use tracing::warn;
 
 use crate::entity::{Item, FallingBlock};
 use crate::block::material::Material;

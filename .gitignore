@@ -1,2 +1,4 @@
 /target
 /test_world
+/tracing*
+tick:tick:
