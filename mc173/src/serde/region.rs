@@ -20,7 +20,7 @@ use crate::util::{ReadJavaExt, WriteJavaExt};
 /// Internal function to calculate the index of a chunk metadata depending on its 
 /// position, this is the same calculation as Notchian server.
 #[inline]
-fn calc_chunk_index(cx: i32, cz: i32) -> usize {
+fn calc_chunk_meta_index(cx: i32, cz: i32) -> usize {
     (cx & 31) as usize | (((cz & 31) as usize) << 5)
 }
 
@@ -67,7 +67,7 @@ pub struct Region<I> {
     /// Underlying read/writer with seek. 
     inner: I,
     /// Stores the metadata of each chunks
-    chunks: Box<[Chunk; 1024]>,
+    chunks: Box<[ChunkMeta; 1024]>,
     /// Bit mapping of sectors that are allocated.
     sectors: Vec<u64>,
 }
@@ -127,7 +127,7 @@ where
         }
 
         // The first two sectors are always reserved for the chunk metadata.
-        let mut chunks: Box<[Chunk; 1024]> = Box::new([Chunk::INIT; 1024]);
+        let mut chunks: Box<[ChunkMeta; 1024]> = Box::new([ChunkMeta::INIT; 1024]);
         let mut sectors = vec![0u64; file_len as usize / 4096];
         // First two sectors are reserved for headers.
         sectors[0] |= 0b11;
@@ -169,18 +169,22 @@ where
     }
 
     /// Internal function to get the chunk metadata associated with a chunk.
-    fn get_chunk(&self, cx: i32, cz: i32) -> Chunk {
-        self.chunks[calc_chunk_index(cx, cz)]
+    fn get_chunk_meta(&self, cx: i32, cz: i32) -> ChunkMeta {
+        self.chunks[calc_chunk_meta_index(cx, cz)]
     }
 
-    fn set_chunk_and_sync(&mut self, cx: i32, cz: i32, chunk: Chunk) -> io::Result<()> {
-        let index = calc_chunk_index(cx, cz);
-        self.chunks[index] = chunk;
+    /// Internal function to set the chunk metadata and synchronize 
+    fn set_chunk_meta_and_sync(&mut self, cx: i32, cz: i32, chunk: ChunkMeta) -> io::Result<()> {
+        let index = calc_chunk_meta_index(cx, cz);
         // Synchronize range.
         let range_raw = chunk.range.offset << 8 | chunk.range.count & 0xFF;
         let header_offset = index as u64 * 4;
         self.inner.seek(SeekFrom::Start(header_offset))?;
         self.inner.write_java_int(range_raw as i32)?;
+        // Finally write the inner metadata because we are fully synchronized.
+        // NOTE: We don't really care of the timestamp, we critically need to have the
+        // range synchronized, the timestamp is less important.
+        self.chunks[index] = chunk;
         // Synchronize timestamp.
         self.inner.seek(SeekFrom::Start(header_offset + 4096))?;
         self.inner.write_java_int(chunk.timestamp as i32)?;
@@ -191,7 +195,7 @@ where
     /// to respect the limitations of the region size, caller don't have to do it.
     pub fn read_chunk(&mut self, cx: i32, cz: i32) -> Result<ChunkReader<'_, I>, RegionError> {
 
-        let chunk = self.get_chunk(cx, cz);
+        let chunk = self.get_chunk_meta(cx, cz);
         if chunk.is_empty() {
             return Err(RegionError::EmptyChunk);
         }
@@ -243,12 +247,17 @@ where
             return Err(RegionError::OutOfSector);
         }
 
-        let mut chunk = self.get_chunk(cx, cz);
+        let mut chunk = self.get_chunk_meta(cx, cz);
 
-        // println!("writing chunk {cx}/{cz}, offset = {}, count = {}, needed = {sector_count}, size = {}", chunk.range.offset, chunk.range.count, data.len());
+        // This assert is critical to ensure that no data corruption happens if we made
+        // any programming mistakes.
+        assert!(chunk.range.count == 0 || chunk.range.offset >= 2, "previous chunk metadata uses reserved sectors");
+        // Just a sanity check.
+        debug_assert!(sector_count != 0);
 
         // If the current chunk count doesn't match, we try to extend the current one or
-        // allocate a new available range.
+        // allocate a new available range. This can also happen if the old chunk metadata
+        // was zero in length.
         if sector_count != chunk.range.count {
 
             let mut clear_range = chunk.range;
@@ -262,18 +271,26 @@ where
             }
 
             // Clear the previous range.
-            self.inner.seek(SeekFrom::Start(clear_range.offset as u64 * 4096))?;
-            for offset in clear_range.offset..clear_range.offset + clear_range.count {
-                let slot = &mut self.sectors[offset as usize / 64];
-                *slot &= !(1u64 << (offset % 64));
-                self.inner.write_all(EMPTY_SECTOR)?;
+            if clear_range.count != 0 {
+                self.inner.seek(SeekFrom::Start(clear_range.offset as u64 * 4096))?;
+                for offset in clear_range.offset..clear_range.offset + clear_range.count {
+                    let slot = &mut self.sectors[offset as usize / 64];
+                    *slot &= !(1u64 << (offset % 64));
+                    self.inner.write_all(EMPTY_SECTOR)?;
+                }
             }
 
             // If we did not shrink, we have deallocated everything so we need to alloc.
             if sector_count > chunk.range.count {
 
+                // Debug assert to ensure that our internal sectors always keep first two
+                // sectors as reserved, this is just a _debug_ assert because we later 
+                // ensures that no data is written in these sectors.
+                debug_assert_eq!(self.sectors[0] & 0b11, 0b11);
+
                 let mut new_range = SectorRange::default();
 
+                // NOTE: Our sectors should always be filled 
                 'out: for (slot_index, mut slot) in self.sectors.iter().copied().enumerate() {
                     // Avoid check a slot that is fully allocated.
                     if slot != u64::MAX {
@@ -290,8 +307,15 @@ where
                             }
                             slot >>= 1;
                         }
+                    } else {
+                        // If the slot is full, we still have to update the range...
+                        new_range.offset = slot_index as u32 * 64 + 64;
+                        new_range.count = 0;
                     }
                 }
+
+                // Check to avoid corruption of the internal sectors mapping.
+                assert!(new_range.offset >= 2, "allocating reserved sectors");
 
                 // NOTE: We are overwriting the count because if we did not find enough
                 // free space we can still add it at the end.
@@ -312,10 +336,13 @@ where
 
         }
 
-        self.set_chunk_and_sync(cx, cz, chunk)?;
+        // This assert is critical if we failed our implementation to avoid corruption.
+        assert!(chunk.range.offset >= 2, "allocating reserved sectors");
+        // Because of the header, we should always end with at least one sector.
+        assert!(chunk.range.count != 0, "allocating zero sector");
 
-        // println!("=> offset = {}, count = {}", chunk.range.offset, chunk.range.count);
-
+        // Write the metadata and then write the chunk data.
+        self.set_chunk_meta_and_sync(cx, cz, chunk)?;
         self.inner.seek(SeekFrom::Start(chunk.range.offset as u64 * 4096))?;
         self.inner.write_java_int(data.len() as i32 + 1)?; // Counting the compression id.
         self.inner.write_u8(compression_id)?;
@@ -326,7 +353,6 @@ where
         let total_len = data.len() + 4 + 1;
         let padding_len = 4096 - total_len % 4096;
         self.inner.write_all(&EMPTY_SECTOR[..padding_len])?;
-
         self.inner.flush()?;
 
         Ok(())
@@ -417,7 +443,7 @@ impl<I> Write for ChunkWriter<'_, I> {
 
 /// Internal cached chunk metadata, it is kept in-sync with the region file.
 #[derive(Debug, Clone, Copy)]
-struct Chunk {
+struct ChunkMeta {
     /// The offset of the chunk in sectors within the region file. The least significant
     /// byte is used for counting the number of sectors used (can be zero), and the 
     /// remaining 3 bytes are storing the offset in sectors (should not be 0 or 1).
@@ -426,7 +452,7 @@ struct Chunk {
     timestamp: u32,
 }
 
-impl Chunk {
+impl ChunkMeta {
 
     const INIT: Self = Self { range: SectorRange { offset: 0, count: 0 }, timestamp: 0 };
 
