@@ -1,12 +1,10 @@
 //! Chunk tracking.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 
 use glam::IVec3;
-
-use tracing::trace;
 
 use mc173::chunk::{Chunk, self};
 use mc173::world::World;
@@ -15,21 +13,14 @@ use crate::proto::{OutPacket, self};
 use crate::player::ServerPlayer;
 
 
-/// Minimum time interval for saving a chunk.
-const CHUNK_SAVE_MIN_INTERVAL: Duration = Duration::from_secs(5);
-
-
 /// This data structure contains all chunk trackers for a world. It can be used to 
 /// efficiently send block changes to clients.
 #[derive(Debug)]
 pub struct ChunkTrackers {
     /// Inner mapping from chunk coordinates to tracker.
     inner: HashMap<(i32, i32), ChunkTracker>,
-    /// A set of chunks marked as dirty and to be saved later.
-    dirty: HashSet<(i32, i32)>,
-    /// Queue of chunks to be saved, sorted by time of arrival, because `Instant::now`
-    /// should not go backward.
-    save_queue: VecDeque<(i32, i32, Instant)>,
+    /// Queue of chunks to be saved, this queue should be sorted by 
+    scheduled_saves: VecDeque<(i32, i32, Instant)>,
 }
 
 impl ChunkTrackers {
@@ -38,8 +29,7 @@ impl ChunkTrackers {
     pub fn new() -> Self {
         Self {
             inner: HashMap::new(),
-            dirty: HashSet::new(),
-            save_queue: VecDeque::new(),
+            scheduled_saves: VecDeque::new(),
         }
     }
 
@@ -48,7 +38,7 @@ impl ChunkTrackers {
     pub fn set_block(&mut self, pos: IVec3, block: u8, metadata: u8) {
         
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.set_dirty(cx, cz);
+        let tracker = self.inner.entry((cx, cz)).or_default();
 
         let local_pos = ChunkLocalPos {
             x: (pos.x as u32 & 0b1111) as u8,
@@ -56,16 +46,33 @@ impl ChunkTrackers {
             z: (pos.z as u32 & 0b1111) as u8,
         };
 
-        self.inner.entry((cx, cz)).or_default().set_block(local_pos, block, metadata);
+        tracker.set_block(local_pos, block, metadata);
+
+        if let Some(instant) = tracker.set_dirty() {
+            self.schedule_save(cx, cz, instant);
+        }
 
     }
 
     /// Mark a chunk dirty, to be saved later.
     pub fn set_dirty(&mut self, cx: i32, cz: i32) {
-        if self.dirty.insert((cx, cz)) {
-            // Only if the chunk was not already dirty, add it to the save queue.
-            self.save_queue.push_back((cx, cz, Instant::now()));
+        let tracker = self.inner.entry((cx, cz)).or_default();
+        if let Some(instant) = tracker.set_dirty() {
+            self.schedule_save(cx, cz, instant);
         }
+    }
+
+    /// Internal method to schedule a save in the future at given timestamp, this will
+    /// be sorted into the scheduled save queue.
+    fn schedule_save(&mut self, cx: i32, cz: i32, instant: Instant) {
+        
+        // Search the correct sorted (asc) index to insert the given time.
+        let index = self.scheduled_saves
+            .binary_search_by_key(&instant, |&(_ ,_, i)| i)
+            .unwrap_or_else(|index| index);
+
+        self.scheduled_saves.insert(index, (cx, cz, instant));
+
     }
 
     /// Update the given player list to send new block changes into account. The given
@@ -78,10 +85,10 @@ impl ChunkTrackers {
 
     /// Get the next chunk to save, if any.
     pub fn next_save(&mut self) -> Option<(i32, i32)> {
-        let (_, _, instant) = self.save_queue.front()?;
-        if instant.elapsed() >= CHUNK_SAVE_MIN_INTERVAL {
-            let (cx, cz, _) = self.save_queue.pop_front().unwrap();
-            debug_assert!(self.dirty.remove(&(cx, cz)));
+        let &(_, _, instant) = self.scheduled_saves.front()?;
+        if Instant::now() >= instant {
+            let (cx, cz, _) = self.scheduled_saves.pop_front().unwrap();
+            self.inner.get_mut(&(cx, cz)).unwrap().dirty = false;
             Some((cx, cz))
         } else {
             None
@@ -90,8 +97,8 @@ impl ChunkTrackers {
 
     /// Force drain the internal save queue, ignoring cool downs.
     pub fn drain_save(&mut self) -> impl Iterator<Item = (i32, i32)> + '_ {
-        self.save_queue.drain(..).map(|(cx, cz, _)| {
-            debug_assert!(self.dirty.remove(&(cx, cz)));
+        self.scheduled_saves.drain(..).map(|(cx, cz, _)| {
+            self.inner.get_mut(&(cx, cz)).unwrap().dirty = false;
             (cx, cz)
         })
     }
@@ -113,6 +120,12 @@ struct ChunkTracker {
     set_blocks_min: ChunkLocalPos,
     /// The maximum position where blocks have been set in the chunk (inclusive).
     set_blocks_max: ChunkLocalPos,
+    /// This represent the number of dirty notifications to this chunk.
+    dirty: bool,
+    /// Current save interval for this chunk, may increase of decrease.
+    save_interval: Duration,
+    /// Last save interval used for scheduling.
+    last_save: Option<Instant>,
 }
 
 /// A position structure to store chunk-local coordinates to save space.
@@ -189,7 +202,7 @@ impl ChunkTracker {
                 z: (self.set_blocks_max.z - self.set_blocks_min.z + 1) as i32, 
             };
 
-            trace!("sending partial chunk data for {cx}/{cz}, from {from}, size {size}");
+            // trace!("sending partial chunk data for {cx}/{cz}, from {from}, size {size}");
 
             let packet = OutPacket::ChunkData(new_chunk_data_packet(chunk, from, size));
             for player in players {
@@ -201,7 +214,7 @@ impl ChunkTracker {
         } else if self.set_blocks.len() == 1 {
 
             let set_block = self.set_blocks[0];
-            trace!("sending single block for {cx}/{cz}, at {:?}", set_block.pos);
+            // trace!("sending single block for {cx}/{cz}, at {:?}", set_block.pos);
             
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
@@ -233,7 +246,7 @@ impl ChunkTracker {
                 blocks: Arc::new(set_blocks),
             });
 
-            trace!("sending multi block for {cx}/{cz}, count {}", self.set_blocks.len());
+            // trace!("sending multi block for {cx}/{cz}, count {}", self.set_blocks.len());
 
             for player in players {
                 if player.tracked_chunks.contains(&(cx, cz)) {
@@ -245,6 +258,50 @@ impl ChunkTracker {
 
         self.set_blocks_full = false;
         self.set_blocks.clear();
+
+    }
+
+    /// Mark this chunk as dirty, and return some instant if a save should be scheduled
+    /// in the future for this chunk.
+    fn set_dirty(&mut self) -> Option<Instant> {
+
+        const MAX_INTERVAL: Duration = Duration::from_secs(30);
+        const MIN_INTERVAL: Duration = Duration::from_secs(4);
+        const INTERVAL_STEP: Duration = Duration::from_secs(4);
+
+        // A save has already been scheduled.
+        if self.dirty {
+            return None;
+        }
+
+        self.dirty = true;
+
+        let now = Instant::now();
+
+        // If a save has already happened in the past.
+        if let Some(last_save) = self.last_save {
+            // We subtract the interval base in order to possibly reach zero duration en
+            // therefore be equal to the initial interval of zero and increase interval.
+            let elapsed = now.saturating_duration_since(last_save);
+            if elapsed > self.save_interval {
+                // If the time elapsed since last scheduled save is greater than interval,
+                // then we reduce the interval.
+                self.save_interval = self.save_interval.saturating_sub(INTERVAL_STEP);
+            } else {
+                // If the time elapsed is less than or equal to current interval, we 
+                // increase the save interval.
+                self.save_interval = self.save_interval.saturating_add(INTERVAL_STEP).min(MAX_INTERVAL);
+            }
+        }
+
+        if self.save_interval < MIN_INTERVAL {
+            self.save_interval = MIN_INTERVAL;
+        }
+
+        // Finally compute, store and return next save instant.
+        let next_save = now + self.save_interval;
+        self.last_save = Some(next_save);
+        Some(next_save)
 
     }
 
