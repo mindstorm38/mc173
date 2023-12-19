@@ -354,7 +354,10 @@ pub struct Wolf {
 
 #[derive(Debug, Clone, Default)]
 pub struct Creeper { 
+    /// True when the creeper is powered.
     pub powered: bool,
+    /// Set to some time when the creeper is ignited.
+    pub ignited_time: Option<u16>
 }
 
 #[derive(Debug, Clone, Default)]

@@ -197,6 +197,8 @@ impl ServerWorld {
                         self.handle_entity_status(id, 2),
                     EntityEvent::Dead => 
                         self.handle_entity_status(id, 3),
+                    EntityEvent::Creeper { ignited, powered } =>
+                        todo!()
                 }
                 Event::BlockEntity { pos, inner } => match inner {
                     BlockEntityEvent::Set =>
@@ -269,8 +271,10 @@ impl ServerWorld {
         }
 
         // FIXME: Temporary code.
-        for cx in -5..=5 {
-            for cz in -5..=5 {
+        let center_cx = 0;
+        let center_cz = 0;
+        for cx in center_cx - 10..=center_cx + 10 {
+            for cz in center_cz - 10..=center_cz + 10 {
                 self.state.storage.request_load(cx, cz);
             }
         }

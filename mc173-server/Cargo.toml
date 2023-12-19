@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "Minecraft beta 1.7.3 protocol and server implementation compatible with Notchian client"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 mc173 = { path = "../mc173" }
+
 mio = { version = "0.8", features = ["os-poll", "net"] }
 crossbeam-channel = "0.5"
 byteorder = "1.5"

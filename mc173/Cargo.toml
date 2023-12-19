@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 description = "Base data structure and logic for running a Minecraft beta 1.7.3 world"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 crossbeam-channel = "0.5"
 byteorder = "1.5"

@@ -1327,6 +1327,11 @@ pub enum EntityEvent {
     Damage,
     /// The entity is dead and the dead animation should be played by frontend.
     Dead,
+    /// Update to the creeper data.
+    Creeper {
+        ignited: bool,
+        powered: bool,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

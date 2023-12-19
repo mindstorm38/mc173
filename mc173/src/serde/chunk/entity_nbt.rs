@@ -144,6 +144,7 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
             let living_kind = match id {
                 "Creeper" => LivingKind::Creeper(e::Creeper {
                     powered: comp.get_boolean("powered")?,
+                    ignited_time: None,
                 }),
                 "Skeleton" => LivingKind::Skeleton(e::Skeleton::default()),
                 "Spider" => LivingKind::Spider(e::Spider::default()),

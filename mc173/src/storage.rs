@@ -14,6 +14,7 @@ use std::thread;
 use std::io;
 
 use crossbeam_channel::TryRecvError;
+use crossbeam_channel::unbounded;
 use crossbeam_channel::{select, bounded, Sender, Receiver, RecvError};
 
 use crate::serde::nbt::NbtError;
@@ -109,10 +110,11 @@ impl ChunkStorage {
         G: ChunkGenerator + Sync + Send + 'static,
     {
 
+        // This channel is unbounded because it may cause deadlock.
         let (
             storage_request_sender,
             storage_request_receiver,
-        ) = bounded(100);
+        ) = unbounded();
 
         // The bound on the reply channel is used to block the storage worker if 
         // the consumer cannot keep up, this has the downside of blocking the whole
