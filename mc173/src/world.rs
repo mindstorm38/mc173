@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::cell::Cell;
 use std::sync::Arc;
+use std::slice;
 use std::mem;
 
 use glam::{IVec3, Vec2, DVec3};
@@ -93,7 +94,8 @@ thread_local! {
 ///   mutable reference should be suffixed with `_mut`;
 /// - Getter methods that return booleans should prefer `can_`, `has_` or `is_` prefixes;
 /// - Methods that alter the world by running a logic tick should start with `tick_`;
-/// - Methods that iterate over some world objects should start with `iter_`;
+/// - Methods that iterate over some world objects should start with `iter_`, the return
+///   iterator type should preferably be a new type (not `impl Iterator`);
 /// - Methods that run on internal events can be prefixed by `handle_`;
 /// - All other methods should use a proper verb, preferably composed of one-word to
 ///   reduce possible meanings (e.g. are `schedule_`, `break_`, `spawn_`, `insert_` or
@@ -750,10 +752,37 @@ impl World {
 
     /// Iterate over all entities in the world. The currently updated entity is not 
     /// included in this iterator.
-    pub fn iter_entities(&self) -> impl Iterator<Item = (u32, &Entity)> {
-        self.entities.iter()
-            .filter_map(|comp| 
-                comp.inner.as_deref().map(|entity| (comp.id, entity)))
+    #[inline]
+    pub fn iter_entities(&self) -> EntitiesIter<'_> {
+        EntitiesIter(self.entities.iter())
+    }
+
+    /// Iterator over all entities in the world through mutable references.
+    #[inline]
+    pub fn iter_entities_mut(&mut self) -> EntitiesIterMut<'_> {
+        EntitiesIterMut(self.entities.iter_mut())
+    }
+
+    /// Iterate over all entities of the given chunk.
+    /// *This function can't return the current updated entity.*
+    #[inline]
+    pub fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> EntitiesInChunkIter<'_> {
+        EntitiesInChunkIter {
+            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.iter()),
+            entities: &self.entities[..],
+        }
+    }
+
+    /// Iterate over all entities of the given chunk through mutable references.
+    /// *This function can't return the current updated entity.*
+    #[inline]
+    pub fn iter_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> EntitiesInChunkIterMut<'_> {
+        EntitiesInChunkIterMut {
+            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.iter()),
+            entities: &mut self.entities[..],
+            #[cfg(debug_assertions)]
+            returned_pointers: HashSet::new(),
+        }
     }
 
     /// Internal function to iterate world entities in a given chunk.
@@ -762,16 +791,6 @@ impl World {
             .into_iter() // Iterate the option, so if the chunk is absent, nothing return.
             .flat_map(|chunk_comp| chunk_comp.entities.iter())
             .map(move |&entity_index| &self.entities[entity_index])
-    }
-
-    /// Iterate over all entities of the given chunk. This is legal for non-existing 
-    /// chunks, in such case this will search for orphan entities.
-    /// *This function can't return the current updated entity.*
-    pub fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &Entity)> {
-        self.iter_entity_components_in_chunk(cx, cz).filter_map(|entity_comp| {
-            let id = entity_comp.id;
-            entity_comp.inner.as_deref().map(|entity| (id, entity))
-        })
     }
 
     /// Iterate over all entities colliding with the given bounding box.
@@ -1710,8 +1729,8 @@ impl<'a> BlocksInIter<'a> {
 
 }
 
-impl<'a> FusedIterator for BlocksInIter<'a> {}
-impl<'a> Iterator for BlocksInIter<'a> {
+impl FusedIterator for BlocksInIter<'_> {}
+impl Iterator for BlocksInIter<'_> {
 
     type Item = (IVec3, u8, u8);
 
@@ -1781,11 +1800,12 @@ impl<'a> BlocksInChunkIter<'a> {
 
 }
 
-impl<'a> FusedIterator for BlocksInChunkIter<'a> {}
-impl<'a> Iterator for BlocksInChunkIter<'a> {
+impl FusedIterator for BlocksInChunkIter<'_> {}
+impl Iterator for BlocksInChunkIter<'_> {
 
     type Item = (IVec3, u8, u8);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
 
         let (block, metadata) = self.chunk?.get_block(self.cursor);
@@ -1811,6 +1831,138 @@ impl<'a> Iterator for BlocksInChunkIter<'a> {
 
         Some(ret)
 
+    }
+
+}
+
+/// An iterator over all entities in the world.
+pub struct EntitiesIter<'a>(slice::Iter<'a, EntityComponent>);
+impl FusedIterator for EntitiesIter<'_> {}
+impl ExactSizeIterator for EntitiesIter<'_> {}
+impl<'a> Iterator for EntitiesIter<'a> {
+    
+    type Item = (u32, &'a Entity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let comp = self.0.next()?;
+            if let Some(ret) = comp.inner.as_deref() {
+                return Some((comp.id, ret));
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+
+}
+
+/// An iterator over all entities in the world through mutable references.
+pub struct EntitiesIterMut<'a>(slice::IterMut<'a, EntityComponent>);
+impl FusedIterator for EntitiesIterMut<'_> {}
+impl ExactSizeIterator for EntitiesIterMut<'_> {}
+impl<'a> Iterator for EntitiesIterMut<'a> {
+
+    type Item = (u32, &'a mut Entity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let comp = self.0.next()?;
+            if let Some(ret) = comp.inner.as_deref_mut() {
+                return Some((comp.id, ret));
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+
+}
+
+/// An iterator of entities within a chunk.
+pub struct EntitiesInChunkIter<'a> {
+    /// The entities indices, returned indices are unique within the iterator.
+    indices: Option<indexmap::set::Iter<'a, usize>>,
+    /// The entities.
+    entities: &'a [EntityComponent],
+}
+
+impl FusedIterator for EntitiesInChunkIter<'_> {}
+impl<'a> Iterator for EntitiesInChunkIter<'a> {
+
+    type Item = (u32, &'a Entity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = *self.indices.as_mut()?.next()?;
+        let comp = &self.entities[index];
+        let entity = comp.inner.as_deref()?;
+        Some((comp.id, entity))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if let Some(indices) = &self.indices {
+            indices.size_hint()
+        } else {
+            (0, Some(0))
+        }
+    }
+
+}
+
+/// An iterator of entities within a chunk through mutable references.
+pub struct EntitiesInChunkIterMut<'a> {
+    /// The entities indices, returned indices are unique within the iterator.
+    indices: Option<indexmap::set::Iter<'a, usize>>,
+    /// The entities.
+    entities: &'a mut [EntityComponent],
+    /// Only used when debug assertions are enabled in order to ensure the safety
+    /// of the lifetime transmutation.
+    #[cfg(debug_assertions)]
+    returned_pointers: HashSet<*mut EntityComponent>,
+}
+
+impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
+
+    type Item = (u32, &'a mut Entity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+
+        let index = *self.indices.as_mut()?.next()?;
+        let comp = &mut self.entities[index];
+
+        // Only check uniqueness of returned pointer with debug assertions.
+        #[cfg(debug_assertions)] {
+            assert!(self.returned_pointers.insert(comp), "wrong unsafe contract");
+        }
+
+        // SAFETY: We know that returned indices are unique because they come from a map
+        // iterator that have unique "usize" keys. So each entity will be accessed and
+        // mutated once and in one place only. So we transmute the lifetime to 'a, instead
+        // of using the default `'self`. This is almost the same as the implementation
+        // of mutable slice iterators where we can get mutable references to all slice
+        // elements at once.
+        let comp = unsafe { &mut *(comp as *mut EntityComponent) };
+        let entity = comp.inner.as_deref_mut()?;
+        Some((comp.id, entity))
+
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if let Some(indices) = &self.indices {
+            indices.size_hint()
+        } else {
+            (0, Some(0))
+        }
     }
 
 }
