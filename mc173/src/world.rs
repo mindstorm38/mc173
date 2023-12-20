@@ -51,6 +51,8 @@ thread_local! {
 }
 
 
+/// # Components 
+/// 
 /// This data structure stores different kind of component:
 /// - Chunks, these are the storage for block, light and height map of a 16x16 column in
 ///   the world with a height of 128. This component has the largest memory footprint
@@ -65,18 +67,24 @@ thread_local! {
 /// entities are not directly linked to a chunk, but an iterator over entities within a
 /// chunk can be obtained.
 /// 
+/// This data structure is however not designed to handle automatic chunk loading and 
+/// saving, every chunk needs to be manually inserted and removed, same for entities and
+/// block entities.
+/// 
+/// # Logic
+/// 
 /// This data structure is also optimized for actually running the world's logic if 
 /// needed. Such as weather, random block ticking, scheduled block ticking, entity 
 /// ticking or block notifications.
+/// 
+/// # Events
 /// 
 /// This structure also allows listening for events within it through a queue of 
 /// [`Event`], events listening is disabled by default but can be enabled by swapping
 /// a `Vec<Event>` into the world using the [`World::swap_events`]. Events are generated
 /// either by world's ticking logic or by manual changes to the world.
 /// 
-/// This data structure is however not designed to handle automatic chunk loading and 
-/// saving, every chunk needs to be manually inserted and removed, same for entities and
-/// block entities.
+/// # Naming convention
 /// 
 /// Methods provided on this structure should follow a naming convention depending on the
 /// action that will apply to the world:
@@ -92,11 +100,13 @@ thread_local! {
 ///   `remove_`).
 /// 
 /// Various suffixes can be added to methods, depending on the world area affected by the
-/// method, for example `_in`, `_in_box` or `_colliding`. Any mutation prefix `_mut` 
-/// should be placed after all words.
+/// method, for example `_in`, `_in_chunk`, `_in_box` or `_colliding`.
+/// Any mutation prefix `_mut` should be placed at the very end.
 /// 
-/// TODO: Make a diagram to better explain the world structure with entity caching.
-/// TODO: Immediate entity/block entity removal if not ticking.
+/// # Roadmap
+/// 
+/// - Make a diagram to better explain the world structure with entity caching.
+/// - Immediate entity/block entity removal if not ticking.
 #[derive(Clone)]
 pub struct World {
     /// When enabled, this contains the list of events that happened in the world since
@@ -726,10 +736,16 @@ impl World {
     //      ITERATORS      //
     // =================== //
 
-    /// Iterate over all blocks in the given area.
-    /// *Min is inclusive and max is exclusive.*
-    pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_ {
+    /// Iterate over all blocks in the given area where max is excluded.
+    #[inline]
+    pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> BlocksInIter<'_> {
         BlocksInIter::new(self, min, max)
+    }
+
+    /// Iterate over all blocks in the chunk at given coordinates.
+    #[inline]
+    pub fn iter_blocks_in_chunk(&self, cx: i32, cz: i32) -> BlocksInChunkIter<'_> {
+        BlocksInChunkIter::new(self, cx, cz)
     }
 
     /// Iterate over all entities in the world. The currently updated entity is not 
@@ -741,7 +757,7 @@ impl World {
     }
 
     /// Internal function to iterate world entities in a given chunk.
-    fn iter_entity_components_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = &EntityComponent> {
+    fn iter_entity_components_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = &EntityComponent> {
         self.chunks.get(&(cx, cz))
             .into_iter() // Iterate the option, so if the chunk is absent, nothing return.
             .flat_map(|chunk_comp| chunk_comp.entities.iter())
@@ -751,8 +767,8 @@ impl World {
     /// Iterate over all entities of the given chunk. This is legal for non-existing 
     /// chunks, in such case this will search for orphan entities.
     /// *This function can't return the current updated entity.*
-    pub fn iter_entities_in(&self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &Entity)> {
-        self.iter_entity_components_in(cx, cz).filter_map(|entity_comp| {
+    pub fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &Entity)> {
+        self.iter_entity_components_in_chunk(cx, cz).filter_map(|entity_comp| {
             let id = entity_comp.id;
             entity_comp.inner.as_deref().map(|entity| (id, entity))
         })
@@ -767,7 +783,7 @@ impl World {
 
         (min_cx..=max_cx).flat_map(move |cx| (min_cz..=max_cz).map(move |cz| (cx, cz)))
             .flat_map(move |(cx, cz)| {
-                self.iter_entity_components_in(cx, cz).filter_map(move |entity| {
+                self.iter_entity_components_in_chunk(cx, cz).filter_map(move |entity| {
                     let id = entity.id;
                     if let (ComponentStorage::Ready(entity), Some(entity_bb)) = (&entity.inner, entity.bb) {
                         bb.intersects(entity_bb).then_some((id, &**entity, entity_bb))
@@ -1650,8 +1666,9 @@ enum LightUpdateKind {
 }
 
 
-/// An iterator for blocks in a world area. This returns the block id and metadata.
-struct BlocksInIter<'a> {
+/// An iterator for blocks in a world area. 
+/// This yields the block position, id and metadata.
+pub struct BlocksInIter<'a> {
     /// Back-reference to the containing world.
     world: &'a World,
     /// This contains a temporary reference to the chunk being analyzed. This is used to
@@ -1681,7 +1698,7 @@ impl<'a> BlocksInIter<'a> {
             max = min;
         }
 
-        BlocksInIter {
+        Self {
             world,
             chunk: None,
             min,
@@ -1700,17 +1717,15 @@ impl<'a> Iterator for BlocksInIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         
-        let cursor = self.cursor;
-
         // X is the last updated component, so when it reaches max it's done.
-        if cursor.x == self.max.x {
+        if self.cursor.x == self.max.x {
             return None;
         }
 
         // We are at the start of a new column, update the chunk.
-        if cursor.y == self.min.y {
+        if self.cursor.y == self.min.y {
             // NOTE: Unchecked because the Y value is clamped in the constructor.
-            let (cx, cz) = calc_chunk_pos_unchecked(cursor);
+            let (cx, cz) = calc_chunk_pos_unchecked(self.cursor);
             if !matches!(self.chunk, Some((ccx, ccz, _)) if (ccx, ccz) == (cx, cz)) {
                 self.chunk = Some((cx, cz, self.world.get_chunk(cx, cz)));
             }
@@ -1726,6 +1741,8 @@ impl<'a> Iterator for BlocksInIter<'a> {
             ret.2 = metadata;
         }
 
+        // This component order is important because it matches the internal layout of
+        // chunks, and therefore improve cache efficiency.
         self.cursor.y += 1;
         if self.cursor.y == self.max.y {
             self.cursor.y = self.min.y;
@@ -1733,6 +1750,62 @@ impl<'a> Iterator for BlocksInIter<'a> {
             if self.cursor.z == self.max.z {
                 self.cursor.z = self.min.z;
                 self.cursor.x += 1;
+            }
+        }
+
+        Some(ret)
+
+    }
+
+}
+
+
+/// An iterator for blocks in a world chunk. 
+pub struct BlocksInChunkIter<'a> {
+    /// Back-reference to the containing world. None if the chunk doesn't exists or the
+    /// iterator is exhausted.
+    chunk: Option<&'a Chunk>,
+    /// Current position that is iterated in the chunk.
+    cursor: IVec3,
+}
+
+impl<'a> BlocksInChunkIter<'a> {
+
+    #[inline]
+    fn new(world: &'a World, cx: i32, cz: i32) -> Self {
+        Self {
+            chunk: world.get_chunk(cx, cz),
+            cursor: IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32),
+        }
+    }
+
+}
+
+impl<'a> FusedIterator for BlocksInChunkIter<'a> {}
+impl<'a> Iterator for BlocksInChunkIter<'a> {
+
+    type Item = (IVec3, u8, u8);
+
+    fn next(&mut self) -> Option<Self::Item> {
+
+        let (block, metadata) = self.chunk?.get_block(self.cursor);
+        let ret = (self.cursor, block, metadata);
+
+        // This component order is important because it matches the internal layout of
+        // chunks, and therefore improve cache efficiency. When incrementing component,
+        // when we reach the next multiple of 16 (for X/Z), we reset the coordinate.
+        self.cursor.y += 1;
+        if self.cursor.y >= CHUNK_HEIGHT as i32 {
+            self.cursor.y = 0;
+            self.cursor.z += 1;
+            if self.cursor.z & 0b1111 == 0 {
+                self.cursor.z -= 16;
+                self.cursor.x += 1;
+                if self.cursor.x & 0b1111 == 0 {
+                    // X is the last coordinate to be updated, when we reach it then we
+                    // set chunk to none because iterator is exhausted.
+                    self.chunk = None;
+                }
             }
         }
 
