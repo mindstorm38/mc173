@@ -74,7 +74,7 @@ thread_local! {
 /// a `Vec<Event>` into the world using the [`World::swap_events`]. Events are generated
 /// either by world's ticking logic or by manual changes to the world.
 /// 
-/// This data structure is however not design to handle automatic chunk loading and 
+/// This data structure is however not designed to handle automatic chunk loading and 
 /// saving, every chunk needs to be manually inserted and removed, same for entities and
 /// block entities.
 /// 
