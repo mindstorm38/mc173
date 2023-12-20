@@ -2,6 +2,7 @@
 //! 
 //! TODO: Ensure parity of wrapping arithmetic where relevant.
 
+use std::mem;
 use std::fmt;
 
 use glam::{DVec3, DVec2, IVec3};
@@ -60,11 +61,14 @@ impl<const X: usize, const Y: usize, const Z: usize> fmt::Debug for NoiseCube<X,
     }
 }
 
+
 impl NoiseCube<1, 1, 1> {
 
     /// Create a reference to a 1x1x1 noise cube from a reference to a single f64.
     #[inline(always)]
     pub fn from_ref(value: &f64) -> &Self {
+        // We use this assert to ensure that size is correct, just to be sure.
+        const __ASSERT: () = assert!(mem::size_of::<NoiseCube<1, 1, 1>>() == mem::size_of::<f64>());
         // SAFETY: both f64 and NoiseCube<1, 1, 1> have are guaranteed to have the same
         // layout because NoiseCube is a transparent struct around an array, and arrays
         // have a known layout where first element is at byte offset 0.
