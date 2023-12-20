@@ -233,6 +233,10 @@ impl World {
         }
     }
 
+    // =================== //
+    //   CHUNK SNAPSHOTS   //
+    // =================== //
+
     /// Insert a chunk snapshot into this world at its position with all entities and 
     /// block entities attached to it.
     pub fn insert_chunk_snapshot(&mut self, snapshot: ChunkSnapshot) {
@@ -315,6 +319,10 @@ impl World {
 
     }
 
+    // =================== //
+    //        CHUNKS       //
+    // =================== //
+
     /// Raw function to add a chunk to the world at the given coordinates. Note that the
     /// given chunk only contains block and light data, so no entity or block entity will
     /// be added by this function.
@@ -348,17 +356,13 @@ impl World {
         self.chunks.get(&(cx, cz)).and_then(|c| c.data.as_deref())
     }
 
-    /// Get a mutable reference to a chunk, if existing. This operation will clone the 
-    /// internal chunk data if it was previously shared in with a [`ChunkView`].
+    /// Get a mutable reference to a chunk, if existing.
     pub fn get_chunk_mut(&mut self, cx: i32, cz: i32) -> Option<&mut Chunk> {
         self.chunks.get_mut(&(cx, cz)).and_then(|c| c.data.as_mut().map(Arc::make_mut))
     }
 
     /// Remove a chunk that may not exists. Note that this only removed the chunk data,
     /// not its entities and block entities.
-    /// 
-    /// If the chunk exists, all of its owned entities will be transferred to the orphan 
-    /// entities list to be later picked up by another chunk.
     pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Arc<Chunk>> {
         let chunk_comp = self.chunks.get_mut(&(cx, cz))?;
         let ret = chunk_comp.data.take();
@@ -372,6 +376,10 @@ impl World {
         }
         ret
     }
+
+    // =================== //
+    //        BLOCKS       //
+    // =================== //
 
     /// Set block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned, but if it is existing the previous block and metadata
@@ -439,13 +447,15 @@ impl World {
 
     /// Get block and metadata at given position in the world, if the chunk is not
     /// loaded, none is returned.
-    /// 
-    /// TODO: Work on a world's block cache to speed up access.
     pub fn get_block(&self, pos: IVec3) -> Option<(u8, u8)> {
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.get_chunk(cx, cz)?;
         Some(chunk.get_block(pos))
     }
+
+    // =================== //
+    //        HEIGHT       //
+    // =================== //
 
     /// Get saved height of a chunk column, Y component is ignored in the position.
     pub fn get_height(&self, pos: IVec3) -> Option<u8> {
@@ -453,6 +463,10 @@ impl World {
         let chunk = self.get_chunk(cx, cz)?;
         Some(chunk.get_height(pos))
     }
+
+    // =================== //
+    //        LIGHTS       //
+    // =================== //
 
     /// Get light level at the given position, in range 0..16.
     /// 
@@ -491,12 +505,20 @@ impl World {
         Some(brightness)
     }
 
+    // =================== //
+    //        BIOMES       //
+    // =================== //
+
     /// Get the biome at some position (Y component is ignored).
     pub fn get_biome(&self, pos: IVec3) -> Option<Biome> {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
         let chunk = self.get_chunk(cx, cz)?;
         Some(chunk.get_biome(pos))
     }
+
+    // =================== //
+    //       ENTITIES      //
+    // =================== //
 
     /// Internal function to ensure monomorphization and reduce bloat of the 
     /// generic [`spawn_entity`].
@@ -594,6 +616,10 @@ impl World {
 
     }
 
+    // =================== //
+    //   BLOCK ENTITIES    //
+    // =================== //
+
     /// Inner function to set block entity at given position, used to elide generics.
     #[inline(never)]
     fn set_block_entity_inner(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
@@ -677,6 +703,10 @@ impl World {
         true
     }
 
+    // =================== //
+    //   SCHEDULED TICKS   //
+    // =================== //
+
     /// Schedule a tick update to happen at the given position, for the given block id
     /// and with a given delay in ticks.
     pub fn schedule_tick(&mut self, pos: IVec3, id: u8, delay: u64) {
@@ -691,6 +721,10 @@ impl World {
         }
 
     }
+
+    // =================== //
+    //      ITERATORS      //
+    // =================== //
 
     /// Iterate over all blocks in the given area.
     /// *Min is inclusive and max is exclusive.*
@@ -744,6 +778,10 @@ impl World {
             })
 
     }
+
+    // =================== //
+    //       TICKING       //
+    // =================== //
     
     /// Tick the world, this ticks all entities.
     /// TODO: Guard this from being called recursively from tick functions.
