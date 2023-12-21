@@ -559,7 +559,6 @@ impl World {
             cx,
             cz,
             loaded: chunk_comp.data.is_some(),
-            bb: None,
         };
         
         self.entities.push(entity_comp);
@@ -785,32 +784,43 @@ impl World {
         }
     }
 
-    /// Internal function to iterate world entities in a given chunk.
-    fn iter_entity_components_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = &EntityComponent> {
-        self.chunks.get(&(cx, cz))
-            .into_iter() // Iterate the option, so if the chunk is absent, nothing return.
-            .flat_map(|chunk_comp| chunk_comp.entities.iter())
-            .map(move |&entity_index| &self.entities[entity_index])
-    }
-
     /// Iterate over all entities colliding with the given bounding box.
     /// *This function can't return the current updated entity.*
-    pub fn iter_entities_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (u32, &Entity, BoundingBox)> {
+    #[inline]
+    pub fn iter_entities_colliding(&self, bb: BoundingBox) -> EntitiesCollidingIter<'_> {
 
-        let (min_cx, min_cz) = calc_entity_chunk_pos(bb.min - 2.0);
-        let (max_cx, max_cz) = calc_entity_chunk_pos(bb.max + 2.0);
+        let (start_cx, start_cz) = calc_entity_chunk_pos(bb.min - 2.0);
+        let (end_cx, end_cz) = calc_entity_chunk_pos(bb.max + 2.0);
 
-        (min_cx..=max_cx).flat_map(move |cx| (min_cz..=max_cz).map(move |cz| (cx, cz)))
-            .flat_map(move |(cx, cz)| {
-                self.iter_entity_components_in_chunk(cx, cz).filter_map(move |entity| {
-                    let id = entity.id;
-                    if let (ComponentStorage::Ready(entity), Some(entity_bb)) = (&entity.inner, entity.bb) {
-                        bb.intersects(entity_bb).then_some((id, &**entity, entity_bb))
-                    } else {
-                        None
-                    }
-                })
-            })
+        EntitiesCollidingIter {
+            chunks: ChunkComponentsIter { 
+                chunks: &self.chunks, 
+                range: ChunkRange::new(start_cx, start_cz, end_cx, end_cz) },
+            indices: None,
+            entities: &self.entities[..],
+            bb,
+        }
+
+    }
+
+    /// Iterate over all entities colliding with the given bounding box through mut ref.
+    /// *This function can't return the current updated entity.*
+    #[inline]
+    pub fn iter_entities_colliding_mut(&mut self, bb: BoundingBox) -> EntitiesCollidingIterMut<'_> {
+        
+        let (start_cx, start_cz) = calc_entity_chunk_pos(bb.min - 2.0);
+        let (end_cx, end_cz) = calc_entity_chunk_pos(bb.max + 2.0);
+
+        EntitiesCollidingIterMut {
+            chunks: ChunkComponentsIter { 
+                chunks: &self.chunks, 
+                range: ChunkRange::new(start_cx, start_cz, end_cx, end_cz) },
+            indices: None,
+            entities: &mut self.entities[..],
+            bb,
+            #[cfg(debug_assertions)]
+            returned_pointers: HashSet::new(),
+        }
 
     }
 
@@ -973,14 +983,6 @@ impl World {
     #[instrument(skip_all)]
     fn tick_entities(&mut self) {
 
-        // Update every entity's bounding box prior to actually ticking.
-        for entity_comp in &mut self.entities {
-            // Ignore removed entities.
-            if let ComponentStorage::Ready(entity) = &entity_comp.inner {
-                entity_comp.bb = entity.0.coherent.then_some(entity.0.bb);
-            }
-        }
-
         let mut indices_to_remove = INDICES_TO_REMOVE.take();
         debug_assert!(indices_to_remove.is_empty());
 
@@ -1054,6 +1056,10 @@ impl World {
             if let Some((new_cx, new_cz)) = new_chunk {
                 if (prev_cx, prev_cz) != (new_cx, new_cz) {
 
+                    // NOTE: This part is really critical as this ensures Memory Safety
+                    // in iterators and therefore avoids Undefined Behaviors. Each entity
+                    // really needs to be in a single chunk at a time.
+                    
                     let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
                         .expect("entity previous chunk is missing")
                         .entities
@@ -1531,10 +1537,6 @@ struct EntityComponent {
     cz: i32,
     /// True when the chunk this entity is in is loaded with data.
     loaded: bool,
-    /// The bounding box of this entity prior to ticking, none is used if the entity
-    /// bounding box isn't coherent, which is the default when the entity has just been
-    /// spawned.
-    bb: Option<BoundingBox>,
 }
 
 /// Internal type for storing a world block entity.
@@ -1694,9 +1696,9 @@ pub struct BlocksInIter<'a> {
     /// avoid repeatedly fetching chunks' map.
     chunk: Option<(i32, i32, Option<&'a Chunk>)>,
     /// Minimum coordinate to fetch.
-    min: IVec3,
+    start: IVec3,
     /// Maximum coordinate to fetch (exclusive).
-    max: IVec3,
+    end: IVec3,
     /// Next block to fetch.
     cursor: IVec3,
 }
@@ -1704,25 +1706,25 @@ pub struct BlocksInIter<'a> {
 impl<'a> BlocksInIter<'a> {
 
     #[inline]
-    fn new(world: &'a World, mut min: IVec3, mut max: IVec3) -> Self {
+    fn new(world: &'a World, mut start: IVec3, mut end: IVec3) -> Self {
 
-        debug_assert!(min.x <= max.x && min.y <= max.y && min.z <= max.z);
+        debug_assert!(start.x <= end.x && start.y <= end.y && start.z <= end.z);
 
-        min.y = min.y.clamp(0, CHUNK_HEIGHT as i32 - 1);
-        max.y = max.y.clamp(0, CHUNK_HEIGHT as i32 - 1);
+        start.y = start.y.clamp(0, CHUNK_HEIGHT as i32 - 1);
+        end.y = end.y.clamp(0, CHUNK_HEIGHT as i32 - 1);
 
         // If one the component is in common, because max is exclusive, there will be no
         // blocks at all to read, so we set max to min so it will directly ends.
-        if min.x == max.x || min.y == max.y || min.z == max.z {
-            max = min;
+        if start.x == end.x || start.y == end.y || start.z == end.z {
+            end = start;
         }
 
         Self {
             world,
             chunk: None,
-            min,
-            max,
-            cursor: min,
+            start,
+            end,
+            cursor: start,
         }
 
     }
@@ -1737,12 +1739,12 @@ impl Iterator for BlocksInIter<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         
         // X is the last updated component, so when it reaches max it's done.
-        if self.cursor.x == self.max.x {
+        if self.cursor.x == self.end.x {
             return None;
         }
 
         // We are at the start of a new column, update the chunk.
-        if self.cursor.y == self.min.y {
+        if self.cursor.y == self.start.y {
             // NOTE: Unchecked because the Y value is clamped in the constructor.
             let (cx, cz) = calc_chunk_pos_unchecked(self.cursor);
             if !matches!(self.chunk, Some((ccx, ccz, _)) if (ccx, ccz) == (cx, cz)) {
@@ -1763,11 +1765,11 @@ impl Iterator for BlocksInIter<'_> {
         // This component order is important because it matches the internal layout of
         // chunks, and therefore improve cache efficiency.
         self.cursor.y += 1;
-        if self.cursor.y == self.max.y {
-            self.cursor.y = self.min.y;
+        if self.cursor.y == self.end.y {
+            self.cursor.y = self.start.y;
             self.cursor.z += 1;
-            if self.cursor.z == self.max.z {
-                self.cursor.z = self.min.z;
+            if self.cursor.z == self.end.z {
+                self.cursor.z = self.start.z;
                 self.cursor.x += 1;
             }
         }
@@ -1837,6 +1839,7 @@ impl Iterator for BlocksInChunkIter<'_> {
 
 /// An iterator over all entities in the world.
 pub struct EntitiesIter<'a>(slice::Iter<'a, EntityComponent>);
+
 impl FusedIterator for EntitiesIter<'_> {}
 impl ExactSizeIterator for EntitiesIter<'_> {}
 impl<'a> Iterator for EntitiesIter<'a> {
@@ -1862,6 +1865,7 @@ impl<'a> Iterator for EntitiesIter<'a> {
 
 /// An iterator over all entities in the world through mutable references.
 pub struct EntitiesIterMut<'a>(slice::IterMut<'a, EntityComponent>);
+
 impl FusedIterator for EntitiesIterMut<'_> {}
 impl ExactSizeIterator for EntitiesIterMut<'_> {}
 impl<'a> Iterator for EntitiesIterMut<'a> {
@@ -1900,10 +1904,14 @@ impl<'a> Iterator for EntitiesInChunkIter<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let index = *self.indices.as_mut()?.next()?;
-        let comp = &self.entities[index];
-        let entity = comp.inner.as_deref()?;
-        Some((comp.id, entity))
+        loop {
+            let index = *self.indices.as_mut()?.next()?;
+            let comp = &self.entities[index];
+            // We ignore updated entities.
+            if let Some(entity) = comp.inner.as_deref() {
+                return Some((comp.id, entity));
+            }
+        }
     }
 
     #[inline]
@@ -1926,34 +1934,38 @@ pub struct EntitiesInChunkIterMut<'a> {
     /// Only used when debug assertions are enabled in order to ensure the safety
     /// of the lifetime transmutation.
     #[cfg(debug_assertions)]
-    returned_pointers: HashSet<*mut EntityComponent>,
+    returned_pointers: HashSet<*mut Entity>,
 }
 
+impl FusedIterator for EntitiesInChunkIterMut<'_> {}
 impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
 
     type Item = (u32, &'a mut Entity);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let index = *self.indices.as_mut()?.next()?;
+            let comp = &mut self.entities[index];
+            // We ignore updated entities.
+            if let Some(entity) = comp.inner.as_deref_mut() {
 
-        let index = *self.indices.as_mut()?.next()?;
-        let comp = &mut self.entities[index];
+                // Only check uniqueness of returned pointer with debug assertions.
+                #[cfg(debug_assertions)] {
+                    assert!(self.returned_pointers.insert(entity), "wrong unsafe contract");
+                }
 
-        // Only check uniqueness of returned pointer with debug assertions.
-        #[cfg(debug_assertions)] {
-            assert!(self.returned_pointers.insert(comp), "wrong unsafe contract");
+                // SAFETY: We know that returned indices are unique because they come from
+                // a map iterator that have unique "usize" keys. So each entity will be 
+                // accessed and mutated once and in one place only. So we transmute the 
+                // lifetime to 'a, instead of using the default `'self`. This is almost 
+                // the same as the implementation of mutable slice iterators where we can
+                // get mutable references to all slice elements at once.
+                let entity = unsafe { &mut *(entity as *mut Entity) };
+                return Some((comp.id, entity));
+
+            }
         }
-
-        // SAFETY: We know that returned indices are unique because they come from a map
-        // iterator that have unique "usize" keys. So each entity will be accessed and
-        // mutated once and in one place only. So we transmute the lifetime to 'a, instead
-        // of using the default `'self`. This is almost the same as the implementation
-        // of mutable slice iterators where we can get mutable references to all slice
-        // elements at once.
-        let comp = unsafe { &mut *(comp as *mut EntityComponent) };
-        let entity = comp.inner.as_deref_mut()?;
-        Some((comp.id, entity))
-
     }
 
     #[inline]
@@ -1963,6 +1975,183 @@ impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
         } else {
             (0, Some(0))
         }
+    }
+
+}
+
+/// An iterator of entities within a chunk.
+pub struct EntitiesCollidingIter<'a> {
+    /// Chunk components iter whens indices is exhausted.
+    chunks: ChunkComponentsIter<'a>,
+    /// The entities indices, returned indices are unique within the iterator.
+    indices: Option<indexmap::set::Iter<'a, usize>>,
+    /// The entities.
+    entities: &'a [EntityComponent],
+    /// Bounding box to check.
+    bb: BoundingBox,
+}
+
+impl FusedIterator for EntitiesCollidingIter<'_> {}
+impl<'a> Iterator for EntitiesCollidingIter<'a> {
+
+    type Item = (u32, &'a Entity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+
+            if self.indices.is_none() {
+                self.indices = Some(self.chunks.next()?.entities.iter());
+            }
+
+            // If there is no next index, set indices to none and loop over.
+            if let Some(&index) = self.indices.as_mut().unwrap().next() {
+                let comp = &self.entities[index];
+                // We ignore updated/not colliding entities.
+                if let Some(entity) = comp.inner.as_deref() {
+                    if entity.0.bb.intersects(self.bb) {
+                        return Some((comp.id, entity));
+                    }
+                }
+            } else {
+                self.indices = None;
+            }
+
+        }
+    }
+
+}
+
+/// An iterator of entities within a chunk through mutable references.
+pub struct EntitiesCollidingIterMut<'a> {
+    /// Chunk components iter whens indices is exhausted.
+    chunks: ChunkComponentsIter<'a>,
+    /// The entities indices, returned indices are unique within the iterator.
+    indices: Option<indexmap::set::Iter<'a, usize>>,
+    /// The entities.
+    entities: &'a mut [EntityComponent],
+    /// Bounding box to check.
+    bb: BoundingBox,
+    /// Only used when debug assertions are enabled in order to ensure the safety
+    /// of the lifetime transmutation.
+    #[cfg(debug_assertions)]
+    returned_pointers: HashSet<*mut Entity>,
+}
+
+impl FusedIterator for EntitiesCollidingIterMut<'_> {}
+impl<'a> Iterator for EntitiesCollidingIterMut<'a> {
+
+    type Item = (u32, &'a mut Entity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+
+            if self.indices.is_none() {
+                self.indices = Some(self.chunks.next()?.entities.iter());
+            }
+
+            // If there is no next index, set indices to none and loop over.
+            if let Some(&index) = self.indices.as_mut().unwrap().next() {
+                let comp = &mut self.entities[index];
+                // We ignore updated/not colliding entities.
+                if let Some(entity) = comp.inner.as_deref_mut() {
+                    if entity.0.bb.intersects(self.bb) {
+
+                        #[cfg(debug_assertions)] {
+                            assert!(self.returned_pointers.insert(entity), "wrong unsafe contract");
+                        }
+
+                        // SAFETY: Read safety note of 'EntitiesInChunkIterMut', however
+                        // we have additional constraint, because we iterate different 
+                        // index map iterators so we are no longer guaranteed uniqueness
+                        // of returned indices. However, our world implementation ensures
+                        // that any entity is only present in a single chunk.
+                        let entity = unsafe { &mut *(entity as *mut Entity) };
+                        return Some((comp.id, entity));
+                        
+                    }
+                }
+            } else {
+                self.indices = None;
+            }
+
+        }
+    }
+
+}
+
+
+/// Internal iterator chunk components in a range.
+struct ChunkComponentsIter<'a> {
+    /// Map of chunk components that we 
+    chunks: &'a HashMap<(i32, i32), ChunkComponent>,
+    /// The range of chunks to iterate on.
+    range: ChunkRange,
+}
+
+impl FusedIterator for ChunkComponentsIter<'_> {}
+impl<'a> Iterator for ChunkComponentsIter<'a> {
+
+    type Item = &'a ChunkComponent;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((cx, cz)) = self.range.next() {
+            if let Some(comp) = self.chunks.get(&(cx, cz)) {
+                return Some(comp);
+            }
+        }
+        None
+    }
+
+}
+
+
+/// Internal iterator of chunk coordinates.
+struct ChunkRange {
+    cx: i32,
+    cz: i32,
+    start_cx: i32,
+    end_cx: i32,
+    end_cz: i32,
+}
+
+impl ChunkRange {
+    #[inline]
+    fn new(start_cx: i32, start_cz: i32, end_cx: i32, end_cz: i32) -> Self {
+        Self {
+            cx: start_cx,
+            cz: start_cz,
+            start_cx,
+            end_cx,
+            end_cz,
+        }
+    }
+}
+
+impl FusedIterator for ChunkRange {}
+impl Iterator for ChunkRange {
+
+    type Item = (i32, i32);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        
+        if (self.cx, self.cz) == (self.end_cx, self.end_cz) {
+            return None;
+        }
+
+        let ret = (self.cx, self.cz);
+
+        self.cx += 1;
+        if self.cx == self.end_cx {
+            self.cx = self.start_cx;
+            self.cz += 1;
+        }
+
+        Some(ret)
+
     }
 
 }

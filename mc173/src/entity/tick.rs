@@ -55,8 +55,6 @@ thread_local! {
     static ENTITY_ID: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
     /// Temporary bounding boxes storage.
     static BOUNDING_BOX: RefCell<Vec<BoundingBox>> = const { RefCell::new(Vec::new()) };
-    /// Temporary entity id with vector.
-    static ENTITY_ID_WITH_VEC: RefCell<Vec<(u32, DVec3)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Entry point tick method for all entities.
@@ -333,7 +331,7 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
 
                 debug_assert!(picked_up_entities.is_empty());
                 
-                for (entity_id, entity, _) in world.iter_entities_colliding(base.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
+                for (entity_id, entity) in world.iter_entities_colliding(base.bb.inflate(DVec3::new(1.0, 0.0, 1.0))) {
 
                     match &entity.1 {
                         BaseKind::Item(item) => {
@@ -1014,10 +1012,10 @@ fn tick_base_pos(world: &mut World, _id: u32, base: &mut Base, delta: DVec3, ste
 
             colliding_bbs.extend(world.iter_blocks_boxes_colliding(colliding_bb));
             colliding_bbs.extend(world.iter_entities_colliding(colliding_bb)
-                .filter_map(|(_entity_id, entity, entity_bb)| {
+                .filter_map(|(_entity_id, entity)| {
                     // Only the boat entity acts like a hard bounding box.
-                    if let Entity(_, BaseKind::Boat(_)) = entity {
-                        Some(entity_bb)
+                    if let Entity(base, BaseKind::Boat(_)) = entity {
+                        Some(base.bb)
                     } else {
                         None
                     }
@@ -1096,55 +1094,45 @@ fn tick_living_push(world: &mut World, _id: u32, base: &mut Base) {
 
     // TODO: pushing minecart
 
-    // Temporarily owned vector in order to compute pushed entities.
-    // REF: Entity::applyEntityCollision
-    ENTITY_ID_WITH_VEC.with_borrow_mut(|pushed_entities| {
+    // For each colliding entity, precalculate the velocity to add to both entities.
+    for (_, push_entity) in world.iter_entities_colliding_mut(base.bb.inflate(DVec3::new(0.2, 0.0, 0.2))) {
+        
+        let Entity(push_base, push_base_kind) = push_entity;
 
-        debug_assert!(pushed_entities.is_empty());
-
-        // For each colliding entity, precalculate the velocity to add to both entities.
-        for (push_id, push_entity, _) in world.iter_entities_colliding(base.bb.inflate(DVec3::new(0.2, 0.0, 0.2))) {
-            
-            let Entity(push_base, push_base_kind) = push_entity;
-
-            match push_base_kind {
-                BaseKind::Boat(_) |
-                BaseKind::Living(_, _) |
-                BaseKind::Minecart(_) => {}
-                _ => continue // Other entities cannot be pushed.
-            }
-
-            let mut dx = base.pos.x - push_base.pos.x;
-            let mut dz = base.pos.z - push_base.pos.z;
-            let mut delta = f64::max(dx.abs(), dz.abs());
-            
-            if delta >= 0.01 {
-                
-                delta = delta.sqrt();
-                dx /= delta;
-                dz /= delta;
-
-                let delta_inv = 1.0 / delta;
-                dx *= delta_inv;
-                dz *= delta_inv;
-                dx *= 0.05;
-                dz *= 0.05;
-
-                pushed_entities.push((push_id, DVec3::new(dx, 0.0, dz)));
-
-            }
-
+        match push_base_kind {
+            BaseKind::Boat(_) |
+            BaseKind::Living(_, _) |
+            BaseKind::Minecart(_) => {}
+            _ => continue // Other entities cannot be pushed.
         }
 
-        for (push_id, push_delta) in pushed_entities.drain(..) {
-            let Entity(push_base, _) = world.get_entity_mut(push_id).unwrap();
-            push_base.vel -= push_delta;
-            base.vel += push_delta;
+        let mut dx = base.pos.x - push_base.pos.x;
+        let mut dz = base.pos.z - push_base.pos.z;
+        let mut delta = f64::max(dx.abs(), dz.abs());
+        
+        if delta >= 0.01 {
+            
+            delta = delta.sqrt();
+            dx /= delta;
+            dz /= delta;
+
+            let delta_inv = 1.0 / delta;
+            dx *= delta_inv;
+            dz *= delta_inv;
+            dx *= 0.05;
+            dz *= 0.05;
+
+            let delta = DVec3::new(dx, 0.0, dz);
+            
+            push_base.vel -= delta;
             push_base.vel_dirty = true;
+            
+            base.vel += delta;
             base.vel_dirty = true;
+
         }
 
-    });
+    }
 
 }
 
