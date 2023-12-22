@@ -22,7 +22,7 @@ use crate::path::PathFinder;
 use crate::item::ItemStack;
 use crate::block;
 
-use super::{Entity, Size, Path,
+use super::{Entity, Size, Path, Hurt,
     BaseKind, ProjectileKind, LivingKind, 
     Base, Living, 
     LookTarget};
@@ -256,11 +256,85 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
         
     }
 
+    fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
+
+        // Super call.
+        tick_base(world, id, entity);
+
+        let_expect!(Entity(base, BaseKind::Projectile(projectile, _)) = entity);
+
+        projectile.shake = projectile.shake.saturating_sub(1);
+        projectile.state_time = projectile.state_time.saturating_add(1);
+
+        if let Some(hit) = projectile.state {
+            if (hit.block, hit.metadata) == world.get_block(hit.pos).unwrap() {
+                if projectile.state_time == 1200 {
+                    world.remove_entity(id);
+                }
+            } else {
+                base.vel *= (base.rand.next_vec3() * 0.2).as_dvec3();
+                base.vel_dirty = true;
+                projectile.state = None;
+                projectile.state_time = 0;
+            }
+        } else {
+
+            let mut projectile_vel = base.vel;
+
+            // Check if we hit a block, if so we update the projectile velocity.
+            let hit_block = world.ray_trace_blocks(base.pos, projectile_vel, false);
+            if let Some(hit) = &hit_block {
+                projectile_vel = hit.ray;
+            }
+
+            // Only prevent collision with owner for the first 4 ticks.
+            let owner_id = projectile.owner_id.filter(|_| projectile.state_time < 5);
+            
+            // We try to find an entity that collided with the ray.
+            let hit_entity = world.iter_entities_colliding_mut(base.bb.offset(projectile_vel).inflate(DVec3::ONE))
+                // Filter out entities that we cannot collide with.
+                .filter(|(target_id, Entity(_, target_base_kind))| {
+                    match target_base_kind {
+                        BaseKind::Fish(_) |
+                        BaseKind::Item(_) |
+                        BaseKind::LightningBolt(_) |
+                        BaseKind::Projectile(_, _) => false,
+                        // Do not collide with owner...
+                        _ => Some(*target_id) != owner_id,
+                    }
+                })
+                // Check if the current ray intersects with the entity bounding box,
+                // inflated by 0.3, if so we return the entity and the ray length^2.
+                .filter_map(|(_, target_entity)| {
+                    target_entity.0.bb
+                        .inflate(DVec3::splat(0.3))
+                        .calc_ray_trace(base.pos, projectile_vel)
+                        .map(|(new_ray, _)| (target_entity, new_ray.length_squared()))
+                })
+                // Take the entity closer to the origin.
+                .min_by(|(_, len1), (_, len2)| len1.total_cmp(len2))
+                // Keep only the entity, if found.
+                .map(|(entity, _)| entity);
+
+            if let Some(Entity(hit_base, _)) = hit_entity {
+                
+                hit_base.hurt.push(Hurt { 
+                    damage: 4, 
+                    origin_id: projectile.owner_id,
+                });
+
+            }
+
+        }
+        
+    }
+
     match entity {
         Entity(_, BaseKind::Item(_)) => tick_item(world, id, entity),
         Entity(_, BaseKind::Painting(_)) => tick_painting(world, id, entity),
         Entity(_, BaseKind::FallingBlock(_)) => tick_falling_block(world, id, entity),
         Entity(_, BaseKind::Living(_, _)) => tick_living(world, id, entity),
+        Entity(_, BaseKind::Projectile(_, _)) => tick_projectile(world, id, entity),
         Entity(_, _) => tick_base(world, id, entity),
     }
 
@@ -343,7 +417,7 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
                             }
                         }
                         BaseKind::Projectile(projectile, ProjectileKind::Arrow(_)) => {
-                            if projectile.block_hit.is_some() {
+                            if projectile.state.is_some() {
                                 picked_up_entities.push(entity_id);
                             }
                         }
@@ -367,7 +441,7 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
     }
 
     /// REF: EntityLiving::onEntityUpdate
-    fn tick_living_base(world: &mut World, id: u32, entity: &mut Entity) {
+    fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
 
         // Super call.
         tick_state_base(world, id, entity);
@@ -391,7 +465,10 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
 
                 if world.is_block_opaque_cube(base.pos.add(delta).floor().as_ivec3()) {
                     // One damage per tick (not overwriting if already set to higher).
-                    living.hurt_damage = living.hurt_damage.max(1);
+                    base.hurt.push(Hurt {
+                        damage: 1,
+                        origin_id: None,
+                    });
                     break;
                 }
 
@@ -404,44 +481,47 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
         living.attack_time = living.attack_time.saturating_sub(1);
         living.hurt_time = living.hurt_time.saturating_sub(1);
 
-        // If some damage have to be applied...
-        if living.health != 0 && living.hurt_damage != 0 {
+        /// The hurt time when hit for the first time.
+        /// PARITY: The Notchian impl doesn't actually use hurt time but another variable
+        ///  that have the exact same behavior, so we use hurt time here to be more,
+        ///  consistent. We also avoid the divide by two thing that is useless.
+        const HURT_INITIAL_TIME: u16 = 10;
 
-            /// The hurt time when hit for the first time.
-            /// PARITY: The Notchian impl doesn't actually use hurt time but another variable
-            ///  that have the exact same behavior, so we use hurt time here to be more,
-            ///  consistent. We also avoid the divide by two thing that is useless.
-            const HURT_INITIAL_TIME: u16 = 10;
+        while let Some(hurt) = base.hurt.pop() {
+
+            // Don't go further if entity is already dead.
+            if living.health == 0 {
+                break;
+            }
 
             // Calculate the actual damage dealt on this tick depending on cooldown.
             let mut actual_damage = 0;
             if living.hurt_time == 0 {
                 
                 living.hurt_time = HURT_INITIAL_TIME;
-                living.hurt_last_damage = living.hurt_damage;
-                actual_damage = living.hurt_damage;
+                living.hurt_last_damage = hurt.damage;
+                actual_damage = hurt.damage;
                 world.push_event(Event::Entity { id, inner: EntityEvent::Damage });
 
-                if let Some(origin) = living.hurt_origin {
-                    let mut dir = origin - base.pos;
-                    dir.y = 0.0; // We ignore verticle delta.
-                    while dir.length_squared() < 1.0e-4 {
-                        dir = DVec3 {
-                            x: (base.rand.next_double() - base.rand.next_double()) * 0.01,
-                            y: 0.0,
-                            z: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                if let Some(origin_id) = hurt.origin_id {
+                    if let Some(Entity(origin_base, _)) = world.get_entity(origin_id) {
+                        let mut dir = origin_base.pos - base.pos;
+                        dir.y = 0.0; // We ignore verticle delta.
+                        while dir.length_squared() < 1.0e-4 {
+                            dir = DVec3 {
+                                x: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                                y: 0.0,
+                                z: (base.rand.next_double() - base.rand.next_double()) * 0.01,
+                            }
                         }
+                        update_knock_back(base, dir);
                     }
-                    update_knock_back(base, dir);
                 }
 
-            } else if living.hurt_damage > living.hurt_last_damage {
-                actual_damage = living.hurt_damage - living.hurt_last_damage;
-                living.hurt_last_damage = living.hurt_damage;
+            } else if hurt.damage > living.hurt_last_damage {
+                actual_damage = hurt.damage - living.hurt_last_damage;
+                living.hurt_last_damage = hurt.damage;
             }
-
-            // Damage are reset after being applied.
-            living.hurt_damage = 0;
 
             // Apply damage.
             if actual_damage != 0 {
@@ -469,7 +549,7 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
     }
 
     match entity {
-        Entity(_, BaseKind::Living(_, _)) => tick_living_base(world, id, entity),
+        Entity(_, BaseKind::Living(_, _)) => tick_state_living(world, id, entity),
         Entity(_, _) => tick_state_base(world, id, entity),
     }
 
@@ -860,7 +940,7 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, should_strafe: &mut bool) {
 
     /// REF: EntityMob::attackEntity
-    fn tick_mob_attack(world: &mut World, _id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, _should_strafe: &mut bool) {
+    fn tick_mob_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, _should_strafe: &mut bool) {
 
         /// Maximum distance for the mob to attack.
         const MAX_DIST_SQUARED: f64 = 2.0 * 2.0;
@@ -869,7 +949,7 @@ fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, 
 
         if eye_track && living.attack_time == 0 && dist_squared < MAX_DIST_SQUARED {
 
-            let Some(Entity(target_base, BaseKind::Living(target_living, _))) = world.get_entity_mut(target_id) else {
+            let Some(Entity(target_base, BaseKind::Living(_, _))) = world.get_entity_mut(target_id) else {
                 panic!("target entity should exists");
             };
 
@@ -883,7 +963,11 @@ fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, 
                 };
 
                 living.attack_time = 20;
-                target_living.hurt_damage = target_living.hurt_damage.max(attack_damage);
+
+                target_base.hurt.push(Hurt {
+                    damage: attack_damage,
+                    origin_id: Some(id),
+                });
 
             }
 

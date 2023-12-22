@@ -1,16 +1,15 @@
 //! Methods to interact with entities.
 
-use glam::DVec3;
-
+use crate::entity::Hurt;
 use crate::item;
 
-use super::{Entity, BaseKind};
+use super::Entity;
 
 
 impl Entity {
 
     /// Attack the entity with the given item.
-    pub fn hurt_with(&mut self, item: u16, bonus: u16, origin: Option<DVec3>) {
+    pub fn hurt_with(&mut self, item: u16, bonus: u16, origin_id: Option<u32>) {
         
         const DIAMOND_DAMAGE: u16 = 3;
         const IRON_DAMAGE: u16 = 2;
@@ -48,20 +47,11 @@ impl Entity {
             _ => 1,
         };
 
-        self.hurt(damage, origin);
-
-    }
-
-    pub fn hurt(&mut self, damage: u16, origin: Option<DVec3>) {
-
-        let Entity(_, base_kind) = self;
-
-        if let BaseKind::Living(living, _) = base_kind {
-            if living.hurt_damage == 0 {
-                living.hurt_origin = origin;
-            }
-            living.hurt_damage = living.hurt_damage.max(damage);
-        }
+        let Entity(base, _) = self;
+        base.hurt.push(Hurt {
+            damage,
+            origin_id,
+        });
 
     }
 

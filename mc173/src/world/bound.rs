@@ -121,9 +121,10 @@ impl World {
     }
 
     /// Ray trace from an origin point and return the first colliding blocks, either 
-    /// entity or block. Caller can choose to hit fluid blocks or not.
+    /// entity or block. The fluid argument is used to hit the fluid **source** blocks or
+    /// not.
     #[instrument(level = "debug", skip_all)]
-    pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, fluid: bool) -> Option<(IVec3, Face)> {
+    pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, fluid: bool) -> Option<RayTraceHit> {
         
         let ray_norm = ray.normalize();
 
@@ -132,17 +133,23 @@ impl World {
         let stop_pos = origin.add(ray).floor().as_ivec3();
 
         // Break when an invalid chunk is encountered.
-        while let Some((id, metadata)) = self.get_block(block_pos) {
+        while let Some((block, metadata)) = self.get_block(block_pos) {
 
             let mut should_check = true;
-            if fluid && matches!(id, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
+            if fluid && matches!(block, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
                 should_check = block::fluid::is_source(metadata);
             }
 
             if should_check {
-                if let Some(bb) = self.get_overlay_box(block_pos, id, metadata) {
-                    if let Some((_, face)) = bb.calc_ray_trace(origin, ray) {
-                        return Some((block_pos, face));
+                if let Some(bb) = self.get_overlay_box(block_pos, block, metadata) {
+                    if let Some((new_ray, face)) = bb.calc_ray_trace(origin, ray) {
+                        let var_name = Some(RayTraceHit {
+                            ray: new_ray,
+                            pos: block_pos,
+                            block,
+                            metadata,
+                            face,
+                        });
                     }
                 }
             }
@@ -203,11 +210,11 @@ impl World {
 
 /// Internal iterator implementation for bounding boxes of a block with metadata, we must
 /// use an iterator because some blocks have multiple bounding boxes.
-struct CollidingBoxIter<'w> {
+struct CollidingBoxIter<'a> {
     /// The world where the bounding box is iterated.
     /// TODO: This is for block entities.
     #[allow(unused)]
-    world: &'w World,
+    world: &'a World,
     /// The block position in the world, the returned bounding box is offset by this.
     pos: IVec3,
     /// The block id.
@@ -218,7 +225,7 @@ struct CollidingBoxIter<'w> {
     index: u8,
 }
 
-impl<'w> Iterator for CollidingBoxIter<'w> {
+impl Iterator for CollidingBoxIter<'_> {
 
     type Item = BoundingBox;
 
@@ -302,4 +309,19 @@ impl<'w> Iterator for CollidingBoxIter<'w> {
 
     }
 
+}
+
+
+/// Result of a ray trace that hit a block.
+pub struct RayTraceHit {
+    /// The ray vector that stop on the block.
+    pub ray: DVec3,
+    /// The position of the block.
+    pub pos: IVec3,
+    /// The block.
+    pub block: u8,
+    /// The block metadata.
+    pub metadata: u8,
+    /// The face of the block.
+    pub face: Face,
 }

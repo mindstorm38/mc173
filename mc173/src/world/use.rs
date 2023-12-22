@@ -265,8 +265,8 @@ impl World {
         let pitch_h = entity.0.look.y.cos();
         let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
 
-        let (pos, face) = self.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR)?;
-        let (id, metadata) = self.get_block(pos)?;
+        let hit = self.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR)?;
+        let (id, metadata) = self.get_block(hit.pos)?;
 
         // The bucket is empty.
         if fluid_id == block::AIR {
@@ -282,13 +282,13 @@ impl World {
                 _ => return None
             };
 
-            self.set_block_notify(pos, block::AIR, 0);
+            self.set_block_notify(hit.pos, block::AIR, 0);
 
             Some(ItemStack::new_single(item, 0))
 
         } else {
 
-            let pos = pos + face.delta();
+            let pos = hit.pos + hit.face.delta();
             let (id, _) = self.get_block(pos)?;
 
             if id == block::AIR || !block::material::get_material(id).is_solid() {

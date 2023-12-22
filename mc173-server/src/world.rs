@@ -463,7 +463,7 @@ impl ServerWorld {
     /// Handle an entity damage/dead or other status for an entity.
     fn handle_entity_status(&mut self, id: u32, status: u8) {
         for player in &self.players {
-            if player.tracked_entities.contains(&id) {
+            if player.tracked_entities.contains(&id) || player.entity_id == id {
                 player.send(OutPacket::EntityStatus(proto::EntityStatusPacket {
                     entity_id: id,
                     status,

@@ -97,15 +97,15 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
             let mut projectile = Projectile::default();
 
             if comp.get_boolean("inGround")? {
-                projectile.block_hit = Some((
-                    IVec3 {
+                projectile.state = Some(e::ProjectileHit {
+                    pos: IVec3 {
                         x: comp.get_short("xTile")? as i32,
                         y: comp.get_short("yTile")? as i32,
                         z: comp.get_short("zTile")? as i32,
-                    },
-                    comp.get_byte("inTile")? as u8,
-                    comp.get_byte("inData")? as u8
-                ));
+                    }, 
+                    block: comp.get_byte("inTile")? as u8, 
+                    metadata: comp.get_byte("inData")? as u8,
+                });
             }
 
             projectile.shake = comp.get_byte("shake")?.max(0) as u8;
@@ -256,12 +256,13 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
                 ProjectileKind::Fireball(_) => return None, // Not serializable
             }
 
-            let (pos, block, metadata) = projectile.block_hit.unwrap_or_default();
-            comp.insert("xTile", pos.x as i16);
-            comp.insert("yTile", pos.y as i16);
-            comp.insert("zTile", pos.z as i16);
-            comp.insert("inTile", block);
-            comp.insert("inData", metadata);
+            let block = projectile.state.unwrap_or_default();
+            comp.insert("xTile", block.pos.x as i16);
+            comp.insert("yTile", block.pos.y as i16);
+            comp.insert("zTile", block.pos.z as i16);
+            comp.insert("inTile", block.block);
+            comp.insert("inData", block.metadata);
+            comp.insert("inGround", projectile.state.is_some());
             comp.insert("shake", projectile.shake.min(i8::MAX as _) as i8);
 
         }

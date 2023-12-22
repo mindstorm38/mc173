@@ -810,7 +810,7 @@ impl ServerPlayer {
         if packet.left_click {
 
             // TODO: Critical damage if vel.y < 0
-            target_entity.hurt_with(hand_stack.id, 0, Some(self.pos));
+            target_entity.hurt_with(hand_stack.id, 0, Some(self.entity_id));
 
         } else {
             

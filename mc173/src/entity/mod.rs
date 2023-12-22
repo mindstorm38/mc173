@@ -96,6 +96,7 @@ pub enum LivingKind {
     Zombie(Zombie),
 }
 
+/// The base data common to all entities.
 #[derive(Debug, Clone, Default)]
 pub struct Base {
     /// Tell if this entity is persistent or not. A persistent entity is saved with its
@@ -169,24 +170,29 @@ pub struct Base {
     pub fire_time: u32,
     /// Remaining air ticks to breathe.
     pub air_time: u32,
+    /// A list of hurts to apply to the entity.
+    pub hurt: Vec<Hurt>,
     /// If this entity is ridden, this contains its entity id.
     pub rider_id: Option<u32>,
     /// The random number generator used for this entity.
     pub rand: JavaRandom,
 }
 
+/// Hurt data to apply on the next tick to the entity.
+#[derive(Debug, Clone, Default)]
+pub struct Hurt {
+    /// The damage to deal.
+    pub damage: u16,
+    /// When damage is dealt, this optionally contains the entity id at the origin of the
+    /// hit in order to apply knock back to the entity if needed.
+    pub origin_id: Option<u32>,
+}
+
+/// The data common to all living entities.
 #[derive(Debug, Clone, Default)]
 pub struct Living {
     /// The health.
     pub health: u16,
-    /// The damage to inflict on next tick, this damage is removed from the health on the
-    /// next tick only if `hurt_time` is zero, only the difference with the last damage in
-    /// `hurt_last_damage` is applied before updating it.
-    pub hurt_damage: u16,
-    /// If needed, this represent the origin of the `hurt_damage`, if any. This is used
-    /// to apply a knock back from this direction. The knock back is only applied when
-    /// `hurt_time` is zero.
-    pub hurt_origin: Option<DVec3>,
     /// The last damage inflicted to the entity during `hurt_time`, this is used to only
     /// damage for the maximum damage inflicted while `hurt_time` is not zero.
     pub hurt_last_damage: u16,
@@ -213,14 +219,28 @@ pub struct Living {
     pub path: Option<Path>,
 }
 
+/// The data common to all projectile entities.
 #[derive(Debug, Clone, Default)]
 pub struct Projectile {
-    /// Set to the position and block id this projectile is stuck in.
-    pub block_hit: Option<(IVec3, u8, u8)>,
-    /// Some entity id if this projectile was thrown by an entity.
+    /// The state of the projectile, none when in air, set to block/metadata when in.
+    pub state: Option<ProjectileHit>,
+    /// This is the number of ticks the projectile has been in its current state.
+    pub state_time: u16,
+    /// Some entity id if this projectile was thrown by an entity, this is used to avoid
+    /// hitting the owner.
     pub owner_id: Option<u32>,
     /// Current shaking of the projectile.
     pub shake: u8,
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+pub struct ProjectileHit {
+    /// The block position the projectile is in.
+    pub pos: IVec3,
+    /// The block the projectile is in.
+    pub block: u8,
+    /// The block metadata the projectile is in.
+    pub metadata: u8,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -243,6 +263,45 @@ pub struct Painting {
     pub art: PaintingArt,
     /// This timer is used to repeatedly check if the painting is at a valid position.
     pub check_valid_time: u8,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PaintingOrientation {
+    #[default]
+    NegX,
+    PosX,
+    NegZ,
+    PosZ,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PaintingArt {
+    #[default]
+    Kebab,
+    Aztec,
+    Alban,
+    Aztec2,
+    Bomb,
+    Plant,
+    Wasteland,
+    Pool,
+    Courbet,
+    Sea,
+    Sunset,
+    Creebet,
+    Wanderer,
+    Graham,
+    Match,
+    Bust,
+    Stage,
+    Void,
+    SkullAndRoses,
+    Fighters,
+    Pointer,
+    Pigscene,
+    BurningSkull,
+    Skeleton,
+    DonkeyKong,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -434,45 +493,6 @@ impl Path {
         self.index += 1;
     }
     
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PaintingOrientation {
-    #[default]
-    NegX,
-    PosX,
-    NegZ,
-    PosZ,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PaintingArt {
-    #[default]
-    Kebab,
-    Aztec,
-    Alban,
-    Aztec2,
-    Bomb,
-    Plant,
-    Wasteland,
-    Pool,
-    Courbet,
-    Sea,
-    Sunset,
-    Creebet,
-    Wanderer,
-    Graham,
-    Match,
-    Bust,
-    Stage,
-    Void,
-    SkullAndRoses,
-    Fighters,
-    Pointer,
-    Pigscene,
-    BurningSkull,
-    Skeleton,
-    DonkeyKong,
 }
 
 
