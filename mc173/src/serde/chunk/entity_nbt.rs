@@ -111,7 +111,11 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
             projectile.shake = comp.get_byte("shake")?.max(0) as u8;
 
             let projectile_kind = match id {
-                "Arrow" => ProjectileKind::Arrow(e::Arrow::default()),
+                "Arrow" => {
+                    ProjectileKind::Arrow(e::Arrow {
+                        from_player: comp.get_boolean("player").unwrap_or_default(),
+                    })
+                }
                 "Snowball" => ProjectileKind::Snowball(e::Snowball::default()),
                 _ => unreachable!()
             };
@@ -250,7 +254,10 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
         BaseKind::Projectile(projectile, projectile_kind) => {
 
             match projectile_kind {
-                ProjectileKind::Arrow(_) => comp.insert("id", "Arrow"),
+                ProjectileKind::Arrow(arrow) => {
+                    comp.insert("id", "Arrow");
+                    comp.insert("player", arrow.from_player);
+                }
                 ProjectileKind::Snowball(_) => comp.insert("id", "Snowball"),
                 ProjectileKind::Egg(_) => return None, // Not serializable
                 ProjectileKind::Fireball(_) => return None, // Not serializable

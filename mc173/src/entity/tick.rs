@@ -345,8 +345,6 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                 // modify the position we sent and move any entity out of the block while
                 // inflating the bounding box by 1/32 horizontally. We use 2/32 here in
                 // order to account for precision errors.
-                const ADJUST_INFLATE: f64 = 2.0 / 32.0;
-
                 if hit_block.face == Face::PosY {
                     // No inflate need on that face.
                     base.pos.y += base.size.center as f64;
@@ -355,7 +353,7 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                     // offset the entity by its whole height and it make no sense on 
                     // client side, not more sense that the current behavior.
                 } else {
-                    base.pos += hit_block.face.delta().as_dvec3() * (base.size.width / 2.0) as f64 + ADJUST_INFLATE;
+                    base.pos += hit_block.face.delta().as_dvec3() * (base.size.width / 2.0 + (2.0 / 32.0)) as f64;
                 }
 
             }
@@ -472,8 +470,8 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
                                 picked_up_entities.push(entity_id);
                             }
                         }
-                        BaseKind::Projectile(projectile, ProjectileKind::Arrow(_)) => {
-                            if projectile.state.is_some() {
+                        BaseKind::Projectile(projectile, ProjectileKind::Arrow(arrow)) => {
+                            if projectile.state.is_some() && arrow.from_player {
                                 picked_up_entities.push(entity_id);
                             }
                         }

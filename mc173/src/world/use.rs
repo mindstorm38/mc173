@@ -311,7 +311,7 @@ impl World {
         
         let Entity(base, _) = self.get_entity(entity_id).unwrap();
 
-        let arrow = Arrow::new_with(|arrow_base, arrow_projectile, _| {
+        let arrow = Arrow::new_with(|arrow_base, arrow_projectile, arrow| {
             
             arrow_base.pos = base.pos;
             arrow_base.pos.y += base.eye_height as f64;
@@ -325,6 +325,7 @@ impl World {
             arrow_base.vel.y = (-pitch_sin) as f64;
 
             arrow_projectile.owner_id = Some(entity_id);
+            arrow.from_player = true;
 
         });
 

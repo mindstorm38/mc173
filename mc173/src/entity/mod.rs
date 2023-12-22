@@ -346,7 +346,10 @@ pub struct Tnt {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Arrow { }
+pub struct Arrow {
+    /// Set to true for arrows that are sent by players and therefore can be picked up.
+    pub from_player: bool,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Egg { }
