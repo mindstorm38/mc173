@@ -86,8 +86,10 @@ impl EntityTracker {
         
         tracker.set_pos(entity.0.pos);
         tracker.set_look(entity.0.look);
+        tracker.set_vel(entity.0.vel);
         tracker.sent_pos = tracker.pos;
         tracker.sent_look = tracker.look;
+        tracker.sent_vel = tracker.vel;
         tracker
 
     } 
@@ -150,7 +152,7 @@ impl EntityTracker {
         if let (false, Some(dx), Some(dy), Some(dz)) = (forced_position, dx, dy, dz) {
 
             // We don't send position if delta is too small.
-            send_pos = dx.abs() >= 8 || dy.abs() >= 8 || dz.abs() >= 8;
+            send_pos = dx.unsigned_abs() >= 8 || dy.unsigned_abs() >= 8 || dz.unsigned_abs() >= 8;
 
             if send_pos && send_look {
                 move_packet = Some(OutPacket::EntityMoveAndLook(proto::EntityMoveAndLookPacket {
