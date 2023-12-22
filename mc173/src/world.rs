@@ -1848,12 +1848,12 @@ impl<'a> Iterator for EntitiesIter<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let comp = self.0.next()?;
+        while let Some(comp) = self.0.next() {
             if let Some(ret) = comp.inner.as_deref() {
                 return Some((comp.id, ret));
             }
         }
+        None
     }
 
     #[inline]
@@ -1874,12 +1874,12 @@ impl<'a> Iterator for EntitiesIterMut<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let comp = self.0.next()?;
+        while let Some(comp) = self.0.next() {
             if let Some(ret) = comp.inner.as_deref_mut() {
                 return Some((comp.id, ret));
             }
         }
+        None
     }
 
     #[inline]
@@ -1904,14 +1904,14 @@ impl<'a> Iterator for EntitiesInChunkIter<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let index = *self.indices.as_mut()?.next()?;
-            let comp = &self.entities[index];
+        while let Some(&index) = self.indices.as_mut()?.next() {
             // We ignore updated entities.
+            let comp = &self.entities[index];
             if let Some(entity) = comp.inner.as_deref() {
                 return Some((comp.id, entity));
             }
         }
+        None
     }
 
     #[inline]
@@ -1944,10 +1944,9 @@ impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let index = *self.indices.as_mut()?.next()?;
-            let comp = &mut self.entities[index];
+        while let Some(&index) = self.indices.as_mut()?.next() {
             // We ignore updated entities.
+            let comp = &mut self.entities[index];
             if let Some(entity) = comp.inner.as_deref_mut() {
 
                 // Only check uniqueness of returned pointer with debug assertions.
@@ -1966,6 +1965,7 @@ impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
 
             }
         }
+        None
     }
 
     #[inline]
@@ -1998,6 +1998,8 @@ impl<'a> Iterator for EntitiesCollidingIter<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        // LOOP SAFETY: This loop should not cause infinite iterator because self.indices
+        // will eventually be none because it is set to none when it is exhausted. 
         loop {
 
             if self.indices.is_none() {
@@ -2045,6 +2047,8 @@ impl<'a> Iterator for EntitiesCollidingIterMut<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        // LOOP SAFETY: This loop should not cause infinite iterator because self.indices
+        // will eventually be none because it is set to none when it is exhausted.
         loop {
 
             if self.indices.is_none() {
@@ -2081,7 +2085,6 @@ impl<'a> Iterator for EntitiesCollidingIterMut<'a> {
 
 }
 
-
 /// Internal iterator chunk components in a range.
 struct ChunkComponentsIter<'a> {
     /// Map of chunk components that we 
@@ -2107,8 +2110,7 @@ impl<'a> Iterator for ChunkComponentsIter<'a> {
 
 }
 
-
-/// Internal iterator of chunk coordinates.
+/// Internal iterator of chunk coordinates, both start and end are inclusive.
 struct ChunkRange {
     cx: i32,
     cz: i32,
@@ -2118,6 +2120,9 @@ struct ChunkRange {
 }
 
 impl ChunkRange {
+
+    // Construct a chunk range iterator, note that both start and end are included in the
+    // range.
     #[inline]
     fn new(start_cx: i32, start_cz: i32, end_cx: i32, end_cz: i32) -> Self {
         Self {
@@ -2128,6 +2133,7 @@ impl ChunkRange {
             end_cz,
         }
     }
+
 }
 
 impl FusedIterator for ChunkRange {}
@@ -2138,19 +2144,39 @@ impl Iterator for ChunkRange {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         
-        if (self.cx, self.cz) == (self.end_cx, self.end_cz) {
+        if self.cx > self.end_cx || self.cz > self.end_cz {
             return None;
         }
 
         let ret = (self.cx, self.cz);
 
         self.cx += 1;
-        if self.cx == self.end_cx {
+        if self.cx > self.end_cx {
             self.cx = self.start_cx;
             self.cz += 1;
         }
 
         Some(ret)
+
+    }
+
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn chunk_range() {
+
+        assert_eq!(ChunkRange::new(0, 0, 0, 0).collect::<Vec<_>>(), [(0, 0)]);
+        assert_eq!(ChunkRange::new(0, 0, 1, 0).collect::<Vec<_>>(), [(0, 0), (1, 0)]);
+        assert_eq!(ChunkRange::new(0, 0, 1, 1).collect::<Vec<_>>(), [(0, 0), (1, 0), (0, 1), (1, 1)]);
+        assert_eq!(ChunkRange::new(0, 0, -1, 0).collect::<Vec<_>>(), []);
+        assert_eq!(ChunkRange::new(0, 0, 0, -1).collect::<Vec<_>>(), []);
+        assert_eq!(ChunkRange::new(0, 0, -1, -1).collect::<Vec<_>>(), []);
 
     }
 

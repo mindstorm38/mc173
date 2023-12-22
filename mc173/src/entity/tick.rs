@@ -576,7 +576,7 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
         let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
         // TODO:
-        let mut has_attacked = false;
+        let mut should_strafe = false;
 
         // Target position to path find to.
         let mut target_pos = None;
@@ -584,8 +584,10 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
         // Start by finding an attack target, or attack the existing one.
         if let Some(target_id) = living.attack_target {
 
-            if let Some(target_entity) = world.get_entity(target_id) {
-                // tick_attack(world, id, entity, target_entity);
+            if let Some(Entity(target_base, BaseKind::Living(_, _))) = world.get_entity(target_id) {
+                let dist_squared = base.pos.distance_squared(target_base.pos);
+                let eye_track = can_eye_track(world, base, target_base);
+                tick_attack(world, id, entity, target_id, dist_squared, eye_track, &mut should_strafe);
             } else {
                 // Entity has been release by the attack function.
                 trace!("entity #{id}, attack target released");
@@ -631,10 +633,10 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
         // If the entity has not attacked its target entity and is path finder toward it, 
         // there is 95% chance too go into the then branch.
-        if has_attacked || target_pos.is_none() || (living.path.is_some() && base.rand.next_int_bounded(20) != 0) {
+        if should_strafe || target_pos.is_none() || (living.path.is_some() && base.rand.next_int_bounded(20) != 0) {
             // If the entity has not attacked and if the path is not none, there is 1.25% 
             // chance to recompute the path, if the path is none there is 2.484375% chance.
-            if !has_attacked && ((living.path.is_none() && base.rand.next_int_bounded(80) == 0) || base.rand.next_int_bounded(80) == 0) {
+            if !should_strafe && ((living.path.is_none() && base.rand.next_int_bounded(80) == 0) || base.rand.next_int_bounded(80) == 0) {
 
                 // The path weight function depends on the entity type.
                 let weight_func = match living_kind {
@@ -744,7 +746,7 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
                     base.look_dirty = true;
 
                     // Make some weird strafing if we just attacked the player.
-                    if has_attacked {
+                    if should_strafe {
                         if let Some(Entity(target_base, _)) = attack_target {
                             let dx = target_base.pos.x - base.pos.x;
                             let dz = target_base.pos.z - base.pos.z;
@@ -848,140 +850,131 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
     
 }
 
-// /// Tick entity attack toward AI target, if any. This function takes the target id, and 
-// /// eventually returns the targeted entity position that will be used to path find toward
-// /// it. If none is returned, then the targeted entity is lost.
-// /// 
-// /// REF: EntityCreature::attackEntity
-// fn tick_attack(world: &World, id: u32, entity: &mut Entity, target_entity: &Entity) {
+/// Tick an attack from the entity to its targeted entity. The targeted entity id is given
+/// as argument and the entity is guaranteed to be present in the world as living entity.
+/// 
+/// REF: EntityCreature::attackEntity
+fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, should_strafe: &mut bool) {
 
-//     /// REF: EntityMob::attackEntity
-//     fn tick_mob_attack(world: &World, id: u32, entity: &mut Entity, target_entity: &Entity) {
+    /// REF: EntityMob::attackEntity
+    fn tick_mob_attack(world: &mut World, _id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, _should_strafe: &mut bool) {
 
-//         /// Maximum distance for the mob to attack.
-//         const MAX_DIST_SQUARED: f64 = 2.0 * 2.0;
+        /// Maximum distance for the mob to attack.
+        const MAX_DIST_SQUARED: f64 = 2.0 * 2.0;
 
-//         let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
+        let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
-//         let Entity(target_base, BaseKind::Living(target_living, _)) = target_entity else {
-//             panic!("cannot attack a non-living entity");
-//         };
+        if eye_track && living.attack_time == 0 && dist_squared < MAX_DIST_SQUARED {
 
-//         if can_eye_track(world, base, target_base) && living.attack_time == 0 {
-//             let dist_squared = base.pos.distance_squared(target_base.pos);
-//             if dist_squared < MAX_DIST_SQUARED && base.bb.intersects_y(target_base.bb) {
+            let Some(Entity(target_base, BaseKind::Living(target_living, _))) = world.get_entity_mut(target_id) else {
+                panic!("target entity should exists");
+            };
+
+            if base.bb.intersects_y(target_base.bb) {
             
-//                 let attack_damage = match living_kind {
-//                     LivingKind::Giant(_) => 50,
-//                     LivingKind::PigZombie(_) => 5,
-//                     LivingKind::Zombie(_) => 5,
-//                     _ => 2,
-//                 };
+                let attack_damage = match living_kind {
+                    LivingKind::Giant(_) => 50,
+                    LivingKind::PigZombie(_) => 5,
+                    LivingKind::Zombie(_) => 5,
+                    _ => 2,
+                };
 
-//                 living.attack_time = 20;
+                living.attack_time = 20;
+                target_living.hurt_damage = target_living.hurt_damage.max(attack_damage);
 
-//                 // FIXME: Return attack damage instead.
-//                 target_living.hurt_damage = target_living.hurt_damage.max(attack_damage);
+            }
 
-//             }
-//         }
+        }
 
-//     }
+    }
 
-//     /// REF: EntitySpider::attackEntity
-//     fn tick_spider_attack(world: &World, id: u32, entity: &mut Entity, target_entity: &Entity) {
+    /// REF: EntitySpider::attackEntity
+    fn tick_spider_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, should_strafe: &mut bool) {
 
-//         /// Minimum distance from a player to trigger a climb of the spider.
-//         const MIN_DIST_SQUARED: f64 = 2.0 * 2.0;
-//         /// Maximum distance from a player to trigger a climb of the spider.
-//         const MAX_DIST_SQUARED: f64 = 6.0 * 6.0;
+        /// Minimum distance from a player to trigger a climb of the spider.
+        const MIN_DIST_SQUARED: f64 = 2.0 * 2.0;
+        /// Maximum distance from a player to trigger a climb of the spider.
+        const MAX_DIST_SQUARED: f64 = 6.0 * 6.0;
 
-//         let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Spider(_))) = entity);
+        let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Spider(_))) = entity);
+        
+        // If the brightness has changed, there if 1% chance to loose target.
+        if calc_entity_brightness(world, base) > 0.5 && base.rand.next_int_bounded(100) == 0 {
+            // Loose target because it's too bright.
+            living.attack_target = None;
+        } else if dist_squared > MIN_DIST_SQUARED && dist_squared < MAX_DIST_SQUARED && base.rand.next_int_bounded(10) == 0 {
+            // If the target is in certain range, there is 10% chance of climbing.
+            if base.on_ground {
 
-//         // If the brightness has changed, there if 1% chance to loose target.
-//         if calc_entity_brightness(world, base) > 0.5 && base.rand.next_int_bounded(100) == 0 {
-//             // Loose target because it's too bright.
-//             living.attack_target = None;
-//         } else {
+                let_expect!(Some(Entity(target_base, _)) = world.get_entity(target_id));
 
-//             // Get the target entity to compute distance to it.
-//             let Entity(target_base, _) = target_entity;
-//             let dist_squared = base.pos.distance_squared(target_base.pos);
+                let delta = target_base.pos.xz() - base.pos.xz();
+                let h_dist = delta.length();
+                let h_vel = delta / h_dist * 0.5 * 0.8 + base.vel.xz() * 0.2;
+                base.vel_dirty = true;
+                base.vel = DVec3::new(h_vel.x, 0.4, h_vel.y);
 
-//             // If the target is in certain range, there is 10% chance of climbing.
-//             if dist_squared > MIN_DIST_SQUARED && dist_squared < MAX_DIST_SQUARED && base.rand.next_int_bounded(10) == 0 {
-//                 if base.on_ground {
-//                     let delta = target_base.pos.xz() - base.pos.xz();
-//                     let h_dist = delta.length();
-//                     let h_vel = delta / h_dist * 0.5 * 0.8 + base.vel.xz() * 0.2;
-//                     base.vel_dirty = true;
-//                     base.vel = DVec3::new(h_vel.x, 0.4, h_vel.y);
-//                 }
-//             } else {
-//                 // Fallthrough to direct attack logic...
-//                 tick_mob_attack(world, id, entity, target_entity)
-//             }
-
-//         }
+            }
+        } else {
+            // Fallthrough to direct attack logic...
+            tick_mob_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe)
+        }
     
-//     }
+    }
 
-//     /// REF: EntityCreeper::attackEntity
-//     fn tick_creeper_attack(world: &World, id: u32, entity: &mut Entity, target_entity: &Entity) {
+    /// REF: EntityCreeper::attackEntity
+    fn tick_creeper_attack(world: &mut World, id: u32, entity: &mut Entity, _target_id: u32, dist_squared: f64, eye_track: bool, _should_strafe: &mut bool) {
 
-//         /// Minimum distance from a player to trigger a climb of the spider.
-//         const IDLE_MAX_DIST_SQUARED: f64 = 3.0 * 3.0;
-//         /// Maximum distance from a player to trigger a climb of the spider.
-//         const IGNITED_MAX_DIST_SQUARED: f64 = 7.0 * 7.0;
+        /// Minimum distance from a player to trigger a climb of the spider.
+        const IDLE_MAX_DIST_SQUARED: f64 = 3.0 * 3.0;
+        /// Maximum distance from a player to trigger a climb of the spider.
+        const IGNITED_MAX_DIST_SQUARED: f64 = 7.0 * 7.0;
 
-//         let_expect!(Entity(base, BaseKind::Living(_, LivingKind::Creeper(creeper))) = entity);
+        let_expect!(Entity(_base, BaseKind::Living(_, LivingKind::Creeper(creeper))) = entity);
 
-//         // Get the target entity to compute distance to it.
-//         let Entity(target_base, _) = target_entity;
-//         let dist_squared = base.pos.distance_squared(target_base.pos);
+        // Check if the creeper should be ignited depending on its current state.
+        let ignited = 
+            eye_track &&
+            (creeper.ignited_time.is_none() && dist_squared < IDLE_MAX_DIST_SQUARED) || 
+            (creeper.ignited_time.is_some() && dist_squared < IGNITED_MAX_DIST_SQUARED);
 
-//         // Check if the creeper should be ignited depending on its current state.
-//         let ignited = 
-//             (creeper.ignited_time.is_none() && dist_squared < IDLE_MAX_DIST_SQUARED) || 
-//             (creeper.ignited_time.is_some() && dist_squared < IGNITED_MAX_DIST_SQUARED);
+        if ignited {
 
-//         if ignited {
+            if creeper.ignited_time.is_none() {
+                world.push_event(Event::Entity { id, inner: EntityEvent::Creeper { ignited: true, powered: creeper.powered } });
+            }
 
-//             if creeper.ignited_time.is_none() {
-//                 world.push_event(Event::Entity { id, inner: EntityEvent::Creeper { ignited: true, powered: creeper.powered } });
-//             }
+            let ignited_time = creeper.ignited_time.unwrap_or(0) + 1;
+            creeper.ignited_time = Some(ignited_time);
 
-//             let ignited_time = creeper.ignited_time.unwrap_or(0) + 1;
-//             creeper.ignited_time = Some(ignited_time);
-
-//             if ignited_time >= 30 {
+            if ignited_time >= 30 {
                 
-//                 // TODO: Explode
+                // TODO: Explode
                 
-//                 // Kill the creeper and return none in order to loose focus on the entity.
-//                 world.remove_entity(id);
+                // Kill the creeper and return none in order to loose focus on the entity.
+                world.remove_entity(id);
 
-//             }
+            }
 
-//         } else {
+        } else {
 
-//             if creeper.ignited_time.is_some() {
-//                 world.push_event(Event::Entity { id, inner: EntityEvent::Creeper { ignited: false, powered: creeper.powered } });
-//                 creeper.ignited_time = None;
-//             }
+            if creeper.ignited_time.is_some() {
+                world.push_event(Event::Entity { id, inner: EntityEvent::Creeper { ignited: false, powered: creeper.powered } });
+                creeper.ignited_time = None;
+            }
 
-//         }
+        }
 
-//     }
+    }
 
-//     match entity {
-//         Entity(_, BaseKind::Living(_, LivingKind::Spider(_))) => tick_spider_attack(world, id, entity, target_entity),
-//         Entity(_, BaseKind::Living(_, LivingKind::Creeper(_))) => tick_creeper_attack(world, id, entity, target_entity),
-//         Entity(_, BaseKind::Living(_, _)) => tick_mob_attack(world, id, entity, target_entity),
-//         _ => unreachable!("expected a living entity for this function")
-//     }
+    match entity {
+        Entity(_, BaseKind::Living(_, LivingKind::Spider(_))) => tick_spider_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
+        Entity(_, BaseKind::Living(_, LivingKind::Creeper(_))) => tick_creeper_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
+        Entity(_, BaseKind::Living(_, _)) => tick_mob_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
+        _ => unreachable!("expected a living entity for this function")
+    }
 
-// }
+}
 
 /// Common method for moving an entity by a given amount while checking collisions.
 /// 

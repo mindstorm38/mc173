@@ -127,7 +127,7 @@ impl ChunkStorage {
         let (
             terrain_request_sender,
             terrain_request_receiver,
-        ) = bounded(100 * terrain_workers);
+        ) = unbounded();
 
         let (
             terrain_reply_sender,
