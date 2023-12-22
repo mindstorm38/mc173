@@ -10,6 +10,7 @@ use mc173::block;
 
 use crate::proto::{OutPacket, self};
 use crate::player::ServerPlayer;
+use crate::config;
 
 
 /// This structure tracks every entity spawned in the world and save their previous 
@@ -83,6 +84,12 @@ impl EntityTracker {
             sent_vel: (0, 0, 0),
             sent_look: (0, 0),
         };
+
+        // If fast entity tracking is enabled and interval is not disabled, set interval
+        // to 1 tick.
+        if config::fast_entity() && tracker.interval != 0 {
+            tracker.interval = 1;
+        }
         
         tracker.set_pos(entity.0.pos);
         tracker.set_look(entity.0.look);
@@ -105,7 +112,8 @@ impl EntityTracker {
         // Rebase 0..2PI to 0..256. 
         let scaled = look.mul(256.0).div(std::f32::consts::TAU);
         // We can cast to i8, this will take the low 8 bits and wrap around.
-        self.look = (scaled.x as i8, scaled.y as i8);
+        // We need to cast to i32 first because float to int cast is saturated by default.
+        self.look = (scaled.x as i32 as i8, scaled.y as i32 as i8);
     }
 
     /// Update the last known velocity of this entity.
@@ -125,7 +133,12 @@ impl EntityTracker {
             return;
         }
 
-        self.absolute_countdown_time += 1;
+        if config::fast_entity() {
+            self.absolute_countdown_time += 20;
+        } else {
+            self.absolute_countdown_time += 1;
+        }
+
         self.time += 1;
 
         if self.time >= self.interval {

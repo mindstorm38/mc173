@@ -3,6 +3,7 @@
 use glam::{IVec3, DVec3, Vec3};
 
 use crate::block::sapling::TreeKind;
+use crate::entity::{Arrow, Entity};
 use crate::gen::tree::TreeGenerator;
 use crate::item::{ItemStack, self};
 use crate::util::Face;
@@ -54,6 +55,10 @@ impl World {
             item::BUCKET => self.use_bucket_stack(block::AIR, entity_id),
             item::WATER_BUCKET => self.use_bucket_stack(block::WATER_MOVING, entity_id),
             item::LAVA_BUCKET => self.use_bucket_stack(block::LAVA_MOVING, entity_id),
+            item::BOW => {
+                self.use_bow_stack(entity_id);
+                Some(stack)
+            }
             _ => None
         }
 
@@ -302,5 +307,29 @@ impl World {
 
     }
 
+    fn use_bow_stack(&mut self, entity_id: u32) {
+        
+        let Entity(base, _) = self.get_entity(entity_id).unwrap();
+
+        let arrow = Arrow::new_with(|arrow_base, arrow_projectile, _| {
+            
+            arrow_base.pos = base.pos;
+            arrow_base.pos.y += base.eye_height as f64;
+            arrow_base.look = base.look;
+
+            let (yaw_sin, yaw_cos) = arrow_base.look.x.sin_cos();
+            let (pitch_sin, pitch_cos) = arrow_base.look.y.sin_cos();
+
+            arrow_base.vel.x = (-yaw_sin * pitch_cos) as f64;
+            arrow_base.vel.z = (yaw_cos * pitch_cos) as f64;
+            arrow_base.vel.y = (-pitch_sin) as f64;
+
+            arrow_projectile.owner_id = Some(entity_id);
+
+        });
+
+        self.spawn_entity(arrow);
+
+    }
 
 }

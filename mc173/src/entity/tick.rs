@@ -15,6 +15,7 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use tracing::{trace, instrument, warn};
 
+use crate::entity::ProjectileHit;
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
 use crate::util::{Face, BoundingBox};
@@ -272,6 +273,7 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                     world.remove_entity(id);
                 }
             } else {
+                trace!("entity #{id}, no longer in block...");
                 base.vel *= (base.rand.next_vec3() * 0.2).as_dvec3();
                 base.vel_dirty = true;
                 projectile.state = None;
@@ -279,19 +281,20 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
             }
         } else {
 
-            let mut projectile_vel = base.vel;
-
             // Check if we hit a block, if so we update the projectile velocity.
-            let hit_block = world.ray_trace_blocks(base.pos, projectile_vel, false);
-            if let Some(hit) = &hit_block {
-                projectile_vel = hit.ray;
+            let hit_block = world.ray_trace_blocks(base.pos, base.vel, false);
+
+            // If we hit a block we constrain the velocity to avoid entering the block.
+            if let Some(hit_block) = &hit_block {
+                base.vel = hit_block.ray;
+                base.vel_dirty = true;
             }
 
             // Only prevent collision with owner for the first 4 ticks.
             let owner_id = projectile.owner_id.filter(|_| projectile.state_time < 5);
             
             // We try to find an entity that collided with the ray.
-            let hit_entity = world.iter_entities_colliding_mut(base.bb.offset(projectile_vel).inflate(DVec3::ONE))
+            let hit_entity = world.iter_entities_colliding_mut(base.bb.offset(base.vel).inflate(DVec3::ONE))
                 // Filter out entities that we cannot collide with.
                 .filter(|(target_id, Entity(_, target_base_kind))| {
                     match target_base_kind {
@@ -308,7 +311,7 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                 .filter_map(|(_, target_entity)| {
                     target_entity.0.bb
                         .inflate(DVec3::splat(0.3))
-                        .calc_ray_trace(base.pos, projectile_vel)
+                        .calc_ray_trace(base.pos, base.vel)
                         .map(|(new_ray, _)| (target_entity, new_ray.length_squared()))
                 })
                 // Take the entity closer to the origin.
@@ -323,7 +326,60 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                     origin_id: projectile.owner_id,
                 });
 
+                world.remove_entity(id);
+
+            } else if let Some(hit_block) = hit_block {
+
+                projectile.state = Some(ProjectileHit {
+                    pos: hit_block.pos,
+                    block: hit_block.block,
+                    metadata: hit_block.metadata,
+                });
+
+                projectile.shake = 7;
+
+                // This is used to prevent the client to moving the arrow on its own above
+                // the block hit, we use the hit face to take away the arrow from 
+                // colliding with the face. This is caused by the really weird function
+                // 'Entity::setPositionAndRotation2' from Notchian implementation that
+                // modify the position we sent and move any entity out of the block while
+                // inflating the bounding box by 1/32 horizontally. We use 2/32 here in
+                // order to account for precision errors.
+                const ADJUST_INFLATE: f64 = 2.0 / 32.0;
+
+                if hit_block.face == Face::PosY {
+                    // No inflate need on that face.
+                    base.pos.y += base.size.center as f64;
+                } else if hit_block.face == Face::NegY {
+                    // For now we do not adjust for negative face because this requires
+                    // offset the entity by its whole height and it make no sense on 
+                    // client side, not more sense that the current behavior.
+                } else {
+                    base.pos += hit_block.face.delta().as_dvec3() * (base.size.width / 2.0) as f64 + ADJUST_INFLATE;
+                }
+
             }
+
+            base.pos += base.vel;
+            base.pos_dirty = true;
+            
+            base.look.x = f64::atan2(base.vel.x, base.vel.z) as f32;
+            base.look.y = f64::atan2(base.vel.y, base.vel.xz().length()) as f32;
+            base.look_dirty = true;
+            
+            if base.in_water {
+                base.vel *= 0.8;
+            } else {
+                base.vel *= 0.99;
+            }
+
+            base.vel.y -= 0.03;
+            base.vel_dirty = true;
+            
+            // trace!("entity #{id}, new pos: {}", base.pos);
+            
+            // Really important!
+            update_bounding_box_from_pos(base);
 
         }
         
@@ -506,7 +562,7 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
                 if let Some(origin_id) = hurt.origin_id {
                     if let Some(Entity(origin_base, _)) = world.get_entity(origin_id) {
                         let mut dir = origin_base.pos - base.pos;
-                        dir.y = 0.0; // We ignore verticle delta.
+                        dir.y = 0.0; // We ignore verticale delta.
                         while dir.length_squared() < 1.0e-4 {
                             dir = DVec3 {
                                 x: (base.rand.next_double() - base.rand.next_double()) * 0.01,
@@ -1484,9 +1540,8 @@ fn update_look_by_step(base: &mut Base, look: Vec2, step: Vec2) {
 /// included in the calculation in order to make the head looking at target.
 fn update_look_at_by_step(base: &mut Base, target: DVec3, step: Vec2) {
     let delta = target - calc_eye_pos(base);
-    let horizontal_dist = delta.xz().length();
     let yaw = f64::atan2(delta.z, delta.x) as f32 - std::f32::consts::FRAC_PI_2;
-    let pitch = -f64::atan2(delta.y, horizontal_dist) as f32;
+    let pitch = -f64::atan2(delta.y, delta.xz().length()) as f32;
     update_look_by_step(base, Vec2::new(yaw, pitch), step);
 }
 

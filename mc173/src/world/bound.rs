@@ -143,7 +143,7 @@ impl World {
             if should_check {
                 if let Some(bb) = self.get_overlay_box(block_pos, block, metadata) {
                     if let Some((new_ray, face)) = bb.calc_ray_trace(origin, ray) {
-                        let var_name = Some(RayTraceHit {
+                        return Some(RayTraceHit {
                             ray: new_ray,
                             pos: block_pos,
                             block,
@@ -313,6 +313,7 @@ impl Iterator for CollidingBoxIter<'_> {
 
 
 /// Result of a ray trace that hit a block.
+#[derive(Debug, Clone)]
 pub struct RayTraceHit {
     /// The ray vector that stop on the block.
     pub ray: DVec3,

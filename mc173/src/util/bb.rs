@@ -182,7 +182,7 @@ impl BoundingBox {
 
             let point = origin + ray * factor;
             if self.contains_yz(point) {
-                return Some((origin - point, face))
+                return Some((point - origin, face))
             }
 
         }
@@ -198,7 +198,7 @@ impl BoundingBox {
 
             let point = origin + ray * factor;
             if self.contains_xz(point) {
-                return Some((origin - point, face))
+                return Some((point - origin, face))
             }
 
         }
@@ -214,7 +214,7 @@ impl BoundingBox {
 
             let point = origin + ray * factor;
             if self.contains_xy(point) {
-                return Some((origin - point, face))
+                return Some((point - origin, face))
             }
 
         }

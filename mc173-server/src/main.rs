@@ -2,6 +2,10 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+// The common configuration of the server.
+pub mod config;
+
+// The network modules, net is generic and proto is the implementation for b1.7.3.
 pub mod net;
 pub mod proto;
 
