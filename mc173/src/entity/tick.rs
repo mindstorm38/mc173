@@ -230,6 +230,9 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
     /// REF: EntityLiving::onUpdate
     fn tick_living(world: &mut World, id: u32, entity: &mut Entity) {
 
+        // Super call.
+        tick_base(world, id, entity);
+
         tick_ai(world, id, entity);
 
         let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
@@ -575,19 +578,27 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
         let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
-        // TODO:
-        let mut should_strafe = false;
-
+        
         // Target position to path find to.
         let mut target_pos = None;
+        // Set to true when the entity should strafe while following its path.
+        let mut should_strafe = false;
 
         // Start by finding an attack target, or attack the existing one.
         if let Some(target_id) = living.attack_target {
 
             if let Some(Entity(target_base, BaseKind::Living(_, _))) = world.get_entity(target_id) {
+
                 let dist_squared = base.pos.distance_squared(target_base.pos);
                 let eye_track = can_eye_track(world, base, target_base);
+
+                target_pos = Some(Target { 
+                    pos: target_base.pos, 
+                    overwrite: true,
+                });
+                
                 tick_attack(world, id, entity, target_id, dist_squared, eye_track, &mut should_strafe);
+
             } else {
                 // Entity has been release by the attack function.
                 trace!("entity #{id}, attack target released");
@@ -610,7 +621,7 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
             if search_around {
                 if let Some((target_id, Entity(target_base, _))) = find_closest_player_entity(world, base.pos, 16.0) {
-                    trace!("entity #{id}, found entity #{target_id} to attack");
+                    trace!("entity #{id}, attack target found: #{target_id}");
                     living.attack_target = Some(target_id);
                     target_pos = Some(Target { 
                         pos: target_base.pos, 
@@ -625,15 +636,9 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
         // and we are no longer guaranteed of its type.
         let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
-        // If the target position is none here, this might have been changed by the call
-        // to `tick_attack`, then we force attack target to be lost.
-        if target_pos.is_none() {
-            living.attack_target = None;
-        }
-
         // If the entity has not attacked its target entity and is path finder toward it, 
         // there is 95% chance too go into the then branch.
-        if should_strafe || target_pos.is_none() || (living.path.is_some() && base.rand.next_int_bounded(20) != 0) {
+        if should_strafe || living.attack_target.is_none() || (living.path.is_some() && base.rand.next_int_bounded(20) != 0) {
             // If the entity has not attacked and if the path is not none, there is 1.25% 
             // chance to recompute the path, if the path is none there is 2.484375% chance.
             if !should_strafe && ((living.path.is_none() && base.rand.next_int_bounded(80) == 0) || base.rand.next_int_bounded(80) == 0) {
@@ -667,7 +672,6 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
                     .max_by(|(_, a), (_, b)| a.total_cmp(b))
                     .unwrap().0;
 
-                trace!("entity #{id}, path finding: {best_pos}");
                 target_pos = Some(Target { 
                     pos: best_pos.as_dvec3() + 0.5,
                     overwrite: false,  // If the path is not found, continue current one.
@@ -678,6 +682,8 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
         // At the end, we can have an entity or a block to target.
         if let Some(target) = target_pos {
+
+            trace!("entity #{id}, path finding: {}", target.pos);
 
             let path = PathFinder::new(world)
                 .find_path_from_bounding_box(base.bb, target.pos, PATH_FINDER_MAX_DIST)
@@ -714,7 +720,6 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
                     // too short. We only check the horizontal distance, because Y delta is 0.
                     let pos_dist_sq = pos.distance_squared(DVec3::new(base.pos.x, pos.y, base.pos.z));
                     if pos_dist_sq < double_width * double_width {
-                        trace!("entity #{id}, path pos to short: {pos}, dist: {} < {}", pos_dist_sq.sqrt(), double_width);
                         path.advance();
                     } else {
                         next_pos = Some(pos);
@@ -726,8 +731,6 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
                 living.jumping = false;
 
                 if let Some(next_pos) = next_pos {
-
-                    trace!("entity #{id}, path next pos: {next_pos}");
 
                     let dx = next_pos.x - base.pos.x;
                     let dy = next_pos.y - base.bb.min.y.add(0.5).floor();

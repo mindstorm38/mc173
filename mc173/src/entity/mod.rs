@@ -5,10 +5,6 @@ use glam::{DVec3, Vec2, IVec3};
 use crate::util::{BoundingBox, JavaRandom};
 use crate::item::ItemStack;
 
-pub mod base;
-pub mod projectile;
-pub mod living;
-
 pub mod tick;
 pub mod interact;
 
@@ -540,6 +536,65 @@ impl Entity {
     /// Get the kind of entity from this instance.
     pub fn kind(&self) -> EntityKind {
         self.1.entity_kind()
+    }
+
+}
+
+impl BaseKind {
+
+    /// Get the generic entity kind from this base entity kind.
+    pub fn entity_kind(&self) -> EntityKind {
+        match self {
+            BaseKind::Item(_) => EntityKind::Item,
+            BaseKind::Painting(_) => EntityKind::Painting,
+            BaseKind::Boat(_) => EntityKind::Boat,
+            BaseKind::Minecart(_) => EntityKind::Minecart,
+            BaseKind::Fish(_) => EntityKind::Fish,
+            BaseKind::LightningBolt(_) => EntityKind::LightningBolt,
+            BaseKind::FallingBlock(_) => EntityKind::FallingBlock,
+            BaseKind::Tnt(_) => EntityKind::Tnt,
+            BaseKind::Projectile(_, kind) => kind.entity_kind(),
+            BaseKind::Living(_, kind) => kind.entity_kind(),
+        }
+    }
+
+}
+
+impl LivingKind {
+
+    /// Get the generic entity kind from this living entity kind.
+    pub fn entity_kind(&self) -> EntityKind {
+        match self {
+            LivingKind::Human(_) => EntityKind::Player,
+            LivingKind::Ghast(_) => EntityKind::Ghast,
+            LivingKind::Slime(_) => EntityKind::Slime,
+            LivingKind::Pig(_) => EntityKind::Pig,
+            LivingKind::Chicken(_) => EntityKind::Chicken,
+            LivingKind::Cow(_) => EntityKind::Cow,
+            LivingKind::Sheep(_) => EntityKind::Sheep,
+            LivingKind::Squid(_) => EntityKind::Squid,
+            LivingKind::Wolf(_) => EntityKind::Wolf,
+            LivingKind::Creeper(_) => EntityKind::Creeper,
+            LivingKind::Giant(_) => EntityKind::Giant,
+            LivingKind::PigZombie(_) => EntityKind::PigZombie,
+            LivingKind::Skeleton(_) => EntityKind::Skeleton,
+            LivingKind::Spider(_) => EntityKind::Spider,
+            LivingKind::Zombie(_) => EntityKind::Zombie,
+        }
+    }
+
+}
+
+impl ProjectileKind {
+
+    /// Get the generic entity kind from this projectile entity kind.
+    pub fn entity_kind(&self) -> EntityKind {
+        match self {
+            ProjectileKind::Arrow(_) => EntityKind::Arrow,
+            ProjectileKind::Egg(_) => EntityKind::Egg,
+            ProjectileKind::Fireball(_) => EntityKind::Fireball,
+            ProjectileKind::Snowball(_) => EntityKind::Snowball,
+        }
     }
 
 }

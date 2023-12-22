@@ -194,9 +194,9 @@ impl ServerWorld {
                     EntityEvent::Pickup { target_id } => 
                         self.handle_entity_pickup(id, target_id),
                     EntityEvent::Damage => 
-                        self.handle_entity_status(id, 2),
+                        self.handle_entity_damage(id),
                     EntityEvent::Dead => 
-                        self.handle_entity_status(id, 3),
+                        self.handle_entity_dead(id),
                     EntityEvent::Creeper { ignited, powered } =>
                         todo!()
                 }
@@ -435,6 +435,29 @@ impl ServerWorld {
             }
         }
 
+    }
+
+    /// Handle an entity damage event.
+    fn handle_entity_damage(&mut self, id: u32) {
+
+        self.handle_entity_status(id, 2);
+
+        // TODO: This is temporary code, we need to make a common method to update health.
+        for player in &self.players {
+            if player.entity_id == id {
+                if let Entity(_, BaseKind::Living(living, _)) = self.world.get_entity(id).unwrap() {
+                    player.send(OutPacket::UpdateHealth(proto::UpdateHealthPacket {
+                        health: living.health.min(i16::MAX as _) as i16,
+                    }));
+                }
+            }
+        }
+
+    }
+
+    /// Handle an entity dead event (the entity is not yet removed).
+    fn handle_entity_dead(&mut self, id: u32) {
+        self.handle_entity_status(id, 3);
     }
 
     /// Handle an entity damage/dead or other status for an entity.

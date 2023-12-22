@@ -246,7 +246,7 @@ pub struct InteractPacket {
 /// Packet 8
 #[derive(Debug, Clone)]
 pub struct UpdateHealthPacket {
-    pub health: i32,
+    pub health: i16,
 }
 
 /// Packet 9
@@ -949,7 +949,7 @@ impl net::OutPacket for OutPacket {
             }
             OutPacket::UpdateHealth(packet) => {
                 write.write_u8(8)?;
-                write.write_java_int(packet.health)?;
+                write.write_java_short(packet.health)?;
             }
             OutPacket::Respawn(packet) => {
                 write.write_u8(9)?;
