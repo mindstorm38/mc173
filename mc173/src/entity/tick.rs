@@ -15,7 +15,6 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use tracing::{trace, instrument, warn};
 
-use crate::entity::ProjectileHit;
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
 use crate::util::{Face, BoundingBox};
@@ -23,10 +22,10 @@ use crate::path::PathFinder;
 use crate::item::ItemStack;
 use crate::block;
 
-use super::{Entity, Size, Path, Hurt,
+use super::{Entity, Size,
     BaseKind, ProjectileKind, LivingKind, 
-    Base, Living, 
-    LookTarget};
+    Base, Living, Arrow,
+    Path, Hurt, LookTarget, ProjectileHit};
 
 
 /// Internal macro to make a refutable pattern assignment that just panic if refuted.
@@ -1125,9 +1124,56 @@ fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, 
 
     }
 
+    /// REF: EntitySkeleton::attackEntity
+    fn tick_skeleton_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, dist_squared: f64, eye_track: bool, should_strafe: &mut bool) {
+        
+        const MAX_DIST_SQUARED: f64 = 10.0 * 10.0;
+        
+        if eye_track && dist_squared < MAX_DIST_SQUARED {
+
+            let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Skeleton(_))) = entity);
+            let Entity(target_base, _) = world.get_entity(target_id).unwrap();
+
+            if living.attack_time == 0 {
+
+                living.attack_time = 30;
+
+                let eye_pos = calc_eye_pos(base);
+                let target_eye_pos = calc_eye_pos(target_base);
+
+                let arrow = Arrow::new_with(|arrow_base, arrow_projectile, arrow| {
+
+                    let mut dir = target_eye_pos - eye_pos;
+                    dir.y += dir.xz().length() * 0.2;
+                    let dir = dir.normalize_or_zero();
+
+                    arrow_base.pos = eye_pos + dir * DVec3::new(1.0, 0.0, 1.0);
+                    arrow_base.look = base.look;
+
+                    arrow_base.vel = dir;
+                    arrow_base.vel += arrow_base.rand.next_gaussian_vec() * 0.0075 * 12.0;
+                    arrow_base.vel *= 0.6;
+        
+                    arrow_projectile.owner_id = Some(id);
+                    arrow.from_player = false;
+        
+                });
+
+                world.spawn_entity(arrow);
+
+            }
+
+            // TODO: Look toward target
+            *should_strafe = true;
+
+        }
+
+    }
+
     match entity {
         Entity(_, BaseKind::Living(_, LivingKind::Spider(_))) => tick_spider_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
         Entity(_, BaseKind::Living(_, LivingKind::Creeper(_))) => tick_creeper_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
+        Entity(_, BaseKind::Living(_, LivingKind::Skeleton(_))) => tick_skeleton_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
         Entity(_, BaseKind::Living(_, _)) => tick_mob_attack(world, id, entity, target_id, dist_squared, eye_track, should_strafe),
         _ => unreachable!("expected a living entity for this function")
     }

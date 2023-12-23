@@ -263,6 +263,7 @@ impl ServerPlayer {
                     "cow" => EntityKind::Cow.new_default(),
                     "sheep" => EntityKind::Sheep.new_default(),
                     "zombie" => EntityKind::Zombie.new_default(),
+                    "skeleton" => EntityKind::Skeleton.new_default(),
                     "slime" => {
                         
                         let mut size = 1u8;
