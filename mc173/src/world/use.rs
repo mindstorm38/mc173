@@ -323,6 +323,9 @@ impl World {
             arrow_base.vel.x = (-yaw_sin * pitch_cos) as f64;
             arrow_base.vel.z = (yaw_cos * pitch_cos) as f64;
             arrow_base.vel.y = (-pitch_sin) as f64;
+            
+            arrow_base.vel += arrow_base.rand.next_gaussian_vec() * 0.0075;
+            arrow_base.vel *= 1.5;
 
             arrow_projectile.owner_id = Some(entity_id);
             arrow.from_player = true;

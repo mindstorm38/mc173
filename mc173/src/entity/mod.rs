@@ -637,20 +637,6 @@ macro_rules! impl_new_with {
         })*
 
     };
-    ( Projectile: $( $kind:ident ),* ) => {
-        
-        $(impl $kind {
-            #[inline]
-            pub fn new_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
-                let mut base: Base = Default::default();
-                let mut projectile: Projectile = Default::default();
-                let mut this: $kind = Default::default();
-                func(&mut base, &mut projectile, &mut this);
-                Box::new(Entity(base, BaseKind::Projectile(projectile, ProjectileKind::$kind(this))))
-            }
-        })*
-
-    };
     ( Living: $( $kind:ident ),* ) => {
         
         $(impl $kind {
@@ -661,6 +647,20 @@ macro_rules! impl_new_with {
                 let mut this: $kind = Default::default();
                 func(&mut base, &mut living, &mut this);
                 Box::new(Entity(base, BaseKind::Living(living, LivingKind::$kind(this))))
+            }
+        })*
+
+    };
+    ( Projectile: $( $kind:ident ),* ) => {
+        
+        $(impl $kind {
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
+                let mut base: Base = Default::default();
+                let mut projectile: Projectile = Default::default();
+                let mut this: $kind = Default::default();
+                func(&mut base, &mut projectile, &mut this);
+                Box::new(Entity(base, BaseKind::Projectile(projectile, ProjectileKind::$kind(this))))
             }
         })*
 
@@ -676,12 +676,6 @@ impl_new_with!(Base:
     LightningBolt, 
     FallingBlock, 
     Tnt);
-    
-impl_new_with!(Projectile: 
-    Arrow,
-    Egg,
-    Fireball,
-    Snowball);
 
 impl_new_with!(Living: 
     Human,
@@ -699,3 +693,9 @@ impl_new_with!(Living:
     Skeleton,
     Spider,
     Zombie);
+    
+impl_new_with!(Projectile: 
+    Arrow,
+    Egg,
+    Fireball,
+    Snowball);

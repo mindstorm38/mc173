@@ -157,7 +157,7 @@ impl World {
                     
                     let rand_vel = self.rand.next_double() * 0.1 + 0.2;
                     base.vel = face.delta().as_dvec3() * rand_vel;
-                    base.vel += self.rand.next_gaussian_dvec3() * 0.0075 * 6.0;
+                    base.vel += self.rand.next_gaussian_vec() * 0.0075 * 6.0;
 
                     item.stack = dispense_stack;
 

@@ -19,7 +19,7 @@ impl World {
     pub fn spawn_loot(&mut self, mut pos: DVec3, stack: ItemStack, spread: f32) {
         
         if spread != 0.0 {
-            pos += self.rand.next_vec3()
+            pos += self.rand.next_float_vec()
                 .mul(spread)
                 .as_dvec3()
                 .sub(spread as f64 * 0.5);

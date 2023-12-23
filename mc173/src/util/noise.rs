@@ -101,7 +101,7 @@ impl PerlinNoise {
     /// Create a new perlin noise initialized with the given RNG.
     pub fn new(rand: &mut JavaRandom) -> Self {
 
-        let offset = rand.next_dvec3() * 256.0;
+        let offset = rand.next_double_vec() * 256.0;
 
         let mut permutations = Box::new(std::array::from_fn::<u16, 512, _>(|i| {
             if i <= 256 {

@@ -262,7 +262,7 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
         // Super call.
         tick_base(world, id, entity);
 
-        let_expect!(Entity(base, BaseKind::Projectile(projectile, _)) = entity);
+        let_expect!(Entity(base, BaseKind::Projectile(projectile, projectile_kind)) = entity);
 
         projectile.shake = projectile.shake.saturating_sub(1);
         projectile.state_time = projectile.state_time.saturating_add(1);
@@ -274,7 +274,7 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                 }
             } else {
                 trace!("entity #{id}, no longer in block...");
-                base.vel *= (base.rand.next_vec3() * 0.2).as_dvec3();
+                base.vel *= (base.rand.next_float_vec() * 0.2).as_dvec3();
                 base.vel_dirty = true;
                 projectile.state = None;
                 projectile.state_time = 0;
@@ -345,6 +345,9 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                 // modify the position we sent and move any entity out of the block while
                 // inflating the bounding box by 1/32 horizontally. We use 2/32 here in
                 // order to account for precision errors.
+                //
+                // Ideally, this should be implemented server-side as it is a Notchian
+                // implementation issue rather than an issue with the ticking itself.
                 if hit_block.face == Face::PosY {
                     // No inflate need on that face.
                     base.pos.y += base.size.center as f64;
@@ -365,13 +368,27 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
             base.look.y = f64::atan2(base.vel.y, base.vel.xz().length()) as f32;
             base.look_dirty = true;
             
-            if base.in_water {
-                base.vel *= 0.8;
+            // The velocity update depends on projectile kind.
+            if let ProjectileKind::Fireball(_) = projectile_kind {
+                
+                if base.in_water {
+                    base.vel *= 0.8;
+                } else {
+                    base.vel *= 0.95;
+                }
+
             } else {
-                base.vel *= 0.99;
+                
+                if base.in_water {
+                    base.vel *= 0.8;
+                } else {
+                    base.vel *= 0.99;
+                }
+
+                base.vel.y -= 0.03;
+            
             }
 
-            base.vel.y -= 0.03;
             base.vel_dirty = true;
             
             // trace!("entity #{id}, new pos: {}", base.pos);

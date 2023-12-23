@@ -159,7 +159,7 @@ impl JavaRandom {
     
     /// Get the next pseudo-random single-precision float vector, x, y and z.
     /// **This is not part of the standard Java class.**
-    pub fn next_vec3(&mut self) -> Vec3 {
+    pub fn next_float_vec(&mut self) -> Vec3 {
         Vec3 { 
             x: self.next_float(), 
             y: self.next_float(),
@@ -169,7 +169,7 @@ impl JavaRandom {
 
     /// Get the next pseudo-random double-precision float vector, x, y and z.
     /// **This is not part of the standard Java class.**
-    pub fn next_dvec3(&mut self) -> DVec3 {
+    pub fn next_double_vec(&mut self) -> DVec3 {
         DVec3 {
             x: self.next_double(), 
             y: self.next_double(),
@@ -180,7 +180,7 @@ impl JavaRandom {
     /// Get the next pseudo-random double-precision double vector, x, y and z, 
     /// with Gaussian distribution.
     /// **This is not part of the standard Java class.**
-    pub fn next_gaussian_dvec3(&mut self) -> DVec3 {
+    pub fn next_gaussian_vec(&mut self) -> DVec3 {
         DVec3 {
             x: self.next_gaussian(), 
             y: self.next_gaussian(),

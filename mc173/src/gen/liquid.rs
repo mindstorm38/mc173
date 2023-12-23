@@ -41,11 +41,11 @@ impl FeatureGenerator for LakeGenerator {
         let count = rand.next_int_bounded(4) + 4;
         for _ in 0..count {
 
-            let a = rand.next_dvec3() * 
+            let a = rand.next_double_vec() * 
                 DVec3::new(6.0, 4.0, 6.0) + 
                 DVec3::new(3.0, 2.0, 3.0);
 
-            let b = rand.next_dvec3() * 
+            let b = rand.next_double_vec() * 
                 (DVec3::new(16.0, 8.0, 16.0) - a - DVec3::new(2.0, 4.0, 2.0)) +
                 DVec3::new(1.0, 2.0, 1.0) + a / 2.0;
 
