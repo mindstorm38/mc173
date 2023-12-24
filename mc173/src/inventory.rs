@@ -21,6 +21,17 @@ impl<'a> InventoryHandle<'a> {
         }
     }
 
+    #[inline]
+    pub fn get(&self, index: usize) -> ItemStack {
+        self.inv[index]
+    }
+
+    #[inline]
+    pub fn set(&mut self, index: usize, stack: ItemStack) {
+        self.inv[index] = stack;
+        self.changes |= 1 << index;
+    }
+
     /// Add an item to the inventory. The given item stack is modified according to the
     /// amount of items actually added to the inventory, its size will be set to zero if
     /// fully consumed.
@@ -65,6 +76,21 @@ impl<'a> InventoryHandle<'a> {
             }
         }
         
+    }
+
+    /// Consume the equivalent of the given item stack, returning true if successful.
+    pub fn consume(&mut self, stack: ItemStack) -> bool {
+        
+        for (index, slot) in self.inv.iter_mut().enumerate() {
+            if slot.id == stack.id && slot.damage == stack.damage && slot.size >= stack.size {
+                slot.size -= stack.size;
+                self.changes |= 1 << index;
+                return true;
+            }
+        }
+        
+        false
+
     }
 
     /// Iterate over item changes that happened in this inventory, this also returns the

@@ -15,6 +15,7 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use tracing::{trace, instrument, warn};
 
+use crate::entity::Fireball;
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
 use crate::util::{Face, BoundingBox};
@@ -368,13 +369,15 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
             base.look_dirty = true;
             
             // The velocity update depends on projectile kind.
-            if let ProjectileKind::Fireball(_) = projectile_kind {
+            if let ProjectileKind::Fireball(fireball) = projectile_kind {
                 
                 if base.in_water {
                     base.vel *= 0.8;
                 } else {
                     base.vel *= 0.95;
                 }
+
+                base.vel += fireball.accel;
 
             } else {
                 
@@ -390,7 +393,7 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
 
             base.vel_dirty = true;
             
-            // trace!("entity #{id}, new pos: {}", base.pos);
+            trace!("entity #{id}, new pos: {}", base.pos);
             
             // Really important!
             update_bounding_box_from_pos(base);
@@ -1077,7 +1080,8 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
                 // PARITY: Notchian implementation use an equivalent form but not using
                 // the bounding box in itself to compute the center.
-                let delta = target_base.bb.center() - base.bb.center();
+                let center = base.bb.center();
+                let delta = target_base.bb.center() - center;
                 base.look.x = -f64::atan2(delta.x, delta.z) as f32;
                 base.look_dirty = true;
 
@@ -1088,8 +1092,23 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
                     // the original impl, which use negative numbers.
                     next_attack_time = living.attack_time.saturating_add(1);
                     if living.attack_time == 60 {
-                        // TODO: Shot fireball.
+                        
                         next_attack_time = 0;
+
+                        let fireball = Fireball::new_with(|throw_base, throw_projectile, throw_fireball| {
+
+                            let dir = delta + throw_base.rand.next_gaussian_vec() * 0.4;
+                            let dir = dir.normalize_or_zero();
+        
+                            throw_base.pos = center + dir * DVec3::new(4.0, 0.0, 4.0);
+                            throw_base.look = base.look;
+                            throw_fireball.accel = dir * 0.1;
+                            throw_projectile.owner_id = Some(id);
+                
+                        });
+        
+                        world.spawn_entity(fireball);
+                        
                     }
                 }
 

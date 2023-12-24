@@ -418,6 +418,19 @@ impl ServerPlayer {
 
             }
             ["/tick", ..] => Err(format!("§eUsage: /tick [freeze|auto|step <n>]")),
+            ["/kill", ..] => {
+
+                let ids = world.iter_entities().map(|(id, _)| id).collect::<Vec<_>>();
+                for id in ids {
+                    if id != self.entity_id {
+                        assert!(world.remove_entity(id));
+                        self.send_chat(format!("§aKilled entity:§r {id}"));
+                    }
+                }
+                
+                Ok(())
+
+            }
             _ => Err(format!("§eUnknown command!"))
         }
     }
@@ -554,40 +567,39 @@ impl ServerPlayer {
             z: packet.z,
         };
 
-        let mut new_hand_stack = None;
+        let mut inv = InventoryHandle::new(&mut self.main_inv[..]);
+        let inv_index = self.hand_slot as usize;
 
         // Check if the player is reasonably near the block.
         if face.is_none() || self.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
-            let hand_stack = self.main_inv[self.hand_slot as usize];
             // The real action depends on 
             if let Some(face) = face {
                 match world.interact_block(pos) {
                     Interaction::None => {
                         // No interaction, use the item at that block.
-                        new_hand_stack = world.use_stack(hand_stack, pos, face, self.entity_id);
+                        world.use_stack(&mut inv, inv_index, pos, face, self.entity_id);
                     }
                     Interaction::CraftingTable { pos } => {
-                        self.open_window(world, WindowKind::CraftingTable { pos });
+                        return self.open_window(world, WindowKind::CraftingTable { pos });
                     }
                     Interaction::Chest { pos } => {
-                        self.open_window(world, WindowKind::Chest { pos });
+                        return self.open_window(world, WindowKind::Chest { pos });
                     }
                     Interaction::Furnace { pos } => {
-                        self.open_window(world, WindowKind::Furnace { pos });
+                        return self.open_window(world, WindowKind::Furnace { pos });
                     }
                     Interaction::Dispenser { pos } => {
-                        self.open_window(world, WindowKind::Dispenser { pos });
+                        return self.open_window(world, WindowKind::Dispenser { pos });
                     }
                     Interaction::Handled => {}
                 }
             } else {
-                new_hand_stack = world.use_raw_stack(hand_stack, self.entity_id);
+                world.use_raw_stack(&mut inv, inv_index, self.entity_id);
             }
         }
 
-        if let Some(hand_stack) = new_hand_stack {
-            self.main_inv[self.hand_slot as usize] = hand_stack;
-            self.send_main_inv_item(self.hand_slot as usize);
+        for index in inv.iter_changes() {
+            self.send_main_inv_item(index);
         }
 
     }

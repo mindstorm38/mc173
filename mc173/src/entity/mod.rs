@@ -355,7 +355,10 @@ pub struct Arrow {
 pub struct Egg { }
 
 #[derive(Debug, Clone, Default)]
-pub struct Fireball { }
+pub struct Fireball {
+    /// Acceleration to that fireball.
+    pub accel: DVec3,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Snowball { }

@@ -321,14 +321,18 @@ impl EntityTracker {
                     ProjectileKind::Snowball(_) => self.spawn_player_entity_object(player, 61, false),
                 }
             }
-            BaseKind::Living(_, living_kind) => {
+            BaseKind::Living(living, living_kind) => {
                 match living_kind {
                     LivingKind::Human(pl) => self.spawn_player_entity_human(player, pl),
-                    LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56, vec![]),
+                    LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56, vec![
+                        proto::Metadata::new_byte(16, (living.attack_time > 50) as _),
+                    ]),
                     LivingKind::Slime(slime) => self.spawn_player_entity_mob(player, 55, vec![
                         proto::Metadata::new_byte(16, slime.size as i8),
                     ]),
-                    LivingKind::Pig(_) => self.spawn_player_entity_mob(player, 90, vec![]),
+                    LivingKind::Pig(pig) => self.spawn_player_entity_mob(player, 90, vec![
+                        proto::Metadata::new_byte(16, pig.saddle as _),
+                    ]),
                     LivingKind::Chicken(_) => self.spawn_player_entity_mob(player, 93, vec![]),
                     LivingKind::Cow(_) => self.spawn_player_entity_mob(player, 92, vec![]),
                     LivingKind::Sheep(_) => self.spawn_player_entity_mob(player, 91, vec![]),

@@ -2,9 +2,10 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
-use crate::block::sapling::TreeKind;
-use crate::entity::{Arrow, Entity};
+use crate::inventory::InventoryHandle;
 use crate::gen::tree::TreeGenerator;
+use crate::block::sapling::TreeKind;
+use crate::entity::{Arrow, Entity, Snowball};
 use crate::item::{ItemStack, self};
 use crate::util::Face;
 use crate::block;
@@ -17,10 +18,11 @@ impl World {
     /// Use an item stack on a given block, this is basically the action of left click. 
     /// This function returns the item stack after, if used, this may return an item stack
     /// with size of 0. The face is where the click has hit on the target block.
-    pub fn use_stack(&mut self, stack: ItemStack, pos: IVec3, face: Face, entity_id: u32) -> Option<ItemStack> {
+    pub fn use_stack(&mut self, inv: &mut InventoryHandle, index: usize, pos: IVec3, face: Face, entity_id: u32) {
 
+        let stack = inv.get(index);
         if stack.is_empty() {
-            return None;
+            return;
         }
         
         let success = match stack.id {
@@ -37,29 +39,34 @@ impl World {
             item::IRON_HOE |
             item::STONE_HOE |
             item::GOLD_HOE |
-            item::WOOD_HOE => return self.use_hoe_stack(stack, pos, face),
+            item::WOOD_HOE => self.use_hoe_stack(pos, face),
             item::WHEAT_SEEDS => self.use_wheat_seeds_stack(pos, face),
             item::DYE if stack.damage == 15 => self.use_bone_meal_stack(pos),
             _ => false
         };
 
-        success.then_some(stack.with_size(stack.size - 1))
+        if success {
+            inv.set(index, stack.inc_damage(1));
+        }
 
     }
 
     /// Use an item that is not meant to be used on blocks. Such as buckets, boats, bows or
     /// food items...
-    pub fn use_raw_stack(&mut self, stack: ItemStack, entity_id: u32) -> Option<ItemStack> {
+    pub fn use_raw_stack(&mut self, inv: &mut InventoryHandle, index: usize, entity_id: u32) {
+
+        let stack = inv.get(index);
+        if stack.is_empty() {
+            return;
+        }
 
         match stack.id {
-            item::BUCKET => self.use_bucket_stack(block::AIR, entity_id),
-            item::WATER_BUCKET => self.use_bucket_stack(block::WATER_MOVING, entity_id),
-            item::LAVA_BUCKET => self.use_bucket_stack(block::LAVA_MOVING, entity_id),
-            item::BOW => {
-                self.use_bow_stack(entity_id);
-                Some(stack)
-            }
-            _ => None
+            item::BUCKET |
+            item::WATER_BUCKET |
+            item::LAVA_BUCKET => self.use_bucket_stack(inv, index, entity_id),
+            item::BOW => self.use_bow_stack(inv, index, entity_id),
+            item::SNOWBALL => self.use_snowball_stack(inv, index, entity_id),
+            _ => ()
         }
 
     }
@@ -207,17 +214,18 @@ impl World {
 
     }
 
-    fn use_hoe_stack(&mut self, stack: ItemStack, pos: IVec3, face: Face) -> Option<ItemStack> {
+    fn use_hoe_stack(&mut self, pos: IVec3, face: Face) -> bool {
         
-        let (id, _) = self.get_block(pos)?;
-        let (above_id, _) = self.get_block(pos + IVec3::Y)?;
-
-        if (face == Face::NegY || above_id != block::AIR || id != block::GRASS) && id != block::DIRT {
-            None
-        } else {
-            self.set_block_notify(pos, block::FARMLAND, 0);
-            Some(stack.inc_damage(1))
+        if let Some((id, _)) = self.get_block(pos) {
+            if let Some((above_id, _)) = self.get_block(pos + IVec3::Y) {
+                if (face != Face::NegY && above_id == block::AIR && id == block::GRASS) || id == block::DIRT {
+                    self.set_block_notify(pos, block::FARMLAND, 0);
+                    return true;
+                }
+            }
         }
+
+        false
 
     }
 
@@ -258,7 +266,15 @@ impl World {
 
     }
 
-    fn use_bucket_stack(&mut self, fluid_id: u8, entity_id: u32) -> Option<ItemStack> {
+    fn use_bucket_stack(&mut self, inv: &mut InventoryHandle, index: usize, entity_id: u32) {
+
+        let stack = inv.get(index);
+        let fluid_id = match stack.id {
+            item::BUCKET => block::AIR,
+            item::WATER_BUCKET => block::WATER_MOVING,
+            item::LAVA_BUCKET => block::LAVA_MOVING,
+            _ => unimplemented!()
+        };
 
         let entity = self.get_entity(entity_id).unwrap();
         
@@ -270,45 +286,61 @@ impl World {
         let pitch_h = entity.0.look.y.cos();
         let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
 
-        let hit = self.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR)?;
-        let (id, metadata) = self.get_block(hit.pos)?;
+        let Some(hit) = self.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR) else { return };
+        
+        let mut new_stack;
 
         // The bucket is empty.
         if fluid_id == block::AIR {
 
+            let Some((id, metadata)) = self.get_block(hit.pos) else { return };
+
             // Fluid must be a source.
             if !block::fluid::is_source(metadata) {
-                return None;
+                return;
             }
 
-            let item = match id {
-                block::WATER_MOVING | block::WATER_STILL => item::WATER_BUCKET,
-                block::LAVA_MOVING | block::LAVA_STILL => item::LAVA_BUCKET,
-                _ => return None
+            new_stack = match id {
+                block::WATER_MOVING | block::WATER_STILL => ItemStack::new_single(item::WATER_BUCKET, 0),
+                block::LAVA_MOVING | block::LAVA_STILL => ItemStack::new_single(item::LAVA_BUCKET, 0),
+                _ => return
             };
 
             self.set_block_notify(hit.pos, block::AIR, 0);
 
-            Some(ItemStack::new_single(item, 0))
-
         } else {
 
             let pos = hit.pos + hit.face.delta();
-            let (id, _) = self.get_block(pos)?;
+            let Some((id, _)) = self.get_block(pos) else { return };
 
             if id == block::AIR || !block::material::get_material(id).is_solid() {
                 self.set_block_notify(pos, fluid_id, 0);
                 // world.schedule_tick(pos, fluid_id, 5); // TODO: 30 for lava.
             }
 
-            Some(ItemStack::new_single(item::BUCKET, 0))
+            new_stack = ItemStack::new_single(item::BUCKET, 0);
 
+        }
+
+        if stack.size > 1 {
+            inv.add(&mut new_stack);
+            // Only if there was space in the inventory we actually remove previous one.
+            if new_stack.is_empty() {
+                inv.set(index, stack.with_size(stack.size - 1));
+            }
+        } else {
+            inv.set(index, new_stack);
         }
 
     }
 
-    fn use_bow_stack(&mut self, entity_id: u32) {
+    fn use_bow_stack(&mut self, inv: &mut InventoryHandle, _index: usize, entity_id: u32) {
         
+        // Consume an arrow from the inventory.
+        if !inv.consume(ItemStack::new_single(item::ARROW, 0)) {
+            return;
+        }
+
         let Entity(base, _) = self.get_entity(entity_id).unwrap();
 
         let arrow = Arrow::new_with(|arrow_base, arrow_projectile, arrow| {
@@ -333,6 +365,37 @@ impl World {
         });
 
         self.spawn_entity(arrow);
+
+    }
+
+    fn use_snowball_stack(&mut self, inv: &mut InventoryHandle, index: usize, entity_id: u32) {
+
+        let stack = inv.get(index);
+        inv.set(index, stack.with_size(stack.size - 1));
+
+        let Entity(base, _) = self.get_entity(entity_id).unwrap();
+
+        let snowball = Snowball::new_with(|throw_base, throw_projectile, _| {
+            
+            throw_base.pos = base.pos;
+            throw_base.pos.y += base.eye_height as f64 - 0.1;
+            throw_base.look = base.look;
+
+            let (yaw_sin, yaw_cos) = throw_base.look.x.sin_cos();
+            let (pitch_sin, pitch_cos) = throw_base.look.y.sin_cos();
+
+            throw_base.vel.x = (-yaw_sin * pitch_cos) as f64;
+            throw_base.vel.z = (yaw_cos * pitch_cos) as f64;
+            throw_base.vel.y = (-pitch_sin) as f64 * 0.4;
+            
+            throw_base.vel += throw_base.rand.next_gaussian_vec() * 0.0075;
+            throw_base.vel *= 1.5;
+
+            throw_projectile.owner_id = Some(entity_id);
+
+        });
+
+        self.spawn_entity(snowball);
 
     }
 

@@ -415,8 +415,11 @@ impl ServerWorld {
         let mut arrow_stack = ItemStack::new_single(item::ARROW, 0);
         
         let stack = match target_kind {
-            BaseKind::Item(item) => &mut item.stack,
-            BaseKind::Projectile(_, ProjectileKind::Arrow(_)) => &mut arrow_stack,
+            BaseKind::Item(item) 
+                => &mut item.stack,
+            BaseKind::Projectile(projectile, ProjectileKind::Arrow(_)) 
+                if projectile.shake == 0 
+                => &mut arrow_stack,
             // Other entities cannot be picked up.
             _ => return,
         };
