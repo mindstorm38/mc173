@@ -27,8 +27,14 @@ impl BoundingBox {
         }
     }
 
+    /// Calculate the size of this bounding box.
     pub fn size(self) -> DVec3 {
         self.max - self.min
+    }
+
+    /// Calculate the center of the bounding box.
+    pub fn center(self) -> DVec3 {
+        (self.min + self.max) / 2.0
     }
 
     /// Expand this bounding box in all direction by the given delta.

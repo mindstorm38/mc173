@@ -548,7 +548,6 @@ fn tick_state(world: &mut World, id: u32, entity: &mut Entity) {
         // TODO: Air time underwater
 
         // Decrease countdowns.
-        living.attack_time = living.attack_time.saturating_sub(1);
         living.hurt_time = living.hurt_time.saturating_sub(1);
 
         /// The hurt time when hit for the first time.
@@ -949,12 +948,12 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
     /// REF: EntitySlime::updatePlayerActionState
     fn tick_slime_ai(world: &mut World, _id: u32, entity: &mut Entity) {
 
-        let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Slime(slime))) = entity);
-
         /// Look step for slime: 10/20 deg
         const LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.3490658503988659);
-
+        
         // TODO: despawn entity if too far away from player
+
+        let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Slime(slime))) = entity);
 
         // Searching the closest player entities behind 16.0 blocks.
         let closest_player = find_closest_player_entity(world, base.pos, 16.0);
@@ -992,9 +991,134 @@ fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
     }
 
+    /// Tick a ghast entity AI.
+    /// 
+    /// REF: EntityGhast::updatePlayerActionState
+    fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
+
+        // Maximum distance to shoot a player, beyond this the ghast just follow its vel.
+        const SHOT_MAX_DIST_SQUARED: f64 = 64.0 * 64.0;
+
+        // TODO: despawn entity if too far away from player
+
+        let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Ghast(ghast))) = entity);
+
+        // If we are too close or too far, change the waypoint.
+        let dist = (ghast.waypoint - base.pos).length();
+        if dist < 1.0 || dist > 60.0 {
+            ghast.waypoint = base.pos + ((base.rand.next_float_vec() * 2.0 - 1.0) * 16.0).as_dvec3();
+        }
+
+        // Check if the ghast can reach the waypoint...
+        ghast.waypoint_check_time = ghast.waypoint_check_time.saturating_sub(1);
+        if ghast.waypoint_check_time == 0 {
+
+            ghast.waypoint_check_time = base.rand.next_int_bounded(5) as u8 + 2;
+
+            let delta = ghast.waypoint - base.pos;
+            let dist = delta.length();
+            let delta_norm = delta / dist;
+
+            if delta_norm.is_finite() {
+                
+                // If the norm is finite then we check that we'll not collide.
+                let mut traversable = true;
+                let mut bb = base.bb;
+                for _ in 1..dist.ceil() as usize {
+                    bb += delta_norm;
+                    if world.iter_blocks_boxes_colliding(bb).next().is_some() {
+                        traversable = false;
+                        break;
+                    }
+                }
+
+                // If traversable we accelerate toward the waypoint. If not we reset.
+                if traversable {
+                    base.vel += delta_norm * 0.1;
+                    base.vel_dirty = true;
+                } else {
+                    ghast.waypoint = base.pos;
+                }
+
+            }
+
+        }
+
+        // Try to get the target entity if still alive.
+        let mut target_entity = living.attack_target
+            .and_then(|target_id| world.get_entity(target_id));
+
+        // If we have a target entity, decrement countdown.
+        if target_entity.is_some() {
+            ghast.attack_target_time = ghast.attack_target_time.saturating_sub(1);
+        }
+
+        // Only then we search for the closest player if required.
+        if target_entity.is_none() || ghast.attack_target_time == 0 {
+            if let Some((closest_id, closest_entity)) = find_closest_player_entity(world, base.pos, 100.0) {
+                living.attack_target = Some(closest_id);
+                target_entity = Some(closest_entity);
+                ghast.attack_target_time = 20;
+            } else {
+                living.attack_target = None;
+                target_entity = None;
+            }
+        }
+
+        // These two booleans are used to choose or not to look toward velocity and to
+        // cool down attach timer.
+        let mut look_vel = true;
+        let mut next_attack_time = living.attack_time.saturating_sub(1);
+
+        if let Some(Entity(target_base, _)) = target_entity {
+            if target_base.pos.distance_squared(base.pos) < SHOT_MAX_DIST_SQUARED {
+                
+                look_vel = false;
+
+                // PARITY: Notchian implementation use an equivalent form but not using
+                // the bounding box in itself to compute the center.
+                let delta = target_base.bb.center() - base.bb.center();
+                base.look.x = -f64::atan2(delta.x, delta.z) as f32;
+                base.look_dirty = true;
+
+                // Charge the attack only if we see the player.
+                if can_eye_track(world, base, target_base) {
+                    // PARITY: Notchian implementation doesn't use the living's attack 
+                    // time but we use it here, so this is slightly different logic from
+                    // the original impl, which use negative numbers.
+                    next_attack_time = living.attack_time.saturating_add(1);
+                    if living.attack_time == 60 {
+                        // TODO: Shot fireball.
+                        next_attack_time = 0;
+                    }
+                }
+
+            }
+        }
+
+        if look_vel {
+            base.look.x = -f64::atan2(base.vel.x, base.vel.z) as f32;
+        }
+
+        // Send the proper event.
+        let was_charged = living.attack_time > 50;
+        let charged = next_attack_time > 50;
+        if was_charged != charged {
+            world.push_event(Event::Entity { 
+                id, 
+                inner: EntityEvent::Ghast { 
+                    charged,
+                }
+            });
+        }
+
+        living.attack_time = next_attack_time;
+
+    }
+    
     match entity {
         Entity(_, BaseKind::Living(_, LivingKind::Human(_))) => (),  // Fo
-        Entity(_, BaseKind::Living(_, LivingKind::Ghast(_))) => (),
+        Entity(_, BaseKind::Living(_, LivingKind::Ghast(_))) => tick_ghast_ai(world, id, entity),
         Entity(_, BaseKind::Living(_, LivingKind::Squid(_))) => (),
         Entity(_, BaseKind::Living(_, LivingKind::Slime(_))) => tick_slime_ai(world, id, entity),
         Entity(_, BaseKind::Living(_, _)) => tick_ground_ai(world, id, entity),
@@ -1017,6 +1141,7 @@ fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, 
 
         let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
+        living.attack_time = living.attack_time.saturating_sub(1);
         if eye_track && living.attack_time == 0 && dist_squared < MAX_DIST_SQUARED {
 
             let Some(Entity(target_base, BaseKind::Living(_, _))) = world.get_entity_mut(target_id) else {
@@ -1134,6 +1259,7 @@ fn tick_attack(world: &mut World, id: u32, entity: &mut Entity, target_id: u32, 
             let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Skeleton(_))) = entity);
             let Entity(target_base, _) = world.get_entity(target_id).unwrap();
 
+            living.attack_time = living.attack_time.saturating_sub(1);
             if living.attack_time == 0 {
 
                 living.attack_time = 30;

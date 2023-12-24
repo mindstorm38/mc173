@@ -19,7 +19,7 @@ use mc173::world::{World, Dimension,
     BlockEntityStorage, BlockEntityProgress, 
     Weather};
 
-use crate::proto::{OutPacket, self};
+use crate::proto::{self, OutPacket};
 use crate::entity::EntityTracker;
 use crate::player::ServerPlayer;
 use crate::chunk::ChunkTrackers;
@@ -198,7 +198,9 @@ impl ServerWorld {
                     EntityEvent::Dead => 
                         self.handle_entity_dead(id),
                     EntityEvent::Creeper { ignited, powered } =>
-                        todo!()
+                        todo!(),
+                    EntityEvent::Ghast { charged } =>
+                        self.handle_entity_ghast(id, charged),
                 }
                 Event::BlockEntity { pos, inner } => match inner {
                     BlockEntityEvent::Set =>
@@ -467,6 +469,20 @@ impl ServerWorld {
                 player.send(OutPacket::EntityStatus(proto::EntityStatusPacket {
                     entity_id: id,
                     status,
+                }));
+            }
+        }
+    }
+
+    /// Handle an entity ghast state event.
+    fn handle_entity_ghast(&mut self, id: u32, charged: bool) {
+        for player in &self.players {
+            if player.tracked_entities.contains(&id) {
+                player.send(OutPacket::EntityMetadata(proto::EntityMetadataPacket {
+                    entity_id: id,
+                    metadata: vec![
+                        proto::Metadata::new_byte(16, charged as _)
+                    ],
                 }));
             }
         }

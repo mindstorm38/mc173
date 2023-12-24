@@ -369,7 +369,14 @@ pub struct Human {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Ghast { }
+pub struct Ghast {
+    /// The ghast waypoint defaults to zero.
+    pub waypoint: DVec3,
+    /// Remaining time before changing the target waypoint of the ghast.
+    pub waypoint_check_time: u8,
+    /// Remaining time before searching an attack target again.
+    pub attack_target_time: u8,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Slime {
@@ -481,6 +488,12 @@ pub struct Path {
 impl From<Vec<IVec3>> for Path {
     fn from(points: Vec<IVec3>) -> Self {
         Self { points, index: 0 }
+    }
+}
+
+impl From<IVec3> for Path {
+    fn from(value: IVec3) -> Self {
+        Self { points: vec![value], index: 0 }
     }
 }
 

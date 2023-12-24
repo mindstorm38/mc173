@@ -1408,8 +1408,15 @@ pub enum EntityEvent {
     Dead,
     /// Update to the creeper data.
     Creeper {
+        /// The creeper is charging an explosion.
         ignited: bool,
+        /// The creeper is powered.
         powered: bool,
+    },
+    /// Update to the ghast data.
+    Ghast {
+        /// The ghast is charging a fireball.
+        charged: bool,
     }
 }
 
