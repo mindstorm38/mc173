@@ -316,9 +316,9 @@ impl EntityTracker {
             BaseKind::Projectile(_, projectile_kind) => {
                 match projectile_kind {
                     ProjectileKind::Arrow(_) => self.spawn_player_entity_object(player, 60, true),
-                    ProjectileKind::Egg(_) => self.spawn_player_entity_object(player, 62, false),
+                    ProjectileKind::Egg(_) => self.spawn_player_entity_object(player, 62, true),
                     ProjectileKind::Fireball(_) => self.spawn_player_entity_object(player, 63, true),
-                    ProjectileKind::Snowball(_) => self.spawn_player_entity_object(player, 61, false),
+                    ProjectileKind::Snowball(_) => self.spawn_player_entity_object(player, 61, true),
                 }
             }
             BaseKind::Living(living, living_kind) => {

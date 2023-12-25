@@ -371,18 +371,28 @@ impl ServerWorld {
 
     /// Handle an entity spawn world event.
     fn handle_entity_spawn(&mut self, id: u32) {
-        let entity = self.world.get_entity(id).expect("incoherent event entity");
+        
+        let Some(entity) = self.world.get_entity(id) else {
+            return // Entity is already removed from the world.
+        };
+
         self.state.entity_trackers.entry(id).or_insert_with(|| {
             let tracker = EntityTracker::new(id, entity);
             tracker.update_tracking_players(&mut self.players, &self.world);
             tracker
         });
+
     }
 
     /// Handle an entity kill world event.
     fn handle_entity_remove(&mut self, id: u32) {
-        let tracker = self.state.entity_trackers.remove(&id).expect("incoherent event entity");
+        
+        let Some(tracker) = self.state.entity_trackers.remove(&id) else {
+            return // Entity has not been added because: see above.
+        };
+
         tracker.untrack_players(&mut self.players);
+
     }
 
     /// Handle an entity position world event.

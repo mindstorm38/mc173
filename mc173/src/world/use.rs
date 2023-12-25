@@ -384,10 +384,15 @@ impl World {
             let (yaw_sin, yaw_cos) = throw_base.look.x.sin_cos();
             let (pitch_sin, pitch_cos) = throw_base.look.y.sin_cos();
 
+            // PARITY: Notchian implementation multiplies the initial velocity Y component
+            // by 0.4 for unknown reason, to fix the aim issue we removed this here.
             throw_base.vel.x = (-yaw_sin * pitch_cos) as f64;
             throw_base.vel.z = (yaw_cos * pitch_cos) as f64;
-            throw_base.vel.y = (-pitch_sin) as f64 * 0.4;
+            throw_base.vel.y = (-pitch_sin) as f64;
             
+            throw_base.pos.x += throw_base.vel.x * 0.16;
+            throw_base.pos.z += throw_base.vel.z * 0.16;
+
             throw_base.vel += throw_base.rand.next_gaussian_vec() * 0.0075;
             throw_base.vel *= 1.5;
 
