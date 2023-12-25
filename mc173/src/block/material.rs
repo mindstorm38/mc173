@@ -236,9 +236,96 @@ pub fn get_slipperiness(id: u8) -> f32 {
     }
 }
 
-/// The block resistance to explosions.
-pub fn get_resistance(id: u8) -> f32 {
+/// Get the break hardness of a block, the block hardness is a value that defines the 
+/// time a player need to hit a block before breaking. When the player's tool is able
+/// to break the block, the hardness is multiplied by 30 ticks (1.5 seconds), but 100
+/// (5.0 seconds) when not able. Some blocks cannot be broken: +inf is returned.
+pub fn get_break_hardness(id: u8) -> f32 {
     match id {
+        block::LEAVES |
+        block::BED |
+        block::SNOW_BLOCK => 0.2,
+        block::GLASS |
+        block::GLOWSTONE => 0.3,
+        block::LADDER |
+        block::CACTUS |
+        block::NETHERRACK => 0.4,
+        block::DIRT |
+        block::SAND |
+        block::STICKY_PISTON |
+        block::PISTON |
+        block::PISTON_EXT |
+        block::LEVER |
+        block::STONE_PRESSURE_PLATE |
+        block::WOOD_PRESSURE_PLATE |
+        block::BUTTON |
+        block::ICE |
+        block::SOULSAND |
+        block::CAKE => 0.5,
+        block::GRASS |
+        block::GRAVEL |
+        block::SPONGE |
+        block::FARMLAND |
+        block::CLAY => 0.6,
+        block::POWERED_RAIL |
+        block::DETECTOR_RAIL |
+        block::RAIL => 0.7,
+        block::SANDSTONE |
+        block::NOTE_BLOCK |
+        block::WOOL => 0.8,
+        block::STONE |
+        block::BOOKSHELF => 1.5,
+        block::COBBLESTONE |
+        block::WOOD |
+        block::LOG |
+        block::DOUBLE_SLAB |
+        block::SLAB |
+        block::BRICK |
+        block::MOSSY_COBBLESTONE |
+        block::WOOD_STAIR |
+        block::COBBLESTONE_STAIR |
+        block::JUKEBOX |
+        block::FENCE => 2.0,
+        block::CRAFTING_TABLE |
+        block::CHEST => 2.5,
+        block::GOLD_ORE |
+        block::IRON_ORE |
+        block::COAL_ORE |
+        block::LAPIS_ORE |
+        block::LAPIS_BLOCK |
+        block::GOLD_BLOCK |
+        block::DIAMOND_ORE |
+        block::WOOD_DOOR |
+        block::REDSTONE_ORE |
+        block::REDSTONE_ORE_LIT |
+        block::TRAPDOOR => 3.0,
+        block::DISPENSER |
+        block::FURNACE |
+        block::FURNACE_LIT => 3.5,
+        block::COBWEB => 4.0,
+        block::IRON_BLOCK |
+        block::DIAMOND_BLOCK |
+        block::IRON_DOOR |
+        block::SPAWNER => 5.0,
+        block::OBSIDIAN => 10.0,
+        block::BEDROCK |
+        block::PISTON_MOVING |
+        block::PORTAL |
+        block::WATER_MOVING |
+        block::WATER_STILL |
+        block::LAVA_MOVING |
+        block::LAVA_STILL => f32::INFINITY,
+        _ => 0.0,
+    }
+}
+
+/// The block resistance to explosions. When an explosion happens, each ray of the 
+/// explosion starts with an intensity that equals the radius of the explosion multiplied
+/// by a uniform amount between 0.7 and 1.4... The resistance is the amount subtracted
+/// on each step of the ray.
+pub fn get_explosion_resistance(id: u8) -> f32 {
+    match id {
+        block::AIR => 0.0,
         block::WOOD |
         block::GOLD_ORE |
         block::IRON_ORE |
@@ -249,7 +336,7 @@ pub fn get_resistance(id: u8) -> f32 {
         block::DIAMOND_ORE |
         block::IRON_DOOR |
         block::REDSTONE_ORE |
-        block::REDSTONE_ORE_LIT => 15.0,
+        block::REDSTONE_ORE_LIT => 15.0 / 5.0,
         block::STONE |
         block::COBBLESTONE |
         block::GOLD_BLOCK |
@@ -260,10 +347,10 @@ pub fn get_resistance(id: u8) -> f32 {
         block::MOSSY_COBBLESTONE |
         block::DIAMOND_BLOCK |
         block::COBBLESTONE_STAIR |
-        block::JUKEBOX => 30.0,
-        block::OBSIDIAN => 6000.0,
-        block::BEDROCK => 18000000.0,
-        _ => 0.0,
+        block::JUKEBOX => 30.0 / 5.0,
+        block::OBSIDIAN => 6000.0 / 5.0,
+        block::BEDROCK => 18000000.0 / 5.0,
+        _ => get_break_hardness(id),
     }
 }
 

@@ -26,7 +26,7 @@ impl World {
         // TODO: Maybe remove hardness from the block definition, because it's only used in
         // the game for break duration.
 
-        let hardness = self.get_break_hardness(block_id);
+        let hardness = block::material::get_break_hardness(block_id);
         if hardness.is_infinite() {
             f32::INFINITY
         } else {
@@ -54,89 +54,6 @@ impl World {
 
         }
 
-    }
-
-    /// Get the break hardness of a block, the block hardness is a value that defines the 
-    /// time a player need to hit a block before breaking. When the player's tool is able
-    /// to break the block, the hardness is multiplied by 30 ticks (1.5 seconds), but 100
-    /// (5.0 seconds) when not able. Some blocks cannot be broken: +inf is returned.
-    fn get_break_hardness(&self, id: u8) -> f32 {
-        match id {
-            block::LEAVES |
-            block::BED |
-            block::SNOW_BLOCK => 0.2,
-            block::GLASS |
-            block::GLOWSTONE => 0.3,
-            block::LADDER |
-            block::CACTUS |
-            block::NETHERRACK => 0.4,
-            block::DIRT |
-            block::SAND |
-            block::STICKY_PISTON |
-            block::PISTON |
-            block::PISTON_EXT |
-            block::LEVER |
-            block::STONE_PRESSURE_PLATE |
-            block::WOOD_PRESSURE_PLATE |
-            block::BUTTON |
-            block::ICE |
-            block::SOULSAND |
-            block::CAKE => 0.5,
-            block::GRASS |
-            block::GRAVEL |
-            block::SPONGE |
-            block::FARMLAND |
-            block::CLAY => 0.6,
-            block::POWERED_RAIL |
-            block::DETECTOR_RAIL |
-            block::RAIL => 0.7,
-            block::SANDSTONE |
-            block::NOTE_BLOCK |
-            block::WOOL => 0.8,
-            block::STONE |
-            block::BOOKSHELF => 1.5,
-            block::COBBLESTONE |
-            block::WOOD |
-            block::LOG |
-            block::DOUBLE_SLAB |
-            block::SLAB |
-            block::BRICK |
-            block::MOSSY_COBBLESTONE |
-            block::WOOD_STAIR |
-            block::COBBLESTONE_STAIR |
-            block::JUKEBOX |
-            block::FENCE => 2.0,
-            block::CRAFTING_TABLE |
-            block::CHEST => 2.5,
-            block::GOLD_ORE |
-            block::IRON_ORE |
-            block::COAL_ORE |
-            block::LAPIS_ORE |
-            block::LAPIS_BLOCK |
-            block::GOLD_BLOCK |
-            block::DIAMOND_ORE |
-            block::WOOD_DOOR |
-            block::REDSTONE_ORE |
-            block::REDSTONE_ORE_LIT |
-            block::TRAPDOOR => 3.0,
-            block::DISPENSER |
-            block::FURNACE |
-            block::FURNACE_LIT => 3.5,
-            block::COBWEB => 4.0,
-            block::IRON_BLOCK |
-            block::DIAMOND_BLOCK |
-            block::IRON_DOOR |
-            block::SPAWNER => 5.0,
-            block::OBSIDIAN => 10.0,
-            block::BEDROCK |
-            block::PISTON_MOVING |
-            block::PORTAL |
-            block::WATER_MOVING |
-            block::WATER_STILL |
-            block::LAVA_MOVING |
-            block::LAVA_STILL => f32::INFINITY,
-            _ => 0.0,
-        }
     }
 
     /// Check if an item (given its id) can break a block without speed penalties and

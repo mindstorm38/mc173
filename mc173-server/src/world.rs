@@ -214,6 +214,8 @@ impl ServerWorld {
                 }
                 Event::Weather { new, .. } =>
                     self.handle_weather_change(new),
+                Event::Explode { center, radius } =>
+                    self.handle_explode(center, radius),
                 Event::DebugParticle { pos, block } =>
                     self.handle_debug_particle(pos, block),
             }
@@ -364,6 +366,21 @@ impl ServerWorld {
                     y: pos.y as i8,
                     z: pos.z,
                     effect_data: 0,
+                }));
+            }
+        }
+    }
+
+    fn handle_explode(&mut self, center: DVec3, radius: f32) {
+        let (cx, cz) = chunk::calc_entity_chunk_pos(center);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::Explosion(proto::ExplosionPacket {
+                    x: center.x,
+                    y: center.y,
+                    z: center.z,
+                    size: radius,
+                    blocks: vec![],
                 }));
             }
         }

@@ -37,6 +37,7 @@ pub mod r#break;
 pub mod r#use;
 pub mod tick;
 pub mod notify;
+pub mod explode;
 
 
 // Various thread local vectors that are used to avoid frequent reallocation of 
@@ -1346,6 +1347,13 @@ pub enum Event {
         /// New weather in the world.
         new: Weather,
     },
+    /// Explode blocks.
+    Explode {
+        /// Center position of the explosion.
+        center: DVec3,
+        /// Radius of the explosion around center.
+        radius: f32,
+    },
     /// An event to debug and spawn block break particles at the given position.
     DebugParticle {
         /// The block position to spawn particles at.
@@ -1374,7 +1382,7 @@ pub enum BlockEvent {
         id: u8,
         /// Current metadata of the block.
         metadata: u8,
-    }
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

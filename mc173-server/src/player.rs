@@ -412,7 +412,7 @@ impl ServerPlayer {
                 let step_count = step_count.parse::<u32>()
                     .map_err(|_| format!("§cError: invalid step count:§r {step_count}"))?;
 
-                    self.send_chat(format!("§aWorld ticking:§r {step_count} steps"));
+                self.send_chat(format!("§aWorld ticking:§r {step_count} steps"));
                 state.tick_mode = TickMode::Manual(step_count);
                 Ok(())
 
@@ -428,6 +428,13 @@ impl ServerPlayer {
                     }
                 }
                 
+                Ok(())
+
+            }
+            ["/explode", ..] => {
+
+                world.explode(self.pos, 4.0, false, Some(self.entity_id));
+                self.send_chat(format!("§aExplode at:§r {}", self.pos));
                 Ok(())
 
             }
