@@ -2,11 +2,22 @@
 
 use glam::{DVec3, Vec2, IVec3};
 
+use tracing::instrument;
+
 use crate::util::{BoundingBox, JavaRandom};
 use crate::item::ItemStack;
+use crate::world::World;
 
-pub mod tick;
-pub mod interact;
+pub mod common;
+
+mod tick;
+mod tick_state;
+mod tick_ai;
+mod tick_attack;
+
+use tick_state::tick_state;
+use tick_ai::tick_ai;
+use tick_attack::tick_attack;
 
 
 /// Kind of entity, without actual data. This enumeration can be used to construct a
@@ -575,6 +586,12 @@ impl Entity {
     /// Get the kind of entity from this instance.
     pub fn kind(&self) -> EntityKind {
         self.1.entity_kind()
+    }
+
+    /// This this entity from its id in a world.
+    #[instrument(level = "debug", skip_all)]
+    pub fn tick(&mut self, world: &mut World, id: u32) {
+        tick::tick(world, id, self);
     }
 
 }
