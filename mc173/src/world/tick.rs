@@ -39,7 +39,7 @@ impl World {
             block::WHEAT => self.tick_wheat(pos, metadata),
             block::DETECTOR_RAIL => {},
             block::FARMLAND => {},
-            block::FIRE => {},
+            block::FIRE => self.tick_fire(pos, metadata),
             // PARITY: Notchian client check if flowers can stay, we intentionally don't
             // respect that to allow glitched plants to stay.
             block::DANDELION |
@@ -263,6 +263,20 @@ impl World {
             self.set_block_notify(pos, block::WHEAT, metadata + 1);
         }
 
+    }
+
+    /// Tick a fire and try spreading it.
+    fn tick_fire(&mut self, pos: IVec3, metadata: u8) {
+
+        // Infini burn if nether rack.
+        let infini = self.is_block(pos - IVec3::Y, block::NETHERRACK);
+
+        if self.is_block_opaque_cube(pos - IVec3::Y) {
+            
+        }
+
+        // TODO:
+        
     }
 
     /// Tick a mushroom to try spreading it.

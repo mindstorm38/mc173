@@ -39,7 +39,7 @@ impl World {
             block::WOOD_DOOR |
             block::IRON_DOOR => self.can_place_door(pos),
             block::FENCE => matches!(self.get_block(pos - IVec3::Y), Some((block::FENCE, _))) || self.is_block_solid(pos - IVec3::Y),
-            block::FIRE => true, // TODO:
+            block::FIRE => self.can_place_fire(pos),
             block::TORCH |
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.is_block_opaque_cube(pos + face.delta()),
@@ -111,6 +111,21 @@ impl World {
 
     fn can_place_door(&mut self, pos: IVec3) -> bool {
         self.is_block_opaque_cube(pos - IVec3::Y) && self.is_block_replaceable(pos + IVec3::Y)
+    }
+
+    fn can_place_fire(&mut self, pos: IVec3) -> bool {
+        if self.is_block_opaque_cube(pos - IVec3::Y) {
+            true
+        } else {
+            for face in Face::ALL {
+                if let Some((block, _)) = self.get_block(pos + face.delta()) {
+                    if block::material::get_fire_spread(block) != 0 {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
     }
 
     /// Place the block at the given position in the world oriented toward given face. Note

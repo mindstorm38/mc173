@@ -483,9 +483,20 @@ impl ServerPlayer {
     /// Handle a break block packet.
     fn handle_break_block(&mut self, world: &mut World, packet: proto::BreakBlockPacket) {
         
+        let face = match packet.face {
+            0 => Face::NegY,
+            1 => Face::PosY,
+            2 => Face::NegZ,
+            3 => Face::PosZ,
+            4 => Face::NegX,
+            5 => Face::PosX,
+            _ => return,
+        };
+
         let Some(entity) = world.get_entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
+        tracing::trace!("packet: {packet:?}");
         // TODO: Use server time for breaking blocks.
 
         let in_water = entity.0.in_water;
@@ -493,6 +504,11 @@ impl ServerPlayer {
         let mut stack = self.main_inv[self.hand_slot as usize];
 
         if packet.status == 0 {
+
+            // Special case to extinguish fire.
+            if world.is_block(pos + face.delta(), block::FIRE) {
+                world.set_block_notify(pos + face.delta(), block::AIR, 0);
+            }
 
             // We ignore any interaction result for the left click (break block) to
             // avoid opening an inventory when breaking a container.

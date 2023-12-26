@@ -42,6 +42,7 @@ impl World {
             item::WOOD_HOE => self.use_hoe_stack(pos, face),
             item::WHEAT_SEEDS => self.use_wheat_seeds_stack(pos, face),
             item::DYE if stack.damage == 15 => self.use_bone_meal_stack(pos),
+            item::FLINT_AND_STEEL => self.use_flint_and_steel(pos, face),
             _ => false
         };
 
@@ -246,9 +247,9 @@ impl World {
 
     fn use_bone_meal_stack(&mut self, pos: IVec3) -> bool {
 
-        let Some((id, metadata)) = self.get_block(pos) else { return false };
+        let Some((block, metadata)) = self.get_block(pos) else { return false };
 
-        if id == block::SAPLING {
+        if block == block::SAPLING {
             
             let mut gen = match block::sapling::get_kind(metadata) {
                 TreeKind::Oak if self.get_rand_mut().next_int_bounded(10) == 0 => TreeGenerator::new_big(),
@@ -263,6 +264,17 @@ impl World {
         } else {
             false
         }
+
+    }
+
+    fn use_flint_and_steel(&mut self, pos: IVec3, face: Face) -> bool {
+
+        let fire_pos = pos + face.delta();
+        if self.is_block_air(fire_pos) {
+            self.set_block(fire_pos, block::FIRE, 0);
+        }
+
+        true
 
     }
 

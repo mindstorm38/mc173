@@ -354,6 +354,35 @@ pub fn get_explosion_resistance(id: u8) -> f32 {
     }
 }
 
+pub fn get_fire_spread(id: u8) -> u16 {
+    match id {
+        block::WOOD |
+        block::FENCE |
+        block::WOOD_STAIR |
+        block::LOG => 5,
+        block::TNT => 15,
+        block::LEAVES |
+        block::BOOKSHELF |
+        block::WOOL => 30,
+        block::TALL_GRASS => 60,
+        _ => 0
+    }
+}
+
+pub fn get_fire_flammability(id: u8) -> u16 {
+    match id {
+        block::WOOD |
+        block::FENCE |
+        block::WOOD_STAIR |
+        block::BOOKSHELF => 20,
+        block::LEAVES |
+        block::WOOL => 60,
+        block::TNT |
+        block::TALL_GRASS => 100,
+        _ => 0,
+    }
+}
+
 /// Common block properties of blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Material {
