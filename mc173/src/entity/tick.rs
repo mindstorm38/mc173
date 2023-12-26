@@ -319,6 +319,8 @@ fn tick(world: &mut World, id: u32, entity: &mut Entity) {
                 // Keep only the entity, if found.
                 .map(|(entity, _)| entity);
 
+            
+
             if let Some(Entity(hit_base, _)) = hit_entity {
 
                 if let ProjectileKind::Arrow(_) = projectile_kind {

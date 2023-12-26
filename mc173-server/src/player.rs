@@ -9,7 +9,7 @@ use tracing::{warn, instrument};
 use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress};
 use mc173::world::interact::Interaction;
 
-use mc173::entity::{self as e, EntityKind, Entity};
+use mc173::entity::{self as e, EntityKind, Entity, Hurt};
 use mc173::block_entity::BlockEntity;
 use mc173::item::{self, ItemStack};
 use mc173::{block, chunk};
@@ -816,12 +816,12 @@ impl ServerPlayer {
         if self.entity_id != packet.player_entity_id {
             warn!("from {}, incoherent interact entity: {}, expected: {}", self.username, packet.player_entity_id, self.entity_id);
         }
-        let Some(target_entity) = world.get_entity_mut(packet.target_entity_id) else {
+        let Some(Entity(target_base, _)) = world.get_entity_mut(packet.target_entity_id) else {
             warn!("from {}, incoherent interact entity target: {}", self.username, packet.target_entity_id);
             return;
         };
 
-        if self.pos.distance_squared(target_entity.0.pos) >= 36.0 {
+        if self.pos.distance_squared(target_base.pos) >= 36.0 {
             warn!("from {}, incoherent interact entity distance", self.username);
             return;
         }
@@ -831,7 +831,12 @@ impl ServerPlayer {
         if packet.left_click {
 
             // TODO: Critical damage if vel.y < 0
-            target_entity.hurt_with(hand_stack.id, 0, Some(self.entity_id));
+
+            let damage = item::attack::get_base_damage(hand_stack.id);
+            target_base.hurt.push(Hurt {
+                damage,
+                origin_id: Some(self.entity_id),
+            });
 
         } else {
             
