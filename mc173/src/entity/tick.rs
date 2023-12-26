@@ -12,6 +12,7 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use tracing::trace;
 
+use crate::entity::Chicken;
 use crate::world::World;
 use crate::util::Face;
 use crate::item::ItemStack;
@@ -304,61 +305,96 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             // Keep only the entity, if found.
             .map(|(entity, _)| entity);
 
-        
+        // The logic when hitting a block or entity depends on projectile kind.
+        match projectile_kind {
+            ProjectileKind::Arrow(_) => {
 
-        if let Some(Entity(hit_base, _)) = hit_entity {
+                if let Some(Entity(hit_base, _)) = hit_entity {
+                    hit_base.hurt.push(Hurt { 
+                        damage: 4, 
+                        origin_id: projectile.owner_id,
+                    });
+                } else if let Some(hit_block) = hit_block {
 
-            if let ProjectileKind::Arrow(_) = projectile_kind {
-                hit_base.hurt.push(Hurt { 
-                    damage: 4, 
-                    origin_id: projectile.owner_id,
-                });
-            } else if let ProjectileKind::Snowball(_) = projectile_kind {
-                hit_base.hurt.push(Hurt { 
-                    damage: 0, 
-                    origin_id: projectile.owner_id,
-                });
-            }
+                    projectile.state = Some(ProjectileHit {
+                        pos: hit_block.pos,
+                        block: hit_block.block,
+                        metadata: hit_block.metadata,
+                    });
+    
+                    projectile.shake = 7;
+    
+                    // This is used to prevent the client to moving the arrow on its own 
+                    // above the block hit, we use the hit face to take away the arrow 
+                    // from colliding with the face. This is caused by the really weird 
+                    // function 'Entity::setPositionAndRotation2' from Notchian 
+                    // implementation that modify the position we sent and move any entity
+                    // out of the block while inflating the bounding box by 1/32 
+                    // horizontally. We use 2/32 here in order to account for precision 
+                    // errors.
+                    //
+                    // Ideally, this should be implemented server-side as it is a Notchian
+                    // implementation issue rather than an issue with the ticking itself.
+                    if hit_block.face == Face::PosY {
+                        // No inflate need on that face.
+                        base.pos.y += base.size.center as f64;
+                    } else if hit_block.face == Face::NegY {
+                        // For now we do not adjust for negative face because this 
+                        // requires offset the entity by its whole height and it make no 
+                        // sense on client side, not more sense that the current behavior.
+                    } else {
+                        base.pos += hit_block.face.delta().as_dvec3() * (base.size.width / 2.0 + (2.0 / 32.0)) as f64;
+                    }
 
-            world.remove_entity(id);
-
-        } else if let Some(hit_block) = hit_block {
-
-            if let ProjectileKind::Arrow(_) = projectile_kind {
-
-                projectile.state = Some(ProjectileHit {
-                    pos: hit_block.pos,
-                    block: hit_block.block,
-                    metadata: hit_block.metadata,
-                });
-
-                projectile.shake = 7;
-
-                // This is used to prevent the client to moving the arrow on its own above
-                // the block hit, we use the hit face to take away the arrow from 
-                // colliding with the face. This is caused by the really weird function
-                // 'Entity::setPositionAndRotation2' from Notchian implementation that
-                // modify the position we sent and move any entity out of the block while
-                // inflating the bounding box by 1/32 horizontally. We use 2/32 here in
-                // order to account for precision errors.
-                //
-                // Ideally, this should be implemented server-side as it is a Notchian
-                // implementation issue rather than an issue with the ticking itself.
-                if hit_block.face == Face::PosY {
-                    // No inflate need on that face.
-                    base.pos.y += base.size.center as f64;
-                } else if hit_block.face == Face::NegY {
-                    // For now we do not adjust for negative face because this requires
-                    // offset the entity by its whole height and it make no sense on 
-                    // client side, not more sense that the current behavior.
-                } else {
-                    base.pos += hit_block.face.delta().as_dvec3() * (base.size.width / 2.0 + (2.0 / 32.0)) as f64;
                 }
-                
-            } else if let ProjectileKind::Snowball(_) = projectile_kind { 
-                world.remove_entity(id);
-            }
 
+            }
+            ProjectileKind::Snowball(_) |
+            ProjectileKind::Egg(_) => {
+
+                if let Some(Entity(hit_base, _)) = hit_entity {
+                    hit_base.hurt.push(Hurt { 
+                        damage: 0, 
+                        origin_id: projectile.owner_id,
+                    });
+                }
+
+                if hit_entity.is_some() || hit_block.is_some() {
+                    
+                    world.remove_entity(id);
+
+                    // For egg we try to spawn a chicken.
+                    if let ProjectileKind::Egg(_) = projectile_kind {
+                        if base.rand.next_int_bounded(8) == 0 {
+
+                            let mut count = 1usize;
+                            if base.rand.next_int_bounded(32) == 0 {
+                                count = 4;
+                            }
+
+                            for _ in 0..count {
+                                world.spawn_entity(Chicken::new_with(|new_base, new_living, _| {
+                                    new_base.persistent = true;
+                                    new_base.pos = base.pos;
+                                    new_base.look.x = base.rand.next_float() * std::f32::consts::TAU;
+                                    new_living.health = 4;
+                                }));
+                            }
+
+                        }
+                    }
+
+                }
+
+            }
+            ProjectileKind::Fireball(_) => {
+
+                if hit_entity.is_some() || hit_block.is_some() {
+                    world.remove_entity(id);
+                    world.explode(base.pos, 1.0, true, projectile.owner_id);
+                }
+
+            }
         }
 
         base.pos += base.vel;
@@ -392,8 +428,6 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
         }
 
         base.vel_dirty = true;
-        
-        trace!("entity #{id}, new pos: {}", base.pos);
         
         // Really important!
         common::update_bounding_box_from_pos(base);

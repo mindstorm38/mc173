@@ -56,9 +56,9 @@ impl EntityTracker {
             EntityKind::Player => (512, 2, false),
             EntityKind::Fish => (64, 5, true),
             EntityKind::Arrow => (64, 20, false),
-            EntityKind::Fireball => (64, 10, false),
-            EntityKind::Snowball => (64, 10, true),
-            EntityKind::Egg => (64, 10, true),
+            EntityKind::Fireball => (64, 1, false), // Notchian use 10 ticks
+            EntityKind::Snowball => (64, 10, false),
+            EntityKind::Egg => (64, 10, false),
             EntityKind::Item => (64, 5, true), // Notchian use 20 ticks
             EntityKind::Minecart => (160, 5, true),
             EntityKind::Boat => (160, 5, true),
