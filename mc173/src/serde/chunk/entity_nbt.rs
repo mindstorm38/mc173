@@ -67,7 +67,7 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
             ..Default::default()
         }),
         "PrimedTnt" => BaseKind::Tnt(e::Tnt {
-            fuse_ticks: comp.get_byte("Fuse")?.max(0) as u32,
+            fuse_time: comp.get_byte("Fuse")?.max(0) as u32,
         }),
         "FallingSand" => BaseKind::FallingBlock(e::FallingBlock {
             block_id: comp.get_byte("Tile")? as u8,
@@ -249,7 +249,7 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
         }
         BaseKind::Tnt(tnt) => {
             comp.insert("id", "PrimedTnt");
-            comp.insert("Fuse", tnt.fuse_ticks.min(i8::MAX as _) as i8);
+            comp.insert("Fuse", tnt.fuse_time.min(i8::MAX as _) as i8);
         }
         BaseKind::Projectile(projectile, projectile_kind) => {
 

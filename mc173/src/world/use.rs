@@ -5,7 +5,7 @@ use glam::{IVec3, DVec3, Vec3};
 use crate::inventory::InventoryHandle;
 use crate::gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
-use crate::entity::{Arrow, Entity, Snowball};
+use crate::entity::{Arrow, Entity, Snowball, Tnt};
 use crate::item::{ItemStack, self};
 use crate::util::Face;
 use crate::block;
@@ -269,9 +269,17 @@ impl World {
 
     fn use_flint_and_steel(&mut self, pos: IVec3, face: Face) -> bool {
 
-        let fire_pos = pos + face.delta();
-        if self.is_block_air(fire_pos) {
-            self.set_block(fire_pos, block::FIRE, 0);
+        if self.is_block(pos, block::TNT) {
+            self.spawn_entity(Tnt::new_with(|new_base, new_tnt| {
+                new_base.pos = pos.as_dvec3() + 0.5;
+                new_tnt.fuse_time = 80;
+            }));
+            self.set_block_notify(pos, block::AIR, 0);
+        } else {
+            let fire_pos = pos + face.delta();
+            if self.is_block_air(fire_pos) {
+                self.set_block_notify(fire_pos, block::FIRE, 0);
+            }
         }
 
         true

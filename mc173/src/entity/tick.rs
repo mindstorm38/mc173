@@ -55,6 +55,7 @@ pub(super) fn tick(world: &mut World, id: u32, entity: &mut Entity) {
         Entity(_, BaseKind::Item(_)) => tick_item(world, id, entity),
         Entity(_, BaseKind::Painting(_)) => tick_painting(world, id, entity),
         Entity(_, BaseKind::FallingBlock(_)) => tick_falling_block(world, id, entity),
+        Entity(_, BaseKind::Tnt(_)) => tick_tnt(world, id, entity),
         Entity(_, BaseKind::Living(_, _)) => tick_living(world, id, entity),
         Entity(_, BaseKind::Projectile(_, _)) => tick_projectile(world, id, entity),
         Entity(_, _) => tick_base(world, id, entity),
@@ -205,6 +206,29 @@ fn tick_falling_block(world: &mut World, id: u32, entity: &mut Entity) {
     } else if base.lifetime > 100 {
         world.remove_entity(id);
         world.spawn_loot(base.pos, ItemStack::new_block(falling_block.block_id, 0), 0.0);
+    }
+
+}
+
+/// REF: EntityTNTPrimed::onUpdate
+fn tick_tnt(world: &mut World, id: u32, entity: &mut Entity) {
+
+    // NOTE: Not calling tick_base
+    let_expect!(Entity(base, BaseKind::Tnt(tnt)) = entity);
+
+    base.vel_dirty = true;
+    base.vel.y -= 0.04;
+    apply_base_vel(world, id, base, base.vel, 0.0);
+    base.vel.y *= 0.98;
+
+    if base.on_ground {
+        base.vel *= DVec3::new(0.7, -0.5, 0.7);
+    }
+
+    tnt.fuse_time = tnt.fuse_time.saturating_sub(1);
+    if tnt.fuse_time == 0 {
+        world.remove_entity(id);
+        world.explode(base.pos, 4.0, false, None);
     }
 
 }

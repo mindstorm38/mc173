@@ -353,7 +353,7 @@ pub struct FallingBlock {
 
 #[derive(Debug, Clone, Default)]
 pub struct Tnt {
-    pub fuse_ticks: u32,
+    pub fuse_time: u32,
 }
 
 #[derive(Debug, Clone, Default)]
