@@ -304,9 +304,13 @@ impl World {
         let yaw_dz = entity.0.look.x.cos();
         let pitch_dy = -entity.0.look.y.sin();
         let pitch_h = entity.0.look.y.cos();
-        let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3();
+        let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3() * 5.0;
 
-        let Some(hit) = self.ray_trace_blocks(origin, ray * 5.0, fluid_id == block::AIR) else { return };
+        // NOTE: We only hit fluid sources when we use an empty bucket.
+        let Some(hit) = self.ray_trace_blocks(origin, ray, fluid_id == block::AIR) else { 
+            // We did not hit anything...
+            return 
+        };
         
         let mut new_stack;
 

@@ -1,6 +1,6 @@
 //! Cube bounding boxes.
 
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Sub, SubAssign, BitOr, BitOrAssign};
 use std::fmt;
 
 use glam::DVec3;
@@ -258,6 +258,25 @@ impl SubAssign<DVec3> for BoundingBox {
     #[inline]
     fn sub_assign(&mut self, rhs: DVec3) {
         *self = self.offset(-rhs);
+    }
+}
+
+// The bit or operator can be used to make a union of two bounding boxes.
+impl BitOr<BoundingBox> for BoundingBox {
+    type Output = BoundingBox;
+    #[inline]
+    fn bitor(self, rhs: BoundingBox) -> Self::Output {
+        BoundingBox {
+            min: self.min.min(rhs.min),
+            max: self.max.max(rhs.max),
+        }
+    }
+}
+
+impl BitOrAssign for BoundingBox {
+    #[inline]
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs;
     }
 }
 

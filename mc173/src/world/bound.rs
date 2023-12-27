@@ -7,6 +7,7 @@ use glam::{IVec3, DVec3};
 
 use tracing::instrument;
 
+use crate::block_entity::BlockEntity;
 use crate::util::{BoundingBox, Face};
 use crate::block;
 
@@ -24,8 +25,35 @@ impl World {
     /// block's position as needed. Not to confuse with overlay boxes, which are just used
     /// to client side placement rendering, and used server-side to compute ray tracing 
     /// when using items such as bucket.
-    pub fn iter_colliding_box(&self, pos: IVec3, id: u8, metadata: u8) -> impl Iterator<Item = BoundingBox> + '_ {
-        CollidingBoxIter { world: self, pos, id, metadata, index: 0 }
+    pub fn iter_colliding_box(&self, pos: IVec3, id: u8, metadata: u8) -> CollidingBoxIter {
+        
+        // Moving piston is a special case because we inherit the block collisions.
+        if id == block::PISTON_MOVING {
+            if let Some(BlockEntity::Piston(piston)) = self.get_block_entity(pos) {
+                    
+                let progress = if piston.extending {
+                    1.0 - piston.progress
+                } else {
+                    piston.progress
+                };
+
+                return CollidingBoxIter { 
+                    offset: pos.as_dvec3() - piston.face.delta().as_dvec3() * progress as f64, 
+                    id, 
+                    metadata, 
+                    index: 0
+                };
+                
+            }
+        }
+
+        CollidingBoxIter { 
+            offset: pos.as_dvec3(), 
+            id, 
+            metadata, 
+            index: 0 
+        }
+
     }
 
     /// Get the overlay box of the block, this overlay is what should be shown client-side
@@ -210,13 +238,9 @@ impl World {
 
 /// Internal iterator implementation for bounding boxes of a block with metadata, we must
 /// use an iterator because some blocks have multiple bounding boxes.
-struct CollidingBoxIter<'a> {
-    /// The world where the bounding box is iterated.
-    /// TODO: This is for block entities.
-    #[allow(unused)]
-    world: &'a World,
-    /// The block position in the world, the returned bounding box is offset by this.
-    pos: IVec3,
+pub struct CollidingBoxIter {
+    /// The offset to apply the the colliding box.
+    offset: DVec3,
     /// The block id.
     id: u8,
     /// The block metadata.
@@ -225,7 +249,7 @@ struct CollidingBoxIter<'a> {
     index: u8,
 }
 
-impl Iterator for CollidingBoxIter<'_> {
+impl Iterator for CollidingBoxIter {
 
     type Item = BoundingBox;
 
@@ -259,9 +283,7 @@ impl Iterator for CollidingBoxIter<'_> {
                     Face::NegY.extrude(0.0, PIXEL_3)
                 }
             }
-            (0, block::PISTON_MOVING) => {
-                return None;  // TODO: depends on tile entity!
-            }
+            (0, block::PISTON_MOVING) => return None,
             (0, block::PISTON_EXT) => {
                 // The extension plate first.
                 block::piston::get_face(metadata)?.extrude(0.0, 0.25)
@@ -305,7 +327,7 @@ impl Iterator for CollidingBoxIter<'_> {
             _ => return None
         };
 
-        Some(bb.offset(self.pos.as_dvec3()))
+        Some(bb + self.offset)
 
     }
 
