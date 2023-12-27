@@ -97,8 +97,8 @@ impl World {
             block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, to_id),
             block::SAND |
             block::GRAVEL => self.schedule_tick(pos, to_id, 3),
-            // Break the cactus when it grows.
             block::CACTUS => self.notify_cactus(pos),
+            block::FIRE => self.schedule_tick(pos, to_id, 40),
             _ => {}
         }
 

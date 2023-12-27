@@ -228,4 +228,5 @@ impl FromIterator<Face> for FaceSet {
         }
         set
     }
+
 }

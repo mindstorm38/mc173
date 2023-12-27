@@ -354,7 +354,7 @@ pub fn get_explosion_resistance(id: u8) -> f32 {
     }
 }
 
-pub fn get_fire_spread(id: u8) -> u16 {
+pub fn get_fire_flammability(id: u8) -> u16 {
     match id {
         block::WOOD |
         block::FENCE |
@@ -369,7 +369,11 @@ pub fn get_fire_spread(id: u8) -> u16 {
     }
 }
 
-pub fn get_fire_flammability(id: u8) -> u16 {
+/// Get the burn rate for the given block. The returned rate is used to randomly destroy
+/// a block that was on fire and replace it with fire. Blocks that are horizontal to the
+/// fire have n/300 chance of being destroyed and vertical blocks have n/250 every 40 
+/// game ticks.
+pub fn get_fire_burn(id: u8) -> u16 {
     match id {
         block::WOOD |
         block::FENCE |

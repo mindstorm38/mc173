@@ -12,7 +12,7 @@ use crate::gen::tree::TreeGenerator;
 use crate::util::{Face, FaceSet};
 use crate::{block, item};
 
-use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage};
+use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage, Weather};
 
 
 impl World {
@@ -269,14 +269,105 @@ impl World {
     fn tick_fire(&mut self, pos: IVec3, metadata: u8) {
 
         // Infini burn if nether rack.
-        let infini = self.is_block(pos - IVec3::Y, block::NETHERRACK);
+        let (below_block, _) = self.get_block(pos - IVec3::Y).unwrap_or_default();
 
-        if self.is_block_opaque_cube(pos - IVec3::Y) {
+        let below_netherrack = below_block == block::NETHERRACK;
+        let below_opaque = block::material::is_opaque_cube(below_block);  // PARITY: Notchian impl use "normal cube"
+        
+        // Test if the fire can stay...
+        let can_stay = 
+            /* below_opaque || */ 
+            self.weather == Weather::Clear ||
+            false;  // TODO: Other can rain tests
             
+        if can_stay {
+
+            if metadata < 15 {
+                let new_metadata = (metadata + self.rand.next_int_bounded(3) as u8 / 2).min(15);
+                self.set_block(pos, block::FIRE, new_metadata);
+            }
+
+            self.schedule_tick(pos, block::FIRE, 40);
+
+            // Check if any block around can catch fire.
+            let catch_fire = Face::ALL.into_iter()
+                .filter(|face| {
+                    let (block, _) = self.get_block(pos + face.delta()).unwrap_or_default();
+                    block::material::get_fire_flammability(block) > 0
+                })
+                .collect::<FaceSet>();
+
+            if !below_netherrack && !catch_fire.is_empty() {
+                if !below_opaque || metadata > 3 {
+                    self.set_block_notify(pos, block::AIR, 0);
+                }
+            } else if !below_netherrack 
+                   && !catch_fire.contains(Face::NegY) 
+                   && metadata == 15 
+                   && self.rand.next_int_bounded(4) == 0 {
+                self.set_block_notify(pos, block::AIR, 0);
+            } else {
+
+                for face in Face::ALL {
+
+                    let face_pos = pos + face.delta();
+                    let (block, _) = self.get_block(face_pos).unwrap_or_default();
+                    let burn = block::material::get_fire_burn(block);
+
+                    let bound = if face.is_y() { 250 } else { 300 };
+                    if self.rand.next_int_bounded(bound) < burn as i32 {
+                        if self.rand.next_int_bounded(metadata as i32 + 10) < 5 && !false /* can block be rained on */ {
+                            let new_metadata = (metadata + self.rand.next_int_bounded(5) as u8 / 4).min(15);
+                            self.set_block_notify(face_pos, block::FIRE, new_metadata);
+                        } else {
+                            self.set_block_notify(face_pos, block::AIR, 0);
+                        }
+                    }
+
+                }
+
+                // Now try to spread the fire further.
+                for bx in pos.x - 1..=pos.x + 1 {
+                    for bz in pos.z - 1..=pos.z + 1 {
+                        for by in pos.y - 1..=pos.y + 4 {
+                            let check_pos = IVec3::new(bx, by, bz);
+                            if check_pos != pos {
+
+                                let mut bound = 100;
+                                if check_pos.y > pos.y + 1 {
+                                    bound += (check_pos.y - (pos.y + 1)) * 100;
+                                }
+
+                                // Here we get the maximum flammability around...
+                                let flammability = Face::ALL.into_iter()
+                                    .map(|face| self.get_block(check_pos + face.delta()).unwrap_or_default())
+                                    .map(|(block, _)| block::material::get_fire_flammability(block))
+                                    .max()
+                                    .unwrap_or(0);
+
+                                if flammability != 0 {
+                                    let catch = (flammability as i32 + 40) / (metadata as i32 + 30);
+                                    if catch > 0 
+                                    && self.rand.next_int_bounded(bound) <= catch
+                                    && self.weather == Weather::Clear {
+
+                                        let new_metadata = (metadata + self.rand.next_int_bounded(5) as u8 / 4).min(15);
+                                        self.set_block_notify(check_pos, block::FIRE, new_metadata);
+                                        
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                }
+
+            }
+
+        } else {
+            self.set_block_notify(pos, block::AIR, 0);
         }
 
-        // TODO:
-        
     }
 
     /// Tick a mushroom to try spreading it.

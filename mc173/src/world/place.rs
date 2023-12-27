@@ -26,7 +26,7 @@ impl World {
             block::PISTON_EXT |
             block::PISTON_MOVING => false,
             block::DEAD_BUSH => matches!(self.get_block(pos - IVec3::Y), Some((block::SAND, _))),
-            // // PARITY: Notchian impl checks block light >= 8 or see sky
+            // PARITY: Notchian impl checks block light >= 8 or see sky
             block::DANDELION |
             block::POPPY |
             block::SAPLING |
@@ -119,7 +119,7 @@ impl World {
         } else {
             for face in Face::ALL {
                 if let Some((block, _)) = self.get_block(pos + face.delta()) {
-                    if block::material::get_fire_spread(block) != 0 {
+                    if block::material::get_fire_flammability(block) != 0 {
                         return true;
                     }
                 }
