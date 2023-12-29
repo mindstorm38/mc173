@@ -141,7 +141,6 @@ impl World {
             });
 
             base.vel += accel;
-            base.vel_dirty = true;
 
         }
 

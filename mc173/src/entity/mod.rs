@@ -138,14 +138,8 @@ pub struct Base {
     /// and properly do collision detection.
     pub pos: DVec3,
     /// True if an entity pos event should be sent after update.
-    /// 
-    /// TODO: Maybe replace this by a special wrapper type around pos and look, and maybe 
-    /// other properties in the future...
-    pub pos_dirty: bool,
     /// The current entity velocity.
     pub vel: DVec3,
-    /// True if an entity velocity event should be sent after update.
-    pub vel_dirty: bool,
     /// Yaw a pitch angles of this entity's look. These are in radians with no range 
     /// guarantee, although this will often be normalized in 2pi range. The yaw angle
     /// in Minecraft is set to zero when pointing toward PosZ, and then rotate clockwise
@@ -153,8 +147,6 @@ pub struct Base {
     /// 
     /// Yaw is X and pitch is Y.
     pub look: Vec2,
-    /// True if an entity look event should be sent after update.
-    pub look_dirty: bool,
     /// Lifetime of the entity since it was spawned in the world, it increase at every
     /// world tick.
     pub lifetime: u32,

@@ -267,10 +267,10 @@ impl EntityTracker {
         let delta = player.pos - IVec3::new(self.pos.0, self.pos.1, self.pos.2).as_dvec3() / 32.0;
         if delta.x.abs() <= self.distance as f64 && delta.z.abs() <= self.distance as f64 {
             if player.tracked_entities.insert(self.id) {
-                self.spawn_player_entity(player, world);
+                self.spawn_entity(player, world);
             }
         } else if player.tracked_entities.remove(&self.id) {
-            self.kill_player_entity(player);
+            self.kill_entity(player);
         }
 
     }
@@ -278,7 +278,7 @@ impl EntityTracker {
     /// Force untrack this entity to this player if the player is already tracking it.
     pub fn untrack_player(&self, player: &mut ServerPlayer) {
         if player.tracked_entities.remove(&self.id) {
-            self.kill_player_entity(player);
+            self.kill_entity(player);
         }
     }
 
@@ -291,66 +291,63 @@ impl EntityTracker {
     }
 
     /// Spawn the entity on the player side.
-    pub fn spawn_player_entity(&self, player: &ServerPlayer, world: &World) {
+    pub fn spawn_entity(&self, player: &ServerPlayer, world: &World) {
 
         // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
-        let Some(Entity(base, base_kind)) = world.get_entity(self.id) else { return };
-        
+        let Some(entity) = world.get_entity(self.id) else { return };
+        let metadata = self.make_entity_metadata(entity);
+
+        let Entity(base, base_kind) = entity;
+
         match base_kind {
-            BaseKind::Item(item) => self.spawn_player_entity_item(player, base, item),
+            BaseKind::Item(item) => self.spawn_entity_item(player, base, item),
             BaseKind::Painting(_) => todo!(),  // TODO:
-            BaseKind::Boat(_) => self.spawn_player_entity_object(player, 1, false),
-            BaseKind::Minecart(e::Minecart::Normal) => self.spawn_player_entity_object(player, 10, false),
-            BaseKind::Minecart(e::Minecart::Chest { .. }) => self.spawn_player_entity_object(player, 11, false),
-            BaseKind::Minecart(e::Minecart::Furnace { .. }) => self.spawn_player_entity_object(player, 12, false),
-            BaseKind::Fish(_) => self.spawn_player_entity_object(player, 90, false),
+            BaseKind::Boat(_) => self.spawn_entity_object(player, 1, false),
+            BaseKind::Minecart(e::Minecart::Normal) => self.spawn_entity_object(player, 10, false),
+            BaseKind::Minecart(e::Minecart::Chest { .. }) => self.spawn_entity_object(player, 11, false),
+            BaseKind::Minecart(e::Minecart::Furnace { .. }) => self.spawn_entity_object(player, 12, false),
+            BaseKind::Fish(_) => self.spawn_entity_object(player, 90, false),
             BaseKind::LightningBolt(_) => (),
             BaseKind::FallingBlock(falling_block) => {
                 // NOTE: We use sand for any block id that is unsupported.
                 match falling_block.block_id {
-                    block::GRAVEL => self.spawn_player_entity_object(player, 71, false),
-                    _ => self.spawn_player_entity_object(player, 70, false),
+                    block::GRAVEL => self.spawn_entity_object(player, 71, false),
+                    _ => self.spawn_entity_object(player, 70, false),
                 }
             }
-            BaseKind::Tnt(_) => self.spawn_player_entity_object(player, 50, false),
+            BaseKind::Tnt(_) => self.spawn_entity_object(player, 50, false),
             BaseKind::Projectile(_, projectile_kind) => {
                 match projectile_kind {
-                    ProjectileKind::Arrow(_) => self.spawn_player_entity_object(player, 60, true),
-                    ProjectileKind::Egg(_) => self.spawn_player_entity_object(player, 62, true),
-                    ProjectileKind::Fireball(_) => self.spawn_player_entity_object(player, 63, true),
-                    ProjectileKind::Snowball(_) => self.spawn_player_entity_object(player, 61, true),
+                    ProjectileKind::Arrow(_) => self.spawn_entity_object(player, 60, true),
+                    ProjectileKind::Egg(_) => self.spawn_entity_object(player, 62, true),
+                    ProjectileKind::Fireball(_) => self.spawn_entity_object(player, 63, true),
+                    ProjectileKind::Snowball(_) => self.spawn_entity_object(player, 61, true),
                 }
             }
-            BaseKind::Living(living, living_kind) => {
+            BaseKind::Living(_, living_kind) => {
                 match living_kind {
-                    LivingKind::Human(pl) => self.spawn_player_entity_human(player, pl),
-                    LivingKind::Ghast(_) => self.spawn_player_entity_mob(player, 56, vec![
-                        proto::Metadata::new_byte(16, (living.attack_time > 50) as _),
-                    ]),
-                    LivingKind::Slime(slime) => self.spawn_player_entity_mob(player, 55, vec![
-                        proto::Metadata::new_byte(16, slime.size as i8),
-                    ]),
-                    LivingKind::Pig(pig) => self.spawn_player_entity_mob(player, 90, vec![
-                        proto::Metadata::new_byte(16, pig.saddle as _),
-                    ]),
-                    LivingKind::Chicken(_) => self.spawn_player_entity_mob(player, 93, vec![]),
-                    LivingKind::Cow(_) => self.spawn_player_entity_mob(player, 92, vec![]),
-                    LivingKind::Sheep(_) => self.spawn_player_entity_mob(player, 91, vec![]),
-                    LivingKind::Squid(_) => self.spawn_player_entity_mob(player, 94, vec![]),
-                    LivingKind::Wolf(_) => self.spawn_player_entity_mob(player, 95, vec![]),
-                    LivingKind::Creeper(_) => self.spawn_player_entity_mob(player, 50, vec![]),
-                    LivingKind::Giant(_) => self.spawn_player_entity_mob(player, 53, vec![]),
-                    LivingKind::PigZombie(_) => self.spawn_player_entity_mob(player, 57, vec![]),
-                    LivingKind::Skeleton(_) => self.spawn_player_entity_mob(player, 51, vec![]),
-                    LivingKind::Spider(_) => self.spawn_player_entity_mob(player, 52, vec![]),
-                    LivingKind::Zombie(_) => self.spawn_player_entity_mob(player, 54, vec![]),
+                    LivingKind::Human(pl) => self.spawn_entity_human(player, pl),
+                    LivingKind::Ghast(_) => self.spawn_entity_mob(player, 56, metadata),
+                    LivingKind::Slime(_) => self.spawn_entity_mob(player, 55, metadata),
+                    LivingKind::Pig(_) => self.spawn_entity_mob(player, 90, metadata),
+                    LivingKind::Chicken(_) => self.spawn_entity_mob(player, 93, metadata),
+                    LivingKind::Cow(_) => self.spawn_entity_mob(player, 92, metadata),
+                    LivingKind::Sheep(_) => self.spawn_entity_mob(player, 91, metadata),
+                    LivingKind::Squid(_) => self.spawn_entity_mob(player, 94, metadata),
+                    LivingKind::Wolf(_) => self.spawn_entity_mob(player, 95, metadata),
+                    LivingKind::Creeper(_) => self.spawn_entity_mob(player, 50, metadata),
+                    LivingKind::Giant(_) => self.spawn_entity_mob(player, 53, metadata),
+                    LivingKind::PigZombie(_) => self.spawn_entity_mob(player, 57, metadata),
+                    LivingKind::Skeleton(_) => self.spawn_entity_mob(player, 51, metadata),
+                    LivingKind::Spider(_) => self.spawn_entity_mob(player, 52, metadata),
+                    LivingKind::Zombie(_) => self.spawn_entity_mob(player, 54, metadata),
                 }
             }
         }
 
     }
 
-    fn spawn_player_entity_human(&self, player: &ServerPlayer, pl: &e::Human) {
+    fn spawn_entity_human(&self, player: &ServerPlayer, pl: &e::Human) {
         player.send(OutPacket::HumanSpawn(proto::HumanSpawnPacket {
             entity_id: self.id,
             username: pl.username.clone(),
@@ -363,7 +360,7 @@ impl EntityTracker {
         }));
     }
 
-    fn spawn_player_entity_item(&self, player: &ServerPlayer, base: &e::Base, item: &e::Item) {
+    fn spawn_entity_item(&self, player: &ServerPlayer, base: &e::Base, item: &e::Item) {
         let vel = base.vel.mul(128.0).as_ivec3();
         player.send(OutPacket::ItemSpawn(proto::ItemSpawnPacket { 
             entity_id: self.id, 
@@ -377,7 +374,7 @@ impl EntityTracker {
         }));
     }
 
-    fn spawn_player_entity_object(&self, player: &ServerPlayer, kind: u8, vel: bool) {
+    fn spawn_entity_object(&self, player: &ServerPlayer, kind: u8, vel: bool) {
         player.send(OutPacket::ObjectSpawn(proto::ObjectSpawnPacket {
             entity_id: self.id,
             kind,
@@ -388,7 +385,7 @@ impl EntityTracker {
         }));
     }
 
-    fn spawn_player_entity_mob(&self, player: &ServerPlayer, kind: u8, metadata: Vec<proto::Metadata>) {
+    fn spawn_entity_mob(&self, player: &ServerPlayer, kind: u8, metadata: Vec<proto::Metadata>) {
         player.send(OutPacket::MobSpawn(proto::MobSpawnPacket {
             entity_id: self.id,
             kind,
@@ -402,10 +399,61 @@ impl EntityTracker {
     }
 
     /// Kill the entity on the player side.
-    pub fn kill_player_entity(&self, player: &ServerPlayer) {
+    pub fn kill_entity(&self, player: &ServerPlayer) {
         player.send(OutPacket::EntityKill(proto::EntityKillPacket { 
             entity_id: self.id
         }));
+    }
+
+    /// Update an entity metadata on player side.
+    pub fn update_entity(&self, player: &ServerPlayer, world: &World) {
+
+        // NOTE: Silently ignore dead if the entity is dead, it will be killed later.
+        let Some(entity) = world.get_entity(self.id) else { return };
+        let metadata = self.make_entity_metadata(entity);
+
+        player.send(OutPacket::EntityMetadata(proto::EntityMetadataPacket { 
+            entity_id: self.id,
+            metadata,
+        }));
+
+    }
+
+    /// Internal method to generate an entity metadata vector.
+    #[inline(always)]
+    fn make_entity_metadata(&self, Entity(_, base_kind): &Entity) -> Vec<proto::Metadata> {
+        match base_kind {
+            BaseKind::Living(living, living_kind) => {
+                match living_kind {
+                    LivingKind::Ghast(_) => vec![
+                        proto::Metadata::new_byte(16, (living.attack_time > 50) as _),
+                    ],
+                    LivingKind::Slime(slime) => vec![
+                        proto::Metadata::new_byte(16, slime.size as i8),
+                    ],
+                    LivingKind::Pig(pig) => vec![
+                        proto::Metadata::new_byte(16, pig.saddle as _),
+                    ],
+                    LivingKind::Sheep(sheep) => vec![
+                        proto::Metadata::new_byte(16, 
+                            ((sheep.sheared as i8) << 4) | 
+                            ((sheep.color as i8) & 15)),
+                    ],
+                    LivingKind::Wolf(wolf) => vec![
+                        proto::Metadata::new_byte(16, 
+                            ((wolf.sitting as i8) << 0) |
+                            ((wolf.angry as i8) << 1) |
+                            ((wolf.owner.is_some() as i8) << 2))
+                    ],
+                    LivingKind::Creeper(creeper) => vec![
+                        proto::Metadata::new_byte(16, if creeper.ignited_time.is_some() { 1 } else { -1 }),
+                        proto::Metadata::new_byte(17, creeper.powered as _),
+                    ],
+                    _ => vec![]
+                }
+            }
+            _ => vec![]
+        }
     }
 
 }

@@ -565,7 +565,11 @@ impl World {
         self.entities.push(entity_comp);
         self.entities_id_map.insert(id, entity_index);
 
-        self.push_event(Event::Entity { id, inner: EntityEvent::Spawn });
+        self.push_event(Event::Entity { 
+            id, 
+            inner: EntityEvent::Spawn { cx, cz }
+        });
+
         id
 
     }
@@ -615,7 +619,8 @@ impl World {
         debug_assert!(!matches!(prev, ComponentStorage::Removed), "entity should not already be removed");
         
         // Directly remove the entity from its chunk.
-        let removed_success = self.chunks.get_mut(&(entity_comp.cx, entity_comp.cz))
+        let (cx, cz) = (entity_comp.cx, entity_comp.cz);
+        let removed_success = self.chunks.get_mut(&(cx, cz))
             .expect("entity chunk is missing")
             .entities.remove(&index);
 
@@ -623,7 +628,11 @@ impl World {
 
         trace!("remove entity #{id}");
 
-        self.push_event(Event::Entity { id, inner: EntityEvent::Remove });
+        self.push_event(Event::Entity { 
+            id, 
+            inner: EntityEvent::Remove { cx, cz }
+        });
+
         true
 
     }
@@ -1031,55 +1040,47 @@ impl World {
                 ComponentStorage::Updated => {}
             }
 
-            // Take all dirty flags.
-            let pos_dirty = mem::take(&mut entity.0.pos_dirty);
-            let look_dirty = mem::take(&mut entity.0.look_dirty);
-            let vel_dirty = mem::take(&mut entity.0.vel_dirty);
-            
-            let new_chunk = pos_dirty.then_some(calc_entity_chunk_pos(entity.0.pos));
-
-            if let Some(events) = &mut self.events {
-                if pos_dirty {
-                    events.push(Event::Entity { id, inner: EntityEvent::Position { pos: entity.0.pos } });
-                }
-                if look_dirty {
-                    events.push(Event::Entity { id, inner: EntityEvent::Look { look: entity.0.look } });
-                }
-                if vel_dirty {
-                    events.push(Event::Entity { id, inner: EntityEvent::Velocity { vel: entity.0.vel } });
-                }
-            }
-
             // Entity is still in updated state as expected.
+            let (new_cx, new_cz) = calc_entity_chunk_pos(entity.0.pos);
             entity_comp.inner = ComponentStorage::Ready(entity);
 
             // Check if the entity moved to another chunk...
-            if let Some((new_cx, new_cz)) = new_chunk {
-                if (prev_cx, prev_cz) != (new_cx, new_cz) {
+            if (prev_cx, prev_cz) != (new_cx, new_cz) {
 
-                    // NOTE: This part is really critical as this ensures Memory Safety
-                    // in iterators and therefore avoids Undefined Behaviors. Each entity
-                    // really needs to be in a single chunk at a time.
-                    
-                    let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
-                        .expect("entity previous chunk is missing")
-                        .entities
-                        .remove(&entity_index);
-                    
-                    debug_assert!(remove_success, "entity index not found in previous chunk");
+                // NOTE: This part is really critical as this ensures Memory Safety
+                // in iterators and therefore avoids Undefined Behaviors. Each entity
+                // really needs to be in a single chunk at a time.
+                
+                let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
+                    .expect("entity previous chunk is missing")
+                    .entities
+                    .remove(&entity_index);
+                
+                debug_assert!(remove_success, "entity index not found in previous chunk");
 
-                    // Update the world entity to its new chunk and orphan state.
-                    entity_comp.cx = new_cx;
-                    entity_comp.cz = new_cz;
+                // Update the world entity to its new chunk and orphan state.
+                entity_comp.cx = new_cx;
+                entity_comp.cz = new_cz;
 
-                    // Insert the entity in its new chunk.
-                    let new_chunk_comp = self.chunks.entry((new_cx, new_cz)).or_default();
-                    new_chunk_comp.entities.insert(entity_index);
-                    // Update the loaded flag of the entity depending on the new chunk
-                    // being loaded or not.
-                    entity_comp.loaded = new_chunk_comp.data.is_some();
+                // Insert the entity in its new chunk.
+                let new_chunk_comp = self.chunks.entry((new_cx, new_cz)).or_default();
+                new_chunk_comp.entities.insert(entity_index);
+                // Update the loaded flag of the entity depending on the new chunk
+                // being loaded or not.
+                entity_comp.loaded = new_chunk_comp.data.is_some();
 
-                }
+                // Finally push an event to notify this change of chunk, useful for saving
+                // modified chunks.
+                self.push_event(Event::Entity { 
+                    id, 
+                    inner: EntityEvent::Chunk { 
+                        prev_cx, 
+                        prev_cz, 
+                        cx: new_cx, 
+                        cz: new_cz,
+                    }
+                });
+
             }
 
         }
@@ -1387,10 +1388,23 @@ pub enum BlockEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityEvent {
-    /// The entity has been spawned.
-    Spawn,
-    /// The entity has been removed.
-    Remove,
+    /// The entity has been spawned. The initial chunk position is given.
+    Spawn {
+        cx: i32,
+        cz: i32,
+    },
+    /// The entity has been removed. The last chunk position is given.
+    Remove {
+        cx: i32,
+        cz: i32,
+    },
+    /// The entity has been moved from one chunk to another.
+    Chunk {
+        prev_cx: i32,
+        prev_cz: i32,
+        cx: i32,
+        cz: i32,
+    },
     /// The entity changed its position.
     Position {
         pos: DVec3,

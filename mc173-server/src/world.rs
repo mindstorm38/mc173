@@ -7,7 +7,6 @@ use glam::{DVec3, IVec3, Vec2};
 
 use tracing::{debug, info, instrument};
 
-use mc173::chunk::calc_entity_chunk_pos;
 use mc173::entity::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
 use mc173::gen::OverworldGenerator;
@@ -181,10 +180,12 @@ impl ServerWorld {
                         self.handle_block_sound(pos, id, metadata),
                 }
                 Event::Entity { id, inner } => match inner {
-                    EntityEvent::Spawn => 
-                        self.handle_entity_spawn(id),
-                    EntityEvent::Remove => 
-                        self.handle_entity_remove(id),
+                    EntityEvent::Spawn { cx, cz } => 
+                        self.handle_entity_spawn(id, cx, cz),
+                    EntityEvent::Remove { cx, cz } => 
+                        self.handle_entity_remove(id, cx, cz),
+                    EntityEvent::Chunk { prev_cx, prev_cz, cx, cz } =>
+                        self.handle_entity_chunk(id, prev_cx, prev_cz, cx, cz),
                     EntityEvent::Position { pos } => 
                         self.handle_entity_position(id, pos),
                     EntityEvent::Look { look } => 
@@ -197,10 +198,10 @@ impl ServerWorld {
                         self.handle_entity_damage(id),
                     EntityEvent::Dead => 
                         self.handle_entity_dead(id),
-                    EntityEvent::Creeper { ignited, powered } =>
-                        todo!(),
-                    EntityEvent::Ghast { charged } =>
-                        self.handle_entity_ghast(id, charged),
+                    EntityEvent::Creeper { .. } =>
+                        self.handle_entity_metadata(id),
+                    EntityEvent::Ghast { .. } =>
+                        self.handle_entity_metadata(id),
                 }
                 Event::BlockEntity { pos, inner } => match inner {
                     BlockEntityEvent::Set =>
@@ -330,7 +331,7 @@ impl ServerWorld {
             // Untrack all its entities.
             for entity_id in tracked_entities {
                 let tracker = self.state.entity_trackers.get(&entity_id).expect("incoherent tracked entity");
-                tracker.kill_player_entity(&mut player);
+                tracker.kill_entity(&mut player);
             }
 
         }
@@ -387,46 +388,58 @@ impl ServerWorld {
     }
 
     /// Handle an entity spawn world event.
-    fn handle_entity_spawn(&mut self, id: u32) {
+    fn handle_entity_spawn(&mut self, id: u32, cx: i32, cz: i32) {
         
-        let Some(entity) = self.world.get_entity(id) else {
-            return // Entity is already removed from the world.
-        };
+        self.state.chunk_trackers.set_dirty(cx, cz);
 
-        self.state.entity_trackers.entry(id).or_insert_with(|| {
-            let tracker = EntityTracker::new(id, entity);
-            tracker.update_tracking_players(&mut self.players, &self.world);
-            tracker
-        });
+        // The entity may have already been removed.
+        if let Some(entity) = self.world.get_entity(id) {
+            self.state.entity_trackers.entry(id).or_insert_with(|| {
+                let tracker = EntityTracker::new(id, entity);
+                tracker.update_tracking_players(&mut self.players, &self.world);
+                tracker
+            });
+        }
 
     }
 
     /// Handle an entity kill world event.
-    fn handle_entity_remove(&mut self, id: u32) {
+    fn handle_entity_remove(&mut self, id: u32, cx: i32, cz: i32) {
         
-        let Some(tracker) = self.state.entity_trackers.remove(&id) else {
-            return // Entity has not been added because: see above.
+        self.state.chunk_trackers.set_dirty(cx, cz);
+
+        // The entity may not be spawned yet (read above).
+        if let Some(tracker) = self.state.entity_trackers.remove(&id) {
+            tracker.untrack_players(&mut self.players);
         };
 
-        tracker.untrack_players(&mut self.players);
+    }
 
+    /// Handle an entity moving from one chunk to another.
+    fn handle_entity_chunk(&mut self, _id: u32, prev_cx: i32, prev_cz: i32, cx: i32, cz: i32) {
+        self.state.chunk_trackers.set_dirty(prev_cx, prev_cz);
+        self.state.chunk_trackers.set_dirty(cx, cz);
     }
 
     /// Handle an entity position world event.
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
-        let (cx, cz) = calc_entity_chunk_pos(pos);
-        self.state.chunk_trackers.set_dirty(cx, cz);
-        self.state.entity_trackers.get_mut(&id).unwrap().set_pos(pos);
+        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+            tracker.set_pos(pos);
+        }
     }
 
     /// Handle an entity look world event.
     fn handle_entity_look(&mut self, id: u32, look: Vec2) {
-        self.state.entity_trackers.get_mut(&id).unwrap().set_look(look);
+        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+            tracker.set_look(look);
+        }
     }
 
     /// Handle an entity look world event.
     fn handle_entity_velocity(&mut self, id: u32, vel: DVec3) {
-        self.state.entity_trackers.get_mut(&id).unwrap().set_vel(vel);
+        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+            tracker.set_vel(vel);
+        }
     }
 
     /// Handle an entity pickup world event.
@@ -504,16 +517,12 @@ impl ServerWorld {
         }
     }
 
-    /// Handle an entity ghast state event.
-    fn handle_entity_ghast(&mut self, id: u32, charged: bool) {
-        for player in &self.players {
-            if player.tracked_entities.contains(&id) {
-                player.send(OutPacket::EntityMetadata(proto::EntityMetadataPacket {
-                    entity_id: id,
-                    metadata: vec![
-                        proto::Metadata::new_byte(16, charged as _)
-                    ],
-                }));
+    fn handle_entity_metadata(&mut self, id: u32) {
+        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+            for player in &self.players {
+                if player.tracked_entities.contains(&id) {
+                    tracker.update_entity(player, &self.world);
+                }
             }
         }
     }

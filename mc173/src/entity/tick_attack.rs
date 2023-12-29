@@ -84,7 +84,6 @@ fn tick_spider_attack(world: &mut World, id: u32, entity: &mut Entity, target_id
             let delta = target_base.pos.xz() - base.pos.xz();
             let h_dist = delta.length();
             let h_vel = delta / h_dist * 0.5 * 0.8 + base.vel.xz() * 0.2;
-            base.vel_dirty = true;
             base.vel = DVec3::new(h_vel.x, 0.4, h_vel.y);
 
         }

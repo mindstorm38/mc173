@@ -96,7 +96,6 @@ fn tick_living_ai(world: &mut World, _id: u32, entity: &mut Entity) {
 
         base.look.x += living.yaw_velocity;
         base.look.y = 0.0;
-        base.look_dirty = true;
 
     }
 
@@ -294,7 +293,6 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
                 living.accel_forward = move_speed;
                 base.look.x = f64::atan2(dz, dx) as f32 - std::f32::consts::FRAC_PI_2;
-                base.look_dirty = true;
 
                 // Make some weird strafing if we just attacked the player.
                 if should_strafe {
@@ -434,7 +432,6 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
             // If traversable we accelerate toward the waypoint. If not we reset.
             if traversable {
                 base.vel += delta_norm * 0.1;
-                base.vel_dirty = true;
             } else {
                 ghast.waypoint = base.pos;
             }
@@ -479,7 +476,6 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
             let center = base.bb.center();
             let delta = target_base.bb.center() - center;
             base.look.x = -f64::atan2(delta.x, delta.z) as f32;
-            base.look_dirty = true;
 
             // Charge the attack only if we see the player.
             if common::can_eye_track(world, base, target_base) {

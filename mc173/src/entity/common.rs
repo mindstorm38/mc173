@@ -167,19 +167,12 @@ pub fn update_bounding_box_from_pos(base: &mut Base) {
 /// This position recompute the current position based on the bounding box' position
 /// the size that was used to create it.
 pub fn update_pos_from_bounding_box(base: &mut Base) {
-    
     let center = base.size.center as f64;
-    let new_pos = DVec3 {
+    base.pos = DVec3 {
         x: (base.bb.min.x + base.bb.max.x) / 2.0,
         y: base.bb.min.y + center,
         z: (base.bb.min.z + base.bb.max.z) / 2.0,
     };
-
-    if new_pos != base.pos {
-        base.pos = new_pos;
-        base.pos_dirty = true;
-    }
-    
 }
 
 /// Modify the look angles of this entity, limited to the given step. 
@@ -193,11 +186,7 @@ pub fn update_look_by_step(base: &mut Base, look: Vec2, step: Vec2) {
         y: look.y,
     };
 
-    let delta = look_norm.sub(base.look).min(step);
-    if delta != Vec2::ZERO {
-        base.look_dirty = true;
-        base.look += delta;
-    }
+    base.look += look_norm.sub(base.look).min(step);
 
 }
 
@@ -222,7 +211,6 @@ pub fn update_knock_back(base: &mut Base, dir: DVec3) {
     let mut accel = dir.normalize_or_zero();
     accel.y -= 1.0;
 
-    base.vel_dirty = true;
     base.vel /= 2.0;
     base.vel -= accel * 0.4;
     base.vel.y = base.vel.y.min(0.4);

@@ -51,7 +51,6 @@ fn tick_state_base(world: &mut World, id: u32, entity: &mut Entity) {
     let water_vel = water_vel.normalize_or_zero();
     if water_vel != DVec3::ZERO {
         base.vel += water_vel * 0.014;
-        base.vel_dirty = true;
     }
 
     // Extinguish and cancel fall if in water.

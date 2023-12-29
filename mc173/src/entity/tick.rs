@@ -13,7 +13,7 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 use tracing::trace;
 
 use crate::entity::Chicken;
-use crate::world::World;
+use crate::world::{World, Event, EntityEvent};
 use crate::util::Face;
 use crate::item::ItemStack;
 use crate::block;
@@ -48,6 +48,10 @@ pub(super) fn tick(world: &mut World, id: u32, entity: &mut Entity) {
         common::update_bounding_box_from_pos(base);
     }
 
+    let prev_pos = base.pos;
+    let prev_vel = base.vel;
+    let prev_look = base.look;
+
     // Increase the entity lifetime, used by some entities and is interesting for debug.
     base.lifetime += 1;
 
@@ -59,6 +63,21 @@ pub(super) fn tick(world: &mut World, id: u32, entity: &mut Entity) {
         Entity(_, BaseKind::Living(_, _)) => tick_living(world, id, entity),
         Entity(_, BaseKind::Projectile(_, _)) => tick_projectile(world, id, entity),
         Entity(_, _) => tick_base(world, id, entity),
+    }
+
+    // Finally check all major changes and push events if needed.
+    let Entity(base, _) = entity;
+
+    if prev_pos != base.pos {
+        world.push_event(Event::Entity { id, inner: EntityEvent::Position { pos: base.pos } });
+    }
+
+    if prev_vel != base.vel {
+        world.push_event(Event::Entity { id, inner: EntityEvent::Velocity { vel: base.vel } });
+    }
+
+    if prev_look != base.look {
+        world.push_event(Event::Entity { id, inner: EntityEvent::Look { look: base.look } });
     }
 
 }
@@ -80,7 +99,6 @@ fn tick_item(world: &mut World, id: u32, entity: &mut Entity) {
     }
 
     // Update item velocity.
-    base.vel_dirty = true;
     base.vel.y -= 0.04;
 
     // If the item is in lava, apply random motion like it's burning.
@@ -186,7 +204,6 @@ fn tick_falling_block(world: &mut World, id: u32, entity: &mut Entity) {
         return;
     }
 
-    base.vel_dirty = true;
     base.vel.y -= 0.04;
 
     apply_base_vel(world, id, base, base.vel, 0.0);
@@ -216,7 +233,6 @@ fn tick_tnt(world: &mut World, id: u32, entity: &mut Entity) {
     // NOTE: Not calling tick_base
     let_expect!(Entity(base, BaseKind::Tnt(tnt)) = entity);
 
-    base.vel_dirty = true;
     base.vel.y -= 0.04;
     apply_base_vel(world, id, base, base.vel, 0.0);
     base.vel.y *= 0.98;
@@ -245,10 +261,8 @@ fn tick_living(world: &mut World, id: u32, entity: &mut Entity) {
 
     if living.jumping {
         if base.in_water || base.in_lava {
-            base.vel_dirty = true;
             base.vel.y += 0.04;
         } else if base.on_ground {
-            base.vel_dirty = true;
             base.vel.y += 0.42 + 0.1; // FIXME: Added 0.1 to make it work
         }
     }
@@ -285,7 +299,6 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
         } else {
             trace!("entity #{id}, no longer in block...");
             base.vel *= (base.rand.next_float_vec() * 0.2).as_dvec3();
-            base.vel_dirty = true;
             projectile.state = None;
             projectile.state_time = 0;
         }
@@ -297,7 +310,6 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
         // If we hit a block we constrain the velocity to avoid entering the block.
         if let Some(hit_block) = &hit_block {
             base.vel = hit_block.ray;
-            base.vel_dirty = true;
         }
 
         // Only prevent collision with owner for the first 4 ticks.
@@ -422,11 +434,9 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
         }
 
         base.pos += base.vel;
-        base.pos_dirty = true;
         
         base.look.x = f64::atan2(base.vel.x, base.vel.z) as f32;
         base.look.y = f64::atan2(base.vel.y, base.vel.xz().length()) as f32;
-        base.look_dirty = true;
         
         // The velocity update depends on projectile kind.
         if let ProjectileKind::Fireball(fireball) = projectile_kind {
@@ -451,8 +461,6 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
         
         }
 
-        base.vel_dirty = true;
-        
         // Really important!
         common::update_bounding_box_from_pos(base);
 
@@ -496,10 +504,7 @@ fn tick_living_push(world: &mut World, _id: u32, base: &mut Base) {
             let delta = DVec3::new(dx, 0.0, dz);
             
             push_base.vel -= delta;
-            push_base.vel_dirty = true;
-            
             base.vel += delta;
-            base.vel_dirty = true;
 
         }
 
@@ -577,8 +582,6 @@ fn tick_living_pos(world: &mut World, id: u32, base: &mut Base, living: &mut Liv
 
     }
 
-    base.vel_dirty = true;
-    
 }
 
 /// Update a living entity velocity according to its strafing/forward accel.
@@ -593,7 +596,6 @@ pub fn apply_living_accel(base: &mut Base, living: &mut Living, factor: f32) {
         strafing *= dist;
         forward *= dist;
         let (yaw_sin, yaw_cos) = base.look.x.sin_cos();
-        base.vel_dirty = true;
         base.vel.x += (strafing * yaw_cos - forward * yaw_sin) as f64;
         base.vel.z += (forward * yaw_cos + strafing * yaw_sin) as f64;
     }
@@ -687,17 +689,14 @@ pub fn apply_base_vel(world: &mut World, _id: u32, base: &mut Base, delta: DVec3
 
         if collided_x {
             base.vel.x = 0.0;
-            base.vel_dirty = true;
         }
 
         if collided_y {
             base.vel.y = 0.0;
-            base.vel_dirty = true;
         }
 
         if collided_z {
             base.vel.z = 0.0;
-            base.vel_dirty = true;
         }
 
     }

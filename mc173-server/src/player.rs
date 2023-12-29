@@ -465,13 +465,11 @@ impl ServerPlayer {
         if let Some(pos) = pos {
             self.pos = pos;
             entity.0.pos = self.pos;
-            entity.0.pos_dirty = true;
         }
 
         if let Some(look) = look {
             self.look = Vec2::new(look.x.to_radians(), look.y.to_radians());
             entity.0.look = self.look;
-            entity.0.look_dirty = true;
         }
 
         if pos.is_some() {
