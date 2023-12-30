@@ -347,8 +347,10 @@ impl World {
     /// known as orphan ones. If such entities are currently present at this chunk's
     /// coordinates, they will be moved to this new chunk.
     pub fn set_chunk(&mut self, cx: i32, cz: i32, chunk: Arc<Chunk>) {
+       
         let chunk_comp = self.chunks.entry((cx, cz)).or_default();
         let was_unloaded = chunk_comp.data.replace(chunk).is_none();
+        
         if was_unloaded {
             for &entity_index in &chunk_comp.entities {
                 self.entities[entity_index].loaded = true;
@@ -357,6 +359,9 @@ impl World {
                 self.block_entities[block_entity_index].loaded = true;
             }
         }
+        
+        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Set });
+
     }
 
     /// Return true if a given chunk is present in the world.
@@ -377,17 +382,26 @@ impl World {
     /// Remove a chunk that may not exists. Note that this only removed the chunk data,
     /// not its entities and block entities.
     pub fn remove_chunk(&mut self, cx: i32, cz: i32) -> Option<Arc<Chunk>> {
+        
         let chunk_comp = self.chunks.get_mut(&(cx, cz))?;
         let ret = chunk_comp.data.take();
+        
         if ret.is_some() {
+
             for &entity_index in &chunk_comp.entities {
                 self.entities[entity_index].loaded = false;
             }
+
             for &block_entity_index in chunk_comp.block_entities.values() {
                 self.block_entities[block_entity_index].loaded = false;
             }
+
+            self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Remove });
+
         }
+
         ret
+        
     }
 
     // =================== //
@@ -435,6 +449,8 @@ impl World {
                     prev_metadata, 
                 } 
             });
+
+            self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
 
         }
 
@@ -565,10 +581,8 @@ impl World {
         self.entities.push(entity_comp);
         self.entities_id_map.insert(id, entity_index);
 
-        self.push_event(Event::Entity { 
-            id, 
-            inner: EntityEvent::Spawn { cx, cz }
-        });
+        self.push_event(Event::Entity { id, inner: EntityEvent::Spawn });
+        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
 
         id
 
@@ -628,10 +642,8 @@ impl World {
 
         trace!("remove entity #{id}");
 
-        self.push_event(Event::Entity { 
-            id, 
-            inner: EntityEvent::Remove { cx, cz }
-        });
+        self.push_event(Event::Entity { id, inner: EntityEvent::Remove });
+        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
 
         true
 
@@ -667,6 +679,7 @@ impl World {
 
         self.block_entities.push(block_entity_comp);
         self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Set });
+        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
 
     }
 
@@ -712,6 +725,7 @@ impl World {
         debug_assert!(remove_success, "block entity missing from its chunk");
 
         self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Remove });
+        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
     
     }
 
@@ -1069,17 +1083,8 @@ impl World {
                 // being loaded or not.
                 entity_comp.loaded = new_chunk_comp.data.is_some();
 
-                // Finally push an event to notify this change of chunk, useful for saving
-                // modified chunks.
-                self.push_event(Event::Entity { 
-                    id, 
-                    inner: EntityEvent::Chunk { 
-                        prev_cx, 
-                        prev_cz, 
-                        cx: new_cx, 
-                        cz: new_cz,
-                    }
-                });
+                self.push_event(Event::Chunk { cx: prev_cx, cz: prev_cz, inner: ChunkEvent::Dirty });
+                self.push_event(Event::Chunk { cx: new_cx, cz: new_cz, inner: ChunkEvent::Dirty });
 
             }
 
@@ -1263,6 +1268,10 @@ impl World {
                 }
             }
 
+            if changed {
+                self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
+            }
+
             if changed && update.credit >= 1 {
                 for face in Face::ALL {
                     // Do not propagate light upward when the updated block is above 
@@ -1341,6 +1350,15 @@ pub enum Event {
         /// Inner block entity event.
         inner: BlockEntityEvent,
     },
+    /// A chunk event.
+    Chunk {
+        /// The chunk X position.
+        cx: i32,
+        /// The chunk Z position.
+        cz: i32,
+        /// Inner chunk event.
+        inner: ChunkEvent,
+    },
     /// The weather in the world has changed.
     Weather {
         /// Previous weather in the world.
@@ -1389,22 +1407,9 @@ pub enum BlockEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityEvent {
     /// The entity has been spawned. The initial chunk position is given.
-    Spawn {
-        cx: i32,
-        cz: i32,
-    },
+    Spawn,
     /// The entity has been removed. The last chunk position is given.
-    Remove {
-        cx: i32,
-        cz: i32,
-    },
-    /// The entity has been moved from one chunk to another.
-    Chunk {
-        prev_cx: i32,
-        prev_cz: i32,
-        cx: i32,
-        cz: i32,
-    },
+    Remove,
     /// The entity changed its position.
     Position {
         pos: DVec3,
@@ -1480,6 +1485,18 @@ pub enum BlockEntityProgress {
     FurnaceSmeltTime,
     FurnaceBurnMaxTime,
     FurnaceBurnRemainingTime,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChunkEvent {
+    /// The chunk has been set at its position. A chunk may have been replaced at that
+    /// position.
+    Set,
+    /// The chunk has been removed from its position.
+    Remove,
+    /// Any chunk component (block, light, entity, block entity) has been modified in the
+    /// chunk so it's marked dirty.
+    Dirty,
 }
 
 /// A snapshot contains all of the content within a chunk, block, light, height map,

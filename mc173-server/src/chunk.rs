@@ -48,10 +48,6 @@ impl ChunkTrackers {
 
         tracker.set_block(local_pos, block, metadata);
 
-        if let Some(instant) = tracker.set_dirty() {
-            self.schedule_save(cx, cz, instant);
-        }
-
     }
 
     /// Mark a chunk dirty, to be saved later.

@@ -1,6 +1,7 @@
 //! Server player tracker.
 
 use std::collections::HashSet;
+use std::mem;
 
 use glam::{DVec3, Vec2, IVec3};
 
@@ -435,6 +436,15 @@ impl ServerPlayer {
 
                 world.explode(self.pos, 4.0, false, Some(self.entity_id));
                 self.send_chat(format!("§aExplode at:§r {}", self.pos));
+                Ok(())
+
+            }
+            ["/stats", ..] => {
+
+                self.send_chat(format!("§aServer statistics"));
+                self.send_chat(format!("§a- Tick duration:§r {:.1} ms", state.tick_duration.get() * 1000.0));
+                self.send_chat(format!("§a- Tick interval:§r {:.1} ms", state.tick_interval.get() * 1000.0));
+                self.send_chat(format!("§a- Events count:§r {:.1} ({:.1} B)", state.events_count.get(), state.events_count.get() * mem::size_of::<Event>() as f32));
                 Ok(())
 
             }

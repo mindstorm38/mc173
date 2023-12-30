@@ -11,12 +11,13 @@ use mc173::entity::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
 use mc173::gen::OverworldGenerator;
 use mc173::item::{ItemStack, self};
+use mc173::util::FadingAverage;
 use mc173::{chunk, block};
 
 use mc173::world::{World, Dimension, 
     Event, EntityEvent, BlockEntityEvent, BlockEvent, 
     BlockEntityStorage, BlockEntityProgress, 
-    Weather};
+    Weather, ChunkEvent};
 
 use crate::proto::{self, OutPacket};
 use crate::entity::EntityTracker;
@@ -58,12 +59,14 @@ pub struct ServerWorldState {
     chunk_trackers: ChunkTrackers,
     /// Entity tracker, each is associated to the entity id.
     entity_trackers: HashMap<u32, EntityTracker>,
-    /// Sliding average tick duration, in seconds.
-    tick_duration: f32,
-    /// Sliding average interval between two ticks.
-    tick_interval: f32,
     /// Instant of the last tick.
     tick_last: Instant,
+    /// Fading average tick duration, in seconds.
+    pub tick_duration: FadingAverage,
+    /// Fading average interval between two ticks.
+    pub tick_interval: FadingAverage,
+    /// Fading average of events count on each tick.
+    pub events_count: FadingAverage,
 }
 
 /// Indicate the current mode for ticking the world.
@@ -98,9 +101,10 @@ impl ServerWorld {
                 storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(seed), 4),
                 chunk_trackers: ChunkTrackers::new(),
                 entity_trackers: HashMap::new(),
-                tick_duration: 0.0,
-                tick_interval: 0.0,
                 tick_last: Instant::now(),
+                tick_duration: FadingAverage::default(),
+                tick_interval: FadingAverage::default(),
+                events_count: FadingAverage::default(),
             },
         }
 
@@ -129,7 +133,7 @@ impl ServerWorld {
     pub fn tick(&mut self) {
 
         let start = Instant::now();
-        self.state.tick_interval = (self.state.tick_interval * 0.98) + (start - self.state.tick_last).as_secs_f32() * 0.02;
+        self.state.tick_interval.push((start - self.state.tick_last).as_secs_f32(), 0.02);
         self.state.tick_last = start;
 
         // Get server-side time.
@@ -171,6 +175,8 @@ impl ServerWorld {
 
         // Swap events out in order to proceed them.
         let mut events = self.world.swap_events(None).expect("events should be enabled");
+        self.state.events_count.push(events.len() as f32, 0.001);
+
         for event in events.drain(..) {
             match event {
                 Event::Block { pos, inner } => match inner {
@@ -180,12 +186,10 @@ impl ServerWorld {
                         self.handle_block_sound(pos, id, metadata),
                 }
                 Event::Entity { id, inner } => match inner {
-                    EntityEvent::Spawn { cx, cz } => 
-                        self.handle_entity_spawn(id, cx, cz),
-                    EntityEvent::Remove { cx, cz } => 
-                        self.handle_entity_remove(id, cx, cz),
-                    EntityEvent::Chunk { prev_cx, prev_cz, cx, cz } =>
-                        self.handle_entity_chunk(id, prev_cx, prev_cz, cx, cz),
+                    EntityEvent::Spawn => 
+                        self.handle_entity_spawn(id),
+                    EntityEvent::Remove => 
+                        self.handle_entity_remove(id),
                     EntityEvent::Position { pos } => 
                         self.handle_entity_position(id, pos),
                     EntityEvent::Look { look } => 
@@ -212,6 +216,11 @@ impl ServerWorld {
                         self.handle_block_entity_storage(pos, storage, stack),
                     BlockEntityEvent::Progress { progress, value } =>
                         self.handle_block_entity_progress(pos, progress, value),
+                }
+                Event::Chunk { cx, cz, inner } => match inner {
+                    ChunkEvent::Set => {}
+                    ChunkEvent::Remove => {}
+                    ChunkEvent::Dirty => self.state.chunk_trackers.set_dirty(cx, cz),
                 }
                 Event::Weather { new, .. } =>
                     self.handle_weather_change(new),
@@ -255,7 +264,7 @@ impl ServerWorld {
 
         // Update tick duration metric.
         let tick_duration = start.elapsed();
-        self.state.tick_duration = (self.state.tick_duration * 0.98) + tick_duration.as_secs_f32() * 0.02;
+        self.state.tick_duration.push(tick_duration.as_secs_f32(), 0.02);
 
         // Finally increase server-side tick time.
         self.state.time += 1;
@@ -388,10 +397,7 @@ impl ServerWorld {
     }
 
     /// Handle an entity spawn world event.
-    fn handle_entity_spawn(&mut self, id: u32, cx: i32, cz: i32) {
-        
-        self.state.chunk_trackers.set_dirty(cx, cz);
-
+    fn handle_entity_spawn(&mut self, id: u32) {
         // The entity may have already been removed.
         if let Some(entity) = self.world.get_entity(id) {
             self.state.entity_trackers.entry(id).or_insert_with(|| {
@@ -400,25 +406,14 @@ impl ServerWorld {
                 tracker
             });
         }
-
     }
 
     /// Handle an entity kill world event.
-    fn handle_entity_remove(&mut self, id: u32, cx: i32, cz: i32) {
-        
-        self.state.chunk_trackers.set_dirty(cx, cz);
-
+    fn handle_entity_remove(&mut self, id: u32) {
         // The entity may not be spawned yet (read above).
         if let Some(tracker) = self.state.entity_trackers.remove(&id) {
             tracker.untrack_players(&mut self.players);
         };
-
-    }
-
-    /// Handle an entity moving from one chunk to another.
-    fn handle_entity_chunk(&mut self, _id: u32, prev_cx: i32, prev_cz: i32, cx: i32, cz: i32) {
-        self.state.chunk_trackers.set_dirty(prev_cx, prev_cz);
-        self.state.chunk_trackers.set_dirty(cx, cz);
     }
 
     /// Handle an entity position world event.
@@ -527,18 +522,14 @@ impl ServerWorld {
         }
     }
 
-    /// HAndle a block entity set event.
-    fn handle_block_entity_set(&mut self, pos: IVec3) {
-        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.state.chunk_trackers.set_dirty(cx, cz);
+    /// Handle a block entity set event.
+    fn handle_block_entity_set(&mut self, _pos: IVec3) {
+        
     }
 
     /// Handle a block entity remove event.
     fn handle_block_entity_remove(&mut self, pos: IVec3) {
 
-        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.state.chunk_trackers.set_dirty(cx, cz);
-        
         // Close the inventory of all entities that had a window opened for this block.
         for player in &mut self.players {
             player.close_block_window(&mut self.world, pos);
@@ -549,9 +540,7 @@ impl ServerWorld {
     /// Handle a storage event for a block entity.
     fn handle_block_entity_storage(&mut self, pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
 
-        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.state.chunk_trackers.set_dirty(cx, cz);
-
+        // Update any player that have a window opened on that block entity.
         for player in &mut self.players {
             player.update_block_window_storage(pos, storage, stack);
         }
@@ -560,9 +549,7 @@ impl ServerWorld {
 
     fn handle_block_entity_progress(&mut self, pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
-        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        self.state.chunk_trackers.set_dirty(cx, cz);
-        
+        // Update any player that have a window opened on that block entity.
         for player in &mut self.players {
             player.update_block_window_progress(pos, progress, value);
         }
