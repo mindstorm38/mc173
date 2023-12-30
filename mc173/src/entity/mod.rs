@@ -22,7 +22,7 @@ use tick_attack::tick_attack;
 
 /// Kind of entity, without actual data. This enumeration can be used to construct a
 /// real entity instance with default values, to be modified later.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityKind {
     Item,
     Painting,
@@ -36,7 +36,7 @@ pub enum EntityKind {
     Egg,
     Fireball,
     Snowball,
-    Player,
+    Human,
     Ghast,
     Slime,
     Pig,
@@ -548,7 +548,7 @@ impl EntityKind {
             }
             _ => {
                 BaseKind::Living(def(), match self {
-                    EntityKind::Player => LivingKind::Human(def()),
+                    EntityKind::Human => LivingKind::Human(def()),
                     EntityKind::Ghast => LivingKind::Ghast(def()),
                     EntityKind::Slime => LivingKind::Slime(def()),
                     EntityKind::Pig => LivingKind::Pig(def()),
@@ -613,7 +613,7 @@ impl LivingKind {
     /// Get the generic entity kind from this living entity kind.
     pub fn entity_kind(&self) -> EntityKind {
         match self {
-            LivingKind::Human(_) => EntityKind::Player,
+            LivingKind::Human(_) => EntityKind::Human,
             LivingKind::Ghast(_) => EntityKind::Ghast,
             LivingKind::Slime(_) => EntityKind::Slime,
             LivingKind::Pig(_) => EntityKind::Pig,

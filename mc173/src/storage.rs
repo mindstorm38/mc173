@@ -573,8 +573,6 @@ enum StorageRequest {
 }
 
 /// A reply from the storage for a previously requested chunk loading or saving.
-/// 
-/// TODO: Add chunk coordinate to error.
 pub enum ChunkStorageReply {
     Load { cx: i32, cz: i32, res: Result<ChunkSnapshot, StorageError> },
     Save { cx: i32, cz: i32, res: Result<(), StorageError> },

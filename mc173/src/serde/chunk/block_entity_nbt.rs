@@ -53,7 +53,7 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<(IVec3, Box<BlockEntity>), Nbt
         "MobSpawner" => {
             let mut spawner = SpawnerBlockEntity::default();
             spawner.entity_kind = entity_kind_nbt::from_nbt(comp.get_string("EntityId")?).unwrap_or(EntityKind::Pig);
-            spawner.remaining_ticks = comp.get_short("Delay")? as u32;
+            spawner.remaining_time = comp.get_short("Delay")? as u16;
             BlockEntity::Spawner(spawner)
         }
         "Music" => {
@@ -120,7 +120,7 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, pos: IVec3, block_entity: &BlockEnt
         BlockEntity::Spawner(spawner) => {
             comp.insert("id", "MobSpawner");
             comp.insert("EntityId", entity_kind_nbt::to_nbt(spawner.entity_kind).unwrap_or(format!("Pig")));
-            comp.insert("Delay", spawner.remaining_ticks.min(i16::MAX as _) as i16);
+            comp.insert("Delay", spawner.remaining_time.min(i16::MAX as _) as i16);
         }
         BlockEntity::NoteBlock(note_block) => {
             comp.insert("id", "Music");

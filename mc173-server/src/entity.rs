@@ -53,7 +53,7 @@ impl EntityTracker {
     pub fn new(id: u32, entity: &Entity) -> Self {
 
         let (distance, interval, vel_enable) = match entity.kind() {
-            EntityKind::Player => (512, 2, false),
+            EntityKind::Human => (512, 2, false),
             EntityKind::Fish => (64, 5, true),
             EntityKind::Arrow => (64, 20, false),
             EntityKind::Fireball => (64, 1, false), // Notchian use 10 ticks
