@@ -4,6 +4,7 @@ use glam::IVec3;
 
 use crate::block_entity::BlockEntity;
 use crate::block::material::Material;
+use crate::util::default as def;
 use crate::util::Face;
 use crate::block;
 
@@ -157,9 +158,12 @@ impl World {
         }
 
         match id {
-            block::CHEST => self.set_block_entity(pos, BlockEntity::Chest(Default::default())),
-            block::FURNACE => self.set_block_entity(pos, BlockEntity::Furnace(Default::default())),
-            block::DISPENSER => self.set_block_entity(pos, BlockEntity::Dispenser(Default::default())),
+            block::CHEST => self.set_block_entity(pos, BlockEntity::Chest(def())),
+            block::FURNACE => self.set_block_entity(pos, BlockEntity::Furnace(def())),
+            block::DISPENSER => self.set_block_entity(pos, BlockEntity::Dispenser(def())),
+            block::SPAWNER => self.set_block_entity(pos, BlockEntity::Spawner(def())),
+            block::NOTE_BLOCK => self.set_block_entity(pos, BlockEntity::NoteBlock(def())),
+            block::JUKEBOX => self.set_block_entity(pos, BlockEntity::Jukebox(def())),
             _ => {}
         }
 

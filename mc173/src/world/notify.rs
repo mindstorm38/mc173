@@ -75,13 +75,24 @@ impl World {
                 }
             }
             // Remove the chest/dispenser block entity.
-            block::CHEST |
-            block::DISPENSER => { 
+            block::CHEST if to_id != block::CHEST => { 
+                self.remove_block_entity(pos); 
+            }
+            block::DISPENSER if to_id != block::DISPENSER => { 
                 self.remove_block_entity(pos);
             }
             // Remove the furnace block entity.
             block::FURNACE |
             block::FURNACE_LIT if to_id != block::FURNACE_LIT && to_id != block::FURNACE => {
+                self.remove_block_entity(pos);
+            }
+            block::SPAWNER if to_id != block::SPAWNER => {
+                self.remove_block_entity(pos);
+            }
+            block::NOTE_BLOCK if to_id != block::NOTE_BLOCK => {
+                self.remove_block_entity(pos);
+            }
+            block::JUKEBOX if to_id != block::JUKEBOX => {
                 self.remove_block_entity(pos);
             }
             _ => {}
