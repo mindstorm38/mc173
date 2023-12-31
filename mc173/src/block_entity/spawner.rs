@@ -2,6 +2,8 @@
 
 use glam::{IVec3, DVec3};
 
+use tracing::trace;
+
 use crate::entity::{EntityKind, Entity};
 use crate::util::BoundingBox;
 use crate::world::World;
@@ -21,7 +23,7 @@ impl Default for SpawnerBlockEntity {
     fn default() -> Self {
         Self { 
             remaining_time: 20,
-            entity_kind: EntityKind::Zombie,
+            entity_kind: EntityKind::Pig,
         }
     }
     
@@ -50,12 +52,15 @@ impl SpawnerBlockEntity {
         }
         
         self.remaining_time = 200 + world.get_rand_mut().next_int_bounded(600) as u16;
+        trace!("spawner {pos}, reached spawn time, next time in: {}", self.remaining_time);
 
         // Count the number of entities of the spawner type in its box.
         let bb = BoundingBox::CUBE + pos.as_dvec3();
         let mut same_count = world.iter_entities_colliding(bb.inflate(DVec3::new(8.0, 4.0, 8.0)))
             .filter(|(_, entity)| entity.kind() == self.entity_kind)
             .count();
+
+        trace!("spawner {pos}, same entity count: {same_count}");
 
         for _ in 0..4 {
 
