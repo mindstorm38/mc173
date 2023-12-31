@@ -1192,7 +1192,7 @@ impl World {
                     // The swapped entity was at the end, so the new length.
                     let previous_index = self.block_entities.len();
                     
-                    // Update the mapping from entity unique id to the new index.
+                    // Update the mapping from block entity position to the new index.
                     let previous_map_index = self.block_entities_pos_map.insert(swapped_comp.pos, index_to_remove);
                     debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous block entity index");
                 
