@@ -7,10 +7,11 @@ use glam::DVec3;
 use crate::entity::{Hurt, LivingKind, ProjectileKind};
 use crate::world::{World, Event, EntityEvent};
 use crate::block::material::Material;
+use crate::item::{self, ItemStack};
 use crate::block;
 
+use super::{Entity, BaseKind, Base, Living};
 use super::common::{self, let_expect};
-use super::{Entity, BaseKind};
 
 
 /// Tick base method that is common to every entity kind, this is split in Notchian impl
@@ -163,6 +164,9 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
     ///  consistent. We also avoid the divide by two thing that is useless.
     const HURT_INITIAL_TIME: u16 = 10;
 
+    // We keep the entity that killed it.
+    let mut killer_id = None;
+
     while let Some(hurt) = base.hurt.pop() {
 
         // Don't go further if entity is already dead.
@@ -201,25 +205,104 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
 
         // Apply damage.
         if actual_damage != 0 {
+            
             living.health = living.health.saturating_sub(actual_damage);
+            
+            // The entity have been killed.
+            if living.health == 0 {
+                killer_id = hurt.origin_id;
+            }
+
             // TODO: For players, take armor into account.
+
         }
 
     }
 
     if living.health == 0 {
 
-        // If this is the first death tick, push event.
+        // If this is the first death tick, push event and drop loots.
         if living.death_time == 0 {
+            
             world.push_event(Event::Entity { id, inner: EntityEvent::Dead });
+            spawn_living_loot(world, base, living, living_kind);
+
+            // If we know the killer id and we are a creeper, check if this the killer
+            // is a skeleton, in which case we drop a music disk.
+            if let LivingKind::Creeper(_) = living_kind {
+                if let Some(killer_id) = killer_id {
+                    
+                    if let Some(Entity(_, BaseKind::Living(_, LivingKind::Skeleton(_)))) = world.get_entity(killer_id) {
+                        let item = base.rand.next_choice(&[item::RECORD_13, item::RECORD_CAT]);
+                        let stack = ItemStack::new_single(item, 0);
+                        world.spawn_loot(base.pos, stack, 0.0);
+                    }
+
+                }
+            }
+
         }
 
         living.death_time += 1;
         if living.death_time > 20 {
-            // TODO: Drop loots
             world.remove_entity(id);
         }
 
     }
     
+}
+
+
+fn spawn_living_loot(world: &mut World, base: &mut Base, _living: &mut Living, living_kind: &mut LivingKind) {
+    
+    let stack = match living_kind {
+        LivingKind::Chicken(_) => 
+            ItemStack::new_single(item::FEATHER, 0),
+        LivingKind::Cow(_) => 
+            ItemStack::new_single(item::LEATHER, 0),
+        LivingKind::Creeper(_) => 
+            ItemStack::new_single(item::GUNPOWDER, 0),
+        LivingKind::Ghast(_) => 
+            ItemStack::new_single(item::GUNPOWDER, 0),
+        LivingKind::Pig(_) => {
+            if base.fire_time == 0 {
+                ItemStack::new_single(item::RAW_PORKCHOP, 0)
+            } else {
+                ItemStack::new_single(item::COOKED_PORKCHOP, 0)
+            }
+        }
+        LivingKind::PigZombie(_) => 
+            ItemStack::new_single(item::COOKED_PORKCHOP, 0),
+        LivingKind::Sheep(sheep) if !sheep.sheared => 
+            ItemStack::new_block(block::WOOL, sheep.color),
+        LivingKind::Skeleton(_) => {
+            spawn_many_loot(world, base.pos, ItemStack::new_single(item::ARROW, 0), base.rand.next_int_bounded(3) as usize);
+            spawn_many_loot(world, base.pos, ItemStack::new_single(item::BONE, 0), base.rand.next_int_bounded(3) as usize);
+            return;
+        }
+        LivingKind::Slime(slime) if slime.size == 1 => 
+            ItemStack::new_single(item::SLIMEBALL, 0),
+        LivingKind::Spider(_) => 
+            ItemStack::new_single(item::STRING, 0),
+        LivingKind::Squid(_) => 
+            ItemStack::new_single(item::DYE, 0),
+        LivingKind::Zombie(_) => 
+            ItemStack::new_single(item::FEATHER, 0),
+        _ => return
+    };
+
+    let count = match living_kind {
+        LivingKind::Squid(_) => 1 + base.rand.next_int_bounded(3) as usize,
+        _ => base.rand.next_int_bounded(3) as usize,
+    };
+
+    spawn_many_loot(world, base.pos, stack, count);
+
+}
+
+
+fn spawn_many_loot(world: &mut World, pos: DVec3, stack: ItemStack, count: usize) {
+    for _ in 0..count {
+        world.spawn_loot(pos, stack, 0.0);
+    }
 }
