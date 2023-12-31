@@ -109,10 +109,8 @@ impl FeatureGenerator for LakeGenerator {
                     if fill[dx][dz][dy] {
                         let check_pos = pos + IVec3::new(dx as i32, dy as i32 - 1, dz as i32);
                         if world.is_block(check_pos, block::DIRT) {
-                            if let Some(light) = world.get_light(check_pos + IVec3::Y, false) {
-                                if light.sky > 0 {
-                                    world.set_block(check_pos, block::GRASS, 0);
-                                }
+                            if world.get_light(check_pos).sky > 0 {
+                                world.set_block(check_pos, block::GRASS, 0);
                             }
                         }
                     }

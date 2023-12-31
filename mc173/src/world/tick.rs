@@ -205,8 +205,7 @@ impl World {
     fn tick_wheat(&mut self, pos: IVec3, metadata: u8) {
 
         // Do not tick if light level is too low or already fully grown.
-        let Some(light) = self.get_light(pos, true) else { return };
-        if light.max < 9 || metadata >= 7 {
+        if self.get_light(pos).max_real() < 9 || metadata >= 7 {
             return;
         }
 
@@ -380,12 +379,10 @@ impl World {
                 z: self.rand.next_int_bounded(3) - 1,
             };
 
-            if let Some(light) = self.get_light(spread_pos, false) {
-                if light.max < 13 {
-                    if self.is_block_air(spread_pos) {
-                        if self.is_block_opaque_cube(spread_pos - IVec3::Y) {
-                            self.set_block_notify(spread_pos, id, 0);
-                        }
+            if self.get_light(spread_pos).max() < 13 {
+                if self.is_block_air(spread_pos) {
+                    if self.is_block_opaque_cube(spread_pos - IVec3::Y) {
+                        self.set_block_notify(spread_pos, id, 0);
                     }
                 }
             }
@@ -395,23 +392,21 @@ impl World {
 
     /// Tick a sapling to grow it.
     fn tick_sapling(&mut self, pos: IVec3, mut metadata: u8) {
-        if let Some(light) = self.get_light(pos + IVec3::Y, true) {
-            if light.max >= 9 && self.rand.next_int_bounded(30) == 0 {
-                if block::sapling::is_growing(metadata) {
-                   
-                    let mut gen = match block::sapling::get_kind(metadata) {
-                        TreeKind::Oak if self.rand.next_int_bounded(10) == 0 => TreeGenerator::new_big(),
-                        TreeKind::Oak => TreeGenerator::new_oak(),
-                        TreeKind::Birch => TreeGenerator::new_birch(),
-                        TreeKind::Spruce => TreeGenerator::new_spruce2(),
-                    };
+        if self.get_light(pos + IVec3::Y).max_real() >= 9 && self.rand.next_int_bounded(30) == 0 {
+            if block::sapling::is_growing(metadata) {
+                
+                let mut gen = match block::sapling::get_kind(metadata) {
+                    TreeKind::Oak if self.rand.next_int_bounded(10) == 0 => TreeGenerator::new_big(),
+                    TreeKind::Oak => TreeGenerator::new_oak(),
+                    TreeKind::Birch => TreeGenerator::new_birch(),
+                    TreeKind::Spruce => TreeGenerator::new_spruce2(),
+                };
 
-                    gen.generate_from_sapling(self, pos);
+                gen.generate_from_sapling(self, pos);
 
-                } else {
-                    block::sapling::set_growing(&mut metadata, true);
-                    self.set_block_notify(pos, block::SAPLING, metadata);
-                }
+            } else {
+                block::sapling::set_growing(&mut metadata, true);
+                self.set_block_notify(pos, block::SAPLING, metadata);
             }
         }
     }

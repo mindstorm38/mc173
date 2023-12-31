@@ -5,8 +5,10 @@ use glam::{DVec3, Vec2, IVec3};
 use tracing::instrument;
 
 use crate::util::{BoundingBox, JavaRandom};
+use crate::util::default as def;
 use crate::item::ItemStack;
 use crate::world::World;
+use crate::block;
 
 pub mod common;
 
@@ -118,10 +120,6 @@ pub struct Base {
     /// Set to true when this entity is externally controlled.
     /// FIXME: This property is being tested.
     pub controlled: bool,
-    /// Tell if the position of this entity and its bounding box are coherent, if false
-    /// (the default value), this will recompute the bounding box from the center position
-    /// and the size of the entity.
-    pub coherent: bool,
     /// The last size that was used when recomputing the bounding box based on the 
     /// position, we keep it in order to check that the bounding box don't shift too far
     /// from it because of rounding errors, and also to keep the height center. This is
@@ -131,11 +129,8 @@ pub struct Base {
     /// actual position of the entity is derived from it. This is recomputed with the size
     /// by `tick_base` method when entity isn't coherent.
     pub bb: BoundingBox,
-    /// The current entity position, usually derived from the bounding box and size, it
-    /// can be set forced by setting the size to none, this will force recomputation of
-    /// the bounding box, instead of overwriting the position. The position is really
-    /// important because it's used to properly cache the entity in its correct chunk,
-    /// and properly do collision detection.
+    /// The current entity position, it is derived from the bounding box and size, it can
+    /// be forced by setting it and then calling `resize` on entity.
     pub pos: DVec3,
     /// True if an entity pos event should be sent after update.
     /// The current entity velocity.
@@ -338,7 +333,7 @@ pub struct LightningBolt { }
 #[derive(Debug, Clone, Default)]
 pub struct FallingBlock {
     /// Number of ticks since this block is falling.
-    pub fall_ticks: u32,
+    pub fall_time: u32,
     /// The falling block id.
     pub block_id: u8,
 }
@@ -518,61 +513,6 @@ impl Path {
 }
 
 
-impl EntityKind {
-
-    /// Create a new default entity instance from the given type.
-    pub fn new_default(self) -> Box<Entity> {
-        
-        use crate::util::default as def;
-
-        Box::new(Entity(def(), match self {
-            EntityKind::Item => BaseKind::Item(def()),
-            EntityKind::Painting => BaseKind::Painting(def()),
-            EntityKind::Boat => BaseKind::Boat(def()),
-            EntityKind::Minecart => BaseKind::Minecart(def()),
-            EntityKind::Fish => BaseKind::Fish(def()),
-            EntityKind::LightningBolt => BaseKind::LightningBolt(def()),
-            EntityKind::FallingBlock => BaseKind::FallingBlock(def()),
-            EntityKind::Tnt => BaseKind::Tnt(def()),
-            EntityKind::Arrow |
-            EntityKind::Egg |
-            EntityKind::Fireball |
-            EntityKind::Snowball => {
-                BaseKind::Projectile(def(), match self {
-                    EntityKind::Arrow => ProjectileKind::Arrow(def()),
-                    EntityKind::Egg => ProjectileKind::Egg(def()),
-                    EntityKind::Fireball => ProjectileKind::Fireball(def()),
-                    EntityKind::Snowball => ProjectileKind::Snowball(def()),
-                    _ => unreachable!()
-                })
-            }
-            _ => {
-                BaseKind::Living(def(), match self {
-                    EntityKind::Human => LivingKind::Human(def()),
-                    EntityKind::Ghast => LivingKind::Ghast(def()),
-                    EntityKind::Slime => LivingKind::Slime(def()),
-                    EntityKind::Pig => LivingKind::Pig(def()),
-                    EntityKind::Chicken => LivingKind::Chicken(def()),
-                    EntityKind::Cow => LivingKind::Cow(def()),
-                    EntityKind::Sheep => LivingKind::Sheep(def()),
-                    EntityKind::Squid => LivingKind::Squid(def()),
-                    EntityKind::Wolf => LivingKind::Wolf(def()),
-                    EntityKind::Creeper => LivingKind::Creeper(def()),
-                    EntityKind::Giant => LivingKind::Giant(def()),
-                    EntityKind::PigZombie => LivingKind::PigZombie(def()),
-                    EntityKind::Skeleton => LivingKind::Skeleton(def()),
-                    EntityKind::Spider => LivingKind::Spider(def()),
-                    EntityKind::Zombie => LivingKind::Zombie(def()),
-                    _ => unreachable!()
-                })
-            }
-        }))
-
-    }
-
-}
-
-
 impl Entity {
 
     /// Get the kind of entity from this instance.
@@ -584,6 +524,135 @@ impl Entity {
     #[instrument(level = "debug", skip_all)]
     pub fn tick(&mut self, world: &mut World, id: u32) {
         tick::tick(world, id, self);
+    }
+
+    /// Recompute this entity's size and recompute the bounding box from its position.
+    pub fn resize(&mut self) {
+
+        let Entity(base, base_kind) = self;
+
+        // Calculate the new size from the entity properties.
+        base.size = match base_kind {
+            BaseKind::Item(_) => Size::new_centered(0.25, 0.25),
+            BaseKind::Painting(_) => Size::new(0.5, 0.5),
+            BaseKind::Boat(_) => Size::new_centered(1.5, 0.6),
+            BaseKind::Minecart(_) => Size::new_centered(0.98, 0.7),
+            BaseKind::Fish(_) => Size::new(0.25, 0.25),
+            BaseKind::LightningBolt(_) => Size::new(0.0, 0.0),
+            BaseKind::FallingBlock(_) => Size::new_centered(0.98, 0.98),
+            BaseKind::Tnt(_) => Size::new_centered(0.98, 0.98),
+            BaseKind::Projectile(_, ProjectileKind::Arrow(_)) => Size::new(0.5, 0.5),
+            BaseKind::Projectile(_, ProjectileKind::Egg(_)) => Size::new(0.5, 0.5),
+            BaseKind::Projectile(_, ProjectileKind::Fireball(_)) => Size::new(1.0, 1.0),
+            BaseKind::Projectile(_, ProjectileKind::Snowball(_)) => Size::new(0.5, 0.5),
+            BaseKind::Living(_, LivingKind::Human(player)) => {
+                if player.sleeping {
+                    Size::new(0.2, 0.2)
+                } else {
+                    Size::new(0.6, 1.8)
+                }
+            }
+            BaseKind::Living(_, LivingKind::Ghast(_)) => Size::new(4.0, 4.0),
+            BaseKind::Living(_, LivingKind::Slime(slime)) => {
+                let factor = slime.size as f32;
+                Size::new(0.6 * factor, 0.6 * factor)
+            }
+            BaseKind::Living(_, LivingKind::Pig(_)) => Size::new(0.9, 0.9),
+            BaseKind::Living(_, LivingKind::Chicken(_)) => Size::new(0.3, 0.4),
+            BaseKind::Living(_, LivingKind::Cow(_)) => Size::new(0.9, 1.3),
+            BaseKind::Living(_, LivingKind::Sheep(_)) =>Size::new(0.9, 1.3),
+            BaseKind::Living(_, LivingKind::Squid(_)) => Size::new(0.95, 0.95),
+            BaseKind::Living(_, LivingKind::Wolf(_)) => Size::new(0.8, 0.8),
+            BaseKind::Living(_, LivingKind::Creeper(_)) => Size::new(0.6, 1.8),
+            BaseKind::Living(_, LivingKind::Giant(_)) => Size::new(3.6, 10.8),
+            BaseKind::Living(_, LivingKind::PigZombie(_)) => Size::new(0.6, 1.8),
+            BaseKind::Living(_, LivingKind::Skeleton(_)) => Size::new(0.6, 1.8),
+            BaseKind::Living(_, LivingKind::Spider(_)) => Size::new(1.4, 0.9),
+            BaseKind::Living(_, LivingKind::Zombie(_)) => Size::new(0.6, 1.8),
+        };
+
+        // Calculate new eyes height.
+        base.eye_height = match base_kind {
+            BaseKind::Living(_, LivingKind::Human(_)) => 1.62,
+            BaseKind::Living(_, LivingKind::Wolf(_)) => base.size.height * 0.8,
+            BaseKind::Living(_, _) => base.size.height * 0.85,
+            _ => 0.0,
+        };
+
+        // Finally update the bounding box.
+        common::update_bounding_box_from_pos(base);
+
+    }
+
+    /// Return true if the entity can naturally spawn at its current position (with
+    /// synchronized bounding box) in the given world. The entity is mutated because its
+    /// RNG may be used.
+    pub fn can_naturally_spawn(&mut self, world: &World) -> bool {
+
+        let Entity(base, BaseKind::Living(_, living_kind)) = self else {
+            // Non-living entities cannot naturally spawn.
+            return false;
+        };
+
+        let kind = living_kind.entity_kind();
+        let block_pos = IVec3 {
+            x: base.bb.center_x().floor() as i32,
+            y: base.bb.min.y.floor() as i32,
+            z: base.bb.center_z().floor() as i32,
+        };
+
+        if kind.is_animal() {
+            
+            // Animals can only spawn on grass blocks.
+            if !world.is_block(block_pos - IVec3::Y, block::GRASS) {
+                return false;
+            }
+
+            // Animals requires a light level of at least 9.
+            if world.get_light(block_pos).max() <= 8 {
+                return false;
+            }
+
+        } else if kind.is_mob() {
+
+            let light = world.get_light(block_pos);
+
+            // Lower chance of spawn if there is sky light.
+            if light.sky as i32 > base.rand.next_int_bounded(32) {
+                return false;
+            }
+
+            // Random spawning chance when light is under 8.
+            if light.max_real() as i32 > base.rand.next_int_bounded(8) {
+                return false;
+            }
+
+        }
+
+        if kind.is_creature() {
+            let weight_func = common::path_weight_func(living_kind);
+            if weight_func(world, block_pos) < 0.0 {
+                return false;
+            }
+        }
+
+        // Any hard entity colliding prevent spawning.
+        if world.has_entity_colliding(base.bb, true) {
+            return false;
+        }
+
+        // Any block colliding prevent spawning.
+        if world.iter_blocks_boxes_colliding(base.bb).next().is_some() {
+            return false;
+        }
+
+        // Any colliding water block prevent spawning.
+        if world.iter_blocks_in_box(base.bb).any(|(_pos, block, _)| block::material::is_fluid(block)) {
+            return false;
+        }
+
+        true
+
     }
 
 }
@@ -647,77 +716,208 @@ impl ProjectileKind {
 
 }
 
+impl EntityKind {
+
+    /// Create a new default entity instance from the given type.
+    pub fn new_default(self, pos: DVec3) -> Box<Entity> {
+        match self {
+            EntityKind::Item => Item::new_default(pos),
+            EntityKind::Painting => Painting::new_default(pos),
+            EntityKind::Boat => Boat::new_default(pos),
+            EntityKind::Minecart => Minecart::new_default(pos),
+            EntityKind::Fish => Fish::new_default(pos),
+            EntityKind::LightningBolt => LightningBolt::new_default(pos),
+            EntityKind::FallingBlock => FallingBlock::new_default(pos),
+            EntityKind::Tnt => Tnt::new_default(pos),
+            EntityKind::Arrow => Arrow::new_default(pos),
+            EntityKind::Egg => Egg::new_default(pos),
+            EntityKind::Fireball => Fireball::new_default(pos),
+            EntityKind::Snowball => Snowball::new_default(pos),
+            EntityKind::Human => Human::new_default(pos),
+            EntityKind::Ghast => Ghast::new_default(pos),
+            EntityKind::Slime => Slime::new_default(pos),
+            EntityKind::Pig => Pig::new_default(pos),
+            EntityKind::Chicken => Chicken::new_default(pos),
+            EntityKind::Cow => Cow::new_default(pos),
+            EntityKind::Sheep => Sheep::new_default(pos),
+            EntityKind::Squid => Squid::new_default(pos),
+            EntityKind::Wolf => Wolf::new_default(pos),
+            EntityKind::Creeper => Creeper::new_default(pos),
+            EntityKind::Giant => Giant::new_default(pos),
+            EntityKind::PigZombie => PigZombie::new_default(pos),
+            EntityKind::Skeleton => Skeleton::new_default(pos),
+            EntityKind::Spider => Spider::new_default(pos),
+            EntityKind::Zombie => Zombie::new_default(pos),
+        }
+    }
+
+    /// Return true if this entity kind is hard, hard entities prevent block placing and
+    /// entity spawning when colliding.
+    #[inline]
+    pub fn is_hard(self) -> bool {
+        match self {
+            EntityKind::Item |
+            EntityKind::Fish |
+            EntityKind::LightningBolt |
+            EntityKind::Arrow |
+            EntityKind::Egg |
+            EntityKind::Fireball |
+            EntityKind::Snowball => false,
+            _ => true
+        }
+    }
+
+    /// Return true if this entity kind is an animal.
+    #[inline]
+    pub fn is_animal(self) -> bool {
+        match self {
+            EntityKind::Pig |
+            EntityKind::Chicken |
+            EntityKind::Cow |
+            EntityKind::Sheep |
+            EntityKind::Squid |
+            EntityKind::Wolf => true,
+            _ => false
+        }
+    }
+
+    /// Return true if this entity kind is a mob.
+    #[inline]
+    pub fn is_mob(self) -> bool {
+        match self {
+            EntityKind::Creeper |
+            EntityKind::Giant |
+            EntityKind::PigZombie |
+            EntityKind::Skeleton |
+            EntityKind::Spider |
+            EntityKind::Zombie => true,
+            _ => false
+        }
+    }
+
+    /// Return true if this entity kind is a water creature.
+    #[inline]
+    pub fn is_water(self) -> bool {
+        self == EntityKind::Squid
+    }
+
+    /// Return true if this entity is any kind of creature (all except human).
+    #[inline]
+    pub fn is_creature(self) -> bool {
+        self.is_animal() || self.is_mob() || self.is_water()
+    }
+
+}
+
 
 macro_rules! impl_new_with {
-    ( Base: $( $kind:ident ),* ) => {
+    ( Base: $( $kind:ident $($def:expr)? ),* ) => {
         
         $(impl $kind {
+
+            /// Create a new instance of this entity type and initialize the entity with
+            /// a closure, the entity is then resized to initialize its bounding box.
             #[inline]
             pub fn new_with(func: impl FnOnce(&mut Base, &mut $kind)) -> Box<Entity> {
-                let mut base: Base = Default::default();
-                let mut this: $kind = Default::default();
-                func(&mut base, &mut this);
-                Box::new(Entity(base, BaseKind::$kind(this)))
+                let mut entity = Box::new(Entity(def(), BaseKind::$kind(def())));
+                let Entity(base, BaseKind::$kind(this)) = &mut *entity else { unreachable!() };
+                $( ($def)(base, this); )?
+                func(base, this);
+                entity.resize();
+                entity
             }
+
+            /// Create a new instance of this entity at the given position, the entity is
+            /// then resized to initialize its bounding box.
+            pub fn new_default(pos: DVec3) -> Box<Entity> {
+                Self::new_with(|base, _| base.pos = pos)
+            }
+
         })*
 
     };
-    ( Living: $( $kind:ident ),* ) => {
+    ( Living: $( $kind:ident $def_health:expr ),* ) => {
         
         $(impl $kind {
+            
+            /// Create a new instance of this entity type and initialize the entity with
+            /// a closure, the entity is then resized to initialize its bounding box.
             #[inline]
             pub fn new_with(func: impl FnOnce(&mut Base, &mut Living, &mut $kind)) -> Box<Entity> {
-                let mut base: Base = Default::default();
-                let mut living: Living = Default::default();
-                let mut this: $kind = Default::default();
-                func(&mut base, &mut living, &mut this);
-                Box::new(Entity(base, BaseKind::Living(living, LivingKind::$kind(this))))
+                let mut entity = Box::new(Entity(def(), BaseKind::Living(def(), LivingKind::$kind(def()))));
+                let Entity(base, BaseKind::Living(living, LivingKind::$kind(this))) = &mut *entity else { unreachable!() };
+                living.health = $def_health;
+                func(base, living, this);
+                entity.resize();
+                entity
             }
+
+            /// Create a new instance of this entity at the given position, the entity is
+            /// then resized to initialize its bounding box.
+            pub fn new_default(pos: DVec3) -> Box<Entity> {
+                Self::new_with(|base, _, _| base.pos = pos)
+            }
+
         })*
 
     };
     ( Projectile: $( $kind:ident ),* ) => {
         
         $(impl $kind {
+            
+            /// Create a new instance of this entity type and initialize the entity with
+            /// a closure, the entity is then resized to initialize its bounding box.
             #[inline]
             pub fn new_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
-                let mut base: Base = Default::default();
-                let mut projectile: Projectile = Default::default();
-                let mut this: $kind = Default::default();
-                func(&mut base, &mut projectile, &mut this);
-                Box::new(Entity(base, BaseKind::Projectile(projectile, ProjectileKind::$kind(this))))
+                let mut entity = Box::new(Entity(def(), BaseKind::Projectile(def(), ProjectileKind::$kind(def()))));
+                let Entity(base, BaseKind::Projectile(projectile, ProjectileKind::$kind(this))) = &mut *entity else { unreachable!() };
+                func(base, projectile, this);
+                entity.resize();
+                entity
             }
+
+            /// Create a new instance of this entity at the given position, the entity is
+            /// then resized to initialize its bounding box.
+            pub fn new_default(pos: DVec3) -> Box<Entity> {
+                Self::new_with(|base, _, _| base.pos = pos)
+            }
+
         })*
 
     };
 }
 
 impl_new_with!(Base: 
-    Item, 
+    Item |_: &mut Base, this: &mut Item| { 
+        this.health = 5; 
+        this.stack = ItemStack::new_block(block::STONE, 0);
+    },
     Painting, 
     Boat, 
     Minecart, 
     Fish, 
     LightningBolt, 
-    FallingBlock, 
+    FallingBlock |_: &mut Base, this: &mut FallingBlock| {
+        this.block_id = block::SAND;
+    }, 
     Tnt);
 
 impl_new_with!(Living: 
-    Human,
-    Ghast,
-    Slime,
-    Pig,
-    Chicken,
-    Cow,
-    Sheep,
-    Squid,
-    Wolf,
-    Creeper,
-    Giant,
-    PigZombie,
-    Skeleton,
-    Spider,
-    Zombie);
+    Human 20,
+    Ghast 10,
+    Slime 1,
+    Pig 10,
+    Chicken 4,
+    Cow 10,
+    Sheep 10,
+    Squid 10,
+    Wolf 8,
+    Creeper 20,
+    Giant 200,
+    PigZombie 20,
+    Skeleton 20,
+    Spider 20,
+    Zombie 20);
     
 impl_new_with!(Projectile: 
     Arrow,

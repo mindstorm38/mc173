@@ -189,7 +189,10 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
         _ => return Err(NbtParseError::new(format!("{}/id", comp.path()), "valid entity id"))
     };
 
-    Ok(Box::new(Entity(base, base_kind)))
+    let mut entity = Box::new(Entity(base, base_kind));
+    entity.resize(); // Set the initial size/bounding box.
+
+    Ok(entity)
 
 }
 

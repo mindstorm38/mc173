@@ -135,23 +135,19 @@ impl World {
 
     /// Notification of standard flower subclasses.
     fn notify_flower(&mut self, pos: IVec3, stay_blocks: &[u8]) {
-        if let Some(light) = self.get_light(pos, false) {
-            if light.max >= 8 || false /* block can see sky */ {
-                let (below_id, _) = self.get_block(pos - IVec3::Y).unwrap_or((0, 0));
-                if stay_blocks.iter().any(|&id| id == below_id) {
-                    return;
-                }
+        if self.get_light(pos).max() >= 8 || false /* block can see sky */ {
+            let (below_id, _) = self.get_block(pos - IVec3::Y).unwrap_or((0, 0));
+            if stay_blocks.iter().any(|&id| id == below_id) {
+                return;
             }
-            self.break_block(pos);
         }
+        self.break_block(pos);
     }
 
     /// Notification of a mushroom block.
     fn notify_mushroom(&mut self, pos: IVec3) {
-        if let Some(light) = self.get_light(pos, false) {
-            if light.max >= 13 || !self.is_block_opaque_cube(pos - IVec3::Y) {
-                self.break_block(pos);
-            }
+        if self.get_light(pos).max() >= 13 || !self.is_block_opaque_cube(pos - IVec3::Y) {
+            self.break_block(pos);
         }
     }
 

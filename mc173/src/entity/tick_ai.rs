@@ -8,7 +8,6 @@ use tracing::trace;
 use crate::entity::{Fireball, Path, LookTarget};
 use crate::world::{World, Event, EntityEvent};
 use crate::path::PathFinder;
-use crate::block;
 
 use super::{Entity, BaseKind, LivingKind};
 use super::common::{self, let_expect};
@@ -191,22 +190,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
         if !should_strafe && ((living.path.is_none() && base.rand.next_int_bounded(80) == 0) || base.rand.next_int_bounded(80) == 0) {
 
             // The path weight function depends on the entity type.
-            let weight_func = match living_kind {
-                LivingKind::Pig(_) |
-                LivingKind::Chicken(_) |
-                LivingKind::Cow(_) |
-                LivingKind::Sheep(_) |
-                LivingKind::Wolf(_) => path_weight_animal,
-                LivingKind::Creeper(_) |
-                LivingKind::PigZombie(_) |
-                LivingKind::Skeleton(_) |
-                LivingKind::Spider(_) |
-                LivingKind::Zombie(_) => path_weight_mob,
-                LivingKind::Giant(_) => path_weight_giant,
-                // We should not match other entities but we never known...
-                _ => path_weight_default,
-            };
-            
+            let weight_func = common::path_weight_func(living_kind);
             let best_pos = (0..10)
                 .map(|_| {
                     IVec3 {
@@ -525,28 +509,4 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
     living.attack_time = next_attack_time;
 
-}
-
-/// Path weight function for animals.
-fn path_weight_animal(world: &World, pos: IVec3) -> f32 {
-    if world.is_block(pos - IVec3::Y, block::GRASS) {
-        10.0
-    } else {
-        world.get_brightness(pos).unwrap_or(0.0) - 0.5
-    }
-}
-
-/// Path weight function for mobs.
-fn path_weight_mob(world: &World, pos: IVec3) -> f32 {
-    0.5 - world.get_brightness(pos).unwrap_or(0.0)
-}
-
-/// Path weight function for Giant.
-fn path_weight_giant(world: &World, pos: IVec3) -> f32 {
-    world.get_brightness(pos).unwrap_or(0.0) - 0.5
-}
-
-/// Path weight function by default.
-fn path_weight_default(_world: &World, _pos: IVec3) -> f32 {
-    0.0
 }

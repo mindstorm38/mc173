@@ -30,22 +30,12 @@ use super::tick_ai;
 /// Entry point tick method for all entities.
 pub(super) fn tick(world: &mut World, id: u32, entity: &mut Entity) {
     
-    let Entity(base, base_kind) = entity;
+    let Entity(base, _) = entity;
 
     // Just kill the entity if far in the void.
     if base.pos.y < -64.0 {
         world.remove_entity(id);
         return;
-    }
-
-    // If size is not coherent, get the current size and initialize the bounding box
-    // from the current position.
-    if !base.coherent {
-        base.size = common::calc_size(base_kind);
-        base.eye_height = common::calc_eye_height(base, base_kind);
-        common::update_bounding_box_from_pos(base);
-    } else if base.controlled {
-        common::update_bounding_box_from_pos(base);
     }
 
     let prev_pos = base.pos;
@@ -609,6 +599,7 @@ pub fn apply_base_vel(world: &mut World, _id: u32, base: &mut Base, delta: DVec3
 
     if base.no_clip {
         base.bb += delta;
+        base.on_ground = false;
     } else {
 
         // TODO: 

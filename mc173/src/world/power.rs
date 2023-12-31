@@ -1,5 +1,5 @@
 //! Redstone power calculations. The behavior of each power-producing block is described
-//! in this 
+//! in this module.
 
 use glam::IVec3;
 

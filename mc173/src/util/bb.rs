@@ -37,6 +37,21 @@ impl BoundingBox {
         (self.min + self.max) / 2.0
     }
 
+    /// Calculate the X center of the bounding box.
+    pub fn center_x(self) -> f64 {
+        (self.min.x + self.max.x) / 2.0
+    }
+
+    /// Calculate the Y center of the bounding box.
+    pub fn center_y(self) -> f64 {
+        (self.min.y + self.max.y) / 2.0
+    }
+
+    /// Calculate the Z center of the bounding box.
+    pub fn center_z(self) -> f64 {
+        (self.min.z + self.max.z) / 2.0
+    }
+
     /// Expand this bounding box in all direction by the given delta.
     pub fn inflate(self, delta: DVec3) -> Self {
         Self {

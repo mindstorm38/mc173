@@ -250,44 +250,25 @@ impl ServerPlayer {
 
             }
             ["/give", ..] => Err(format!("§eUsage: /give <item>[:<damage>] [<size>]")),
-            ["/spawn", entity_kind, ..] => {
+            ["/spawn", entity_kind_raw, ..] => {
 
-                // Entity spawning params depends on the entity
-                let mut entity = match entity_kind {
-                    "item" => e::Item::new_with(|_, item| {
-                        item.stack = ItemStack::new_block(block::STONE, 0);
-                    }),
-                    "boat" => EntityKind::Boat.new_default(),
-                    "minecart" => EntityKind::Minecart.new_default(),
-                    "pig" => EntityKind::Pig.new_default(),
-                    "chicken" => EntityKind::Chicken.new_default(),
-                    "cow" => EntityKind::Cow.new_default(),
-                    "sheep" => EntityKind::Sheep.new_default(),
-                    "zombie" => EntityKind::Zombie.new_default(),
-                    "skeleton" => EntityKind::Skeleton.new_default(),
-                    "ghast" => EntityKind::Ghast.new_default(),
-                    "slime" => {
-                        
-                        let mut size = 1u8;
-                        if let Some(size_raw) = parts.get(2) {
-                            size = size_raw.parse::<u8>()
-                                .map_err(|_| format!("§cError: invalid slime size:§r {size_raw}"))?;
-                        }
-                        
-                        e::Slime::new_with(|_, _, slime| {
-                            slime.size = size;
-                        })
-
-                    },
-                    _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind}"))
+                let entity_kind = match entity_kind_raw {
+                    "item" => EntityKind::Item,
+                    "boat" => EntityKind::Boat,
+                    "minecart" => EntityKind::Minecart,
+                    "pig" => EntityKind::Pig,
+                    "chicken" => EntityKind::Chicken,
+                    "cow" => EntityKind::Cow,
+                    "sheep" => EntityKind::Sheep,
+                    "zombie" => EntityKind::Zombie,
+                    "skeleton" => EntityKind::Skeleton,
+                    "ghast" => EntityKind::Ghast,
+                    "slime" => EntityKind::Slime,
+                    _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind_raw}"))
                 };
 
+                let mut entity = entity_kind.new_default(self.pos);
                 entity.0.persistent = true;
-                entity.0.pos = self.pos;
-
-                if let e::BaseKind::Living(living, _) = &mut entity.1 {
-                    living.health = 20;
-                }
 
                 let entity_id = world.spawn_entity(entity);
                 self.send_chat(format!("§aEntity spawned:§r {entity_id}"));
@@ -315,11 +296,11 @@ impl ServerPlayer {
                     self.send_chat(format!("§a- Height:§r {}", height));
                 }
 
-                if let Some(light) = world.get_light(block_pos, false) {
-                    self.send_chat(format!("§a- Block light:§r {}", light.block));
-                    self.send_chat(format!("§a- Sky light:§r {}", light.sky));
-                    self.send_chat(format!("§a- Max light:§r {}", light.max));
-                }
+                let light = world.get_light(block_pos);
+                self.send_chat(format!("§a- Block light:§r {}", light.block));
+                self.send_chat(format!("§a- Sky light:§r {}", light.sky));
+                self.send_chat(format!("§a- Sky real light:§r {}", light.sky_real));
+                self.send_chat(format!("§a- Brightness:§r {}", light.brightness()));
 
                 if let Some(biome) = world.get_biome(block_pos) {
                     self.send_chat(format!("§a- Biome:§r {biome:?}"));

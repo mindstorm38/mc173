@@ -10,7 +10,7 @@ use crate::util::{Face, BoundingBox};
 use crate::world::World;
 use crate::block;
 
-use super::{Entity, Size, BaseKind, ProjectileKind, LivingKind,  Base};
+use super::{Entity, BaseKind, LivingKind, Base};
 
 
 /// Internal macro to make a refutable pattern assignment that just panic if refuted.
@@ -32,58 +32,6 @@ thread_local! {
     pub(super) static ENTITY_ID: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
     /// Temporary bounding boxes storage.
     pub(super) static BOUNDING_BOX: RefCell<Vec<BoundingBox>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Calculate the initial size of an entity, this is only called when not coherent.
-pub fn calc_size(base_kind: &mut BaseKind) -> Size {
-    match base_kind {
-        BaseKind::Item(_) => Size::new_centered(0.25, 0.25),
-        BaseKind::Painting(_) => Size::new(0.5, 0.5),
-        BaseKind::Boat(_) => Size::new_centered(1.5, 0.6),
-        BaseKind::Minecart(_) => Size::new_centered(0.98, 0.7),
-        BaseKind::Fish(_) => Size::new(0.25, 0.25),
-        BaseKind::LightningBolt(_) => Size::new(0.0, 0.0),
-        BaseKind::FallingBlock(_) => Size::new_centered(0.98, 0.98),
-        BaseKind::Tnt(_) => Size::new_centered(0.98, 0.98),
-        BaseKind::Projectile(_, ProjectileKind::Arrow(_)) => Size::new(0.5, 0.5),
-        BaseKind::Projectile(_, ProjectileKind::Egg(_)) => Size::new(0.5, 0.5),
-        BaseKind::Projectile(_, ProjectileKind::Fireball(_)) => Size::new(1.0, 1.0),
-        BaseKind::Projectile(_, ProjectileKind::Snowball(_)) => Size::new(0.5, 0.5),
-        BaseKind::Living(_, LivingKind::Human(player)) => {
-            if player.sleeping {
-                Size::new(0.2, 0.2)
-            } else {
-                Size::new(0.6, 1.8)
-            }
-        }
-        BaseKind::Living(_, LivingKind::Ghast(_)) => Size::new(4.0, 4.0),
-        BaseKind::Living(_, LivingKind::Slime(slime)) => {
-            let factor = slime.size as f32;
-            Size::new(0.6 * factor, 0.6 * factor)
-        }
-        BaseKind::Living(_, LivingKind::Pig(_)) => Size::new(0.9, 0.9),
-        BaseKind::Living(_, LivingKind::Chicken(_)) => Size::new(0.3, 0.4),
-        BaseKind::Living(_, LivingKind::Cow(_)) => Size::new(0.9, 1.3),
-        BaseKind::Living(_, LivingKind::Sheep(_)) =>Size::new(0.9, 1.3),
-        BaseKind::Living(_, LivingKind::Squid(_)) => Size::new(0.95, 0.95),
-        BaseKind::Living(_, LivingKind::Wolf(_)) => Size::new(0.8, 0.8),
-        BaseKind::Living(_, LivingKind::Creeper(_)) => Size::new(0.6, 1.8),
-        BaseKind::Living(_, LivingKind::Giant(_)) => Size::new(3.6, 10.8),
-        BaseKind::Living(_, LivingKind::PigZombie(_)) => Size::new(0.6, 1.8),
-        BaseKind::Living(_, LivingKind::Skeleton(_)) => Size::new(0.6, 1.8),
-        BaseKind::Living(_, LivingKind::Spider(_)) => Size::new(1.4, 0.9),
-        BaseKind::Living(_, LivingKind::Zombie(_)) => Size::new(0.6, 1.8),
-    }
-}
-
-/// Calculate height height for the given entity.
-pub fn calc_eye_height(base: &Base, base_kind: &BaseKind) -> f32 {
-    match base_kind {
-        BaseKind::Living(_, LivingKind::Human(_)) => 1.62,
-        BaseKind::Living(_, LivingKind::Wolf(_)) => base.size.height * 0.8,
-        BaseKind::Living(_, _) => base.size.height * 0.85,
-        _ => 0.0,
-    }
 }
 
 /// Calculate the eye position of the given entity.
@@ -137,7 +85,7 @@ pub fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u
 pub fn calc_entity_brightness(world: &World, base: &Base) -> f32 {
     let mut check_pos = base.pos;
     check_pos.y += (base.size.height * 0.66 - base.size.center) as f64;
-    world.get_brightness(check_pos.floor().as_ivec3()).unwrap_or(0.0)
+    world.get_light(check_pos.floor().as_ivec3()).brightness()
 }
 
 pub fn find_closest_player_entity(world: &World, center: DVec3, dist: f64) -> Option<(u32, &Entity)> {
@@ -160,8 +108,6 @@ pub fn update_bounding_box_from_pos(base: &mut Base) {
         min: base.pos - DVec3::new(half_width, center, half_width),
         max: base.pos + DVec3::new(half_width, height - center, half_width),
     };
-    // Entity position and bounding are coherent.
-    base.coherent = true;
 }
 
 /// This position recompute the current position based on the bounding box' position
@@ -222,4 +168,47 @@ pub fn can_eye_track(world: &World, base: &Base, target_base: &Base) -> bool {
     let origin = calc_eye_pos(base);
     let ray = calc_eye_pos(target_base) - origin;
     world.ray_trace_blocks(origin, ray, false).is_none()
+}
+
+/// Get the path weight function for the given living entity kind.
+pub fn path_weight_func(living_kind: &LivingKind) -> fn(&World, IVec3) -> f32 {
+    match living_kind {
+        LivingKind::Pig(_) |
+        LivingKind::Chicken(_) |
+        LivingKind::Cow(_) |
+        LivingKind::Sheep(_) |
+        LivingKind::Wolf(_) => path_weight_animal,
+        LivingKind::Creeper(_) |
+        LivingKind::PigZombie(_) |
+        LivingKind::Skeleton(_) |
+        LivingKind::Spider(_) |
+        LivingKind::Zombie(_) => path_weight_mob,
+        LivingKind::Giant(_) => path_weight_giant,
+        // We should not match other entities but we never known...
+        _ => path_weight_default,
+    }
+}
+
+/// Path weight function for animals.
+fn path_weight_animal(world: &World, pos: IVec3) -> f32 {
+    if world.is_block(pos - IVec3::Y, block::GRASS) {
+        10.0
+    } else {
+        world.get_light(pos).brightness() - 0.5
+    }
+}
+
+/// Path weight function for mobs.
+fn path_weight_mob(world: &World, pos: IVec3) -> f32 {
+    0.5 - world.get_light(pos).brightness()
+}
+
+/// Path weight function for Giant.
+fn path_weight_giant(world: &World, pos: IVec3) -> f32 {
+    world.get_light(pos).brightness() - 0.5
+}
+
+/// Path weight function by default.
+fn path_weight_default(_world: &World, _pos: IVec3) -> f32 {
+    0.0
 }

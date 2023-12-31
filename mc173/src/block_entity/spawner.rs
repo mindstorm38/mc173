@@ -47,14 +47,13 @@ impl SpawnerBlockEntity {
         if self.remaining_time > 0 {
             self.remaining_time -= 1;
             return;
-        } else {
-            self.remaining_time = 200 + world.get_rand_mut().next_int_bounded(600) as u16;
         }
-
-        let bb = BoundingBox::CUBE + pos.as_dvec3();
+        
+        self.remaining_time = 200 + world.get_rand_mut().next_int_bounded(600) as u16;
 
         // Count the number of entities of the spawner type in its box.
-        let same_count = world.iter_entities_colliding(bb.inflate(DVec3::new(8.0, 4.0, 8.0)))
+        let bb = BoundingBox::CUBE + pos.as_dvec3();
+        let mut same_count = world.iter_entities_colliding(bb.inflate(DVec3::new(8.0, 4.0, 8.0)))
             .filter(|(_, entity)| entity.kind() == self.entity_kind)
             .count();
 
@@ -65,20 +64,20 @@ impl SpawnerBlockEntity {
                 break;
             }
 
-            let mut entity = self.entity_kind.new_default();
-            let Entity(base, _) = &mut *entity;
-
             let rand = world.get_rand_mut();
-            
-            base.pos = pos.as_dvec3() + DVec3 {
+            let pos = pos.as_dvec3() + DVec3 {
                 x: (rand.next_double() - rand.next_double()) * 4.0,
                 y: (rand.next_int_bounded(3) - 1) as f64,
                 z: (rand.next_double() - rand.next_double()) * 4.0,
             };
 
-            base.look.x = rand.next_float();
+            let mut entity = self.entity_kind.new_default(pos);
+            entity.0.look.x = rand.next_float();
 
-
+            if entity.can_naturally_spawn(world) {
+                world.spawn_entity(entity);
+                same_count += 1;
+            }
 
         }
 

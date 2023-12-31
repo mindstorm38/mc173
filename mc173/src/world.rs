@@ -500,38 +500,28 @@ impl World {
     /// Get light level at the given position, in range 0..16.
     /// 
     /// TODO: Maybe always return light, with default value if chunk is absent.
-    pub fn get_light(&self, mut pos: IVec3, actual_sky_light: bool) -> Option<Light> {
+    pub fn get_light(&self, mut pos: IVec3) -> Light {
         
         if pos.y > 127 {
             pos.y = 127;
         }
 
-        let (cx, cz) = calc_chunk_pos(pos)?;
-        let chunk = self.get_chunk(cx, cz)?;
+        let mut light = Light {
+            block: 0,
+            sky: 15,
+            sky_real: 0,
+        };
 
-        // TODO: If stair or farmland, get max value around them.
-
-        let block = chunk.get_block_light(pos);
-        let mut sky = chunk.get_sky_light(pos);
-
-        if actual_sky_light {
-            sky = sky.saturating_sub(self.sky_light_subtracted);
+        if let Some((cx, cz)) = calc_chunk_pos(pos) {
+            if let Some(chunk) = self.get_chunk(cx, cz) {
+                light.block = chunk.get_block_light(pos);
+                light.sky = chunk.get_sky_light(pos);
+            }
         }
 
-        Some(Light {
-            block,
-            sky,
-            max: block.max(sky),
-        })
+        light.sky_real = light.sky.saturating_sub(self.sky_light_subtracted);
+        light
 
-    }
-
-    /// Compute the client-side brightness of a block, based on its block light level.
-    pub fn get_brightness(&self, pos: IVec3) -> Option<f32> {
-        let block_light = self.get_light(pos, false)?.block;
-        let base = 1.0 - block_light as f32 / 15.0;
-        let brightness = (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - 0.05) + 0.05;
-        Some(brightness)
     }
 
     // =================== //
@@ -846,6 +836,14 @@ impl World {
             returned_pointers: HashSet::new(),
         }
 
+    }
+
+    /// Return true if any entity is colliding the given bounding box. The hard argument
+    /// can be set to true in order to only check for "hard" entities, hard entities can
+    /// prevent block placements and entity spawning.
+    pub fn has_entity_colliding(&self, bb: BoundingBox, hard: bool) -> bool {
+        self.iter_entities_colliding(bb)
+            .any(|(_, entity)| !hard || entity.kind().is_hard())
     }
 
     // =================== //
@@ -1322,8 +1320,31 @@ pub struct Light {
     pub block: u8,
     /// Sky light level, can the absolute sky light or the actual one depending on query.
     pub sky: u8,
-    /// Maximum light level between block and sky value.
-    pub max: u8,
+    /// The real sky light level, depending on the time and weather.
+    pub sky_real: u8,
+}
+
+impl Light {
+
+    /// Calculate the maximum static light level (without time/weather attenuation).
+    #[inline]
+    pub fn max(self) -> u8 {
+        u8::max(self.block, self.sky)
+    }
+
+    /// Calculate the maximum real light level (with time/weather attenuation).
+    #[inline]
+    pub fn max_real(self) -> u8 {
+        u8::max(self.block, self.sky_real)
+    }
+
+    /// Calculate the block brightness from its light levels.
+    #[inline]
+    pub fn brightness(self) -> f32 {
+        let base = 1.0 - self.block as f32 / 15.0;
+        (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - 0.05) + 0.05
+    }
+
 }
 
 /// An event that happened in the world.
