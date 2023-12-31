@@ -501,9 +501,7 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
     if was_charged != charged {
         world.push_event(Event::Entity { 
             id, 
-            inner: EntityEvent::Ghast { 
-                charged,
-            }
+            inner: EntityEvent::Metadata
         });
     }
 

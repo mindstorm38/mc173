@@ -331,6 +331,10 @@ pub struct AnimationPacket {
 #[derive(Debug, Clone)]
 pub struct ActionPacket {
     pub entity_id: u32,
+    /// The Notchian implementation support the following states:
+    /// - 1: The player is sneaking
+    /// - 2: The player is no longer sneaking
+    /// - 3: The player wants to wake up from bed
     pub state: u8,
 }
 

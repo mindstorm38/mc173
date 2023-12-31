@@ -7,10 +7,10 @@ use glam::{DVec3, Vec2, IVec3};
 
 use tracing::{warn, instrument};
 
-use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress};
+use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress, EntityEvent};
 use mc173::world::interact::Interaction;
 
-use mc173::entity::{self as e, EntityKind, Entity, Hurt};
+use mc173::entity::{self as e, EntityKind, Entity, Hurt, BaseKind, LivingKind};
 use mc173::block_entity::BlockEntity;
 use mc173::item::{self, ItemStack};
 use mc173::{block, chunk};
@@ -184,6 +184,8 @@ impl ServerPlayer {
                 self.handle_animation(world, packet),
             InPacket::Interact(packet) =>
                 self.handle_interact(world, packet),
+            InPacket::Action(packet) =>
+                self.handle_action(world, packet),
             _ => warn!("unhandled packet from #{}: {packet:?}", self.client.id())
         }
 
@@ -455,7 +457,7 @@ impl ServerPlayer {
 
         if let Some(pos) = pos {
             self.pos = pos;
-            entity.0.pos = self.pos;
+            entity.teleport(pos);
         }
 
         if let Some(look) = look {
@@ -464,7 +466,12 @@ impl ServerPlayer {
         }
 
         if pos.is_some() {
+            world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Position { pos: self.pos } });
             self.update_chunks(world);
+        }
+
+        if look.is_some() {
+            world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Look { look: self.look } });
         }
 
     }
@@ -821,6 +828,7 @@ impl ServerPlayer {
         if self.entity_id != packet.player_entity_id {
             warn!("from {}, incoherent interact entity: {}, expected: {}", self.username, packet.player_entity_id, self.entity_id);
         }
+
         let Some(Entity(target_base, _)) = world.get_entity_mut(packet.target_entity_id) else {
             warn!("from {}, incoherent interact entity target: {}", self.username, packet.target_entity_id);
             return;
@@ -845,6 +853,30 @@ impl ServerPlayer {
 
         } else {
             
+        }
+
+    }
+
+    /// Handle an action packet from the player.
+    fn handle_action(&mut self, world: &mut World, packet: proto::ActionPacket) {
+
+        if self.entity_id != packet.entity_id {
+            warn!("from {}, incoherent player entity: {}, expected: {}", self.username, packet.entity_id, self.entity_id);
+        }
+
+        // A player action is only relevant on human entities, ignore if the player is 
+        // bound to any other entity kind.
+        let Some(Entity(_, BaseKind::Living(_, LivingKind::Human(human)))) = world.get_entity_mut(self.entity_id) else {
+            return;
+        };
+
+        match packet.state {
+            1 | 2 => {
+                human.sneaking = packet.state == 1;
+                world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Metadata });
+            }
+            3 => todo!("wake up..."),
+            _ => warn!("from {}, invalid action state: {}", self.username, packet.state)
         }
 
     }

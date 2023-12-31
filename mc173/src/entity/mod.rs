@@ -367,6 +367,8 @@ pub struct Human {
     pub username: String,
     /// True when the player is sleeping.
     pub sleeping: bool,
+    /// True when the player is sneaking.
+    pub sneaking: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -582,6 +584,14 @@ impl Entity {
         // Finally update the bounding box.
         common::update_bounding_box_from_pos(base);
 
+    }
+
+    /// Teleport the entity to a specific position, this function keep the bounding box
+    /// synchronized with the position.
+    pub fn teleport(&mut self, pos: DVec3) {
+        let Entity(base, _) = self;
+        base.pos = pos;
+        common::update_bounding_box_from_pos(base);
     }
 
     /// Return true if the entity can naturally spawn at its current position (with

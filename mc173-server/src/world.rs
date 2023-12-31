@@ -202,9 +202,7 @@ impl ServerWorld {
                         self.handle_entity_damage(id),
                     EntityEvent::Dead => 
                         self.handle_entity_dead(id),
-                    EntityEvent::Creeper { .. } =>
-                        self.handle_entity_metadata(id),
-                    EntityEvent::Ghast { .. } =>
+                    EntityEvent::Metadata =>
                         self.handle_entity_metadata(id),
                 }
                 Event::BlockEntity { pos, inner } => match inner {

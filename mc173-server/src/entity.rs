@@ -326,7 +326,7 @@ impl EntityTracker {
             }
             BaseKind::Living(_, living_kind) => {
                 match living_kind {
-                    LivingKind::Human(pl) => self.spawn_entity_human(player, pl),
+                    LivingKind::Human(pl) => self.spawn_entity_human(player, pl, metadata),
                     LivingKind::Ghast(_) => self.spawn_entity_mob(player, 56, metadata),
                     LivingKind::Slime(_) => self.spawn_entity_mob(player, 55, metadata),
                     LivingKind::Pig(_) => self.spawn_entity_mob(player, 90, metadata),
@@ -347,10 +347,11 @@ impl EntityTracker {
 
     }
 
-    fn spawn_entity_human(&self, player: &ServerPlayer, pl: &e::Human) {
+    fn spawn_entity_human(&self, player: &ServerPlayer, human: &e::Human, metadata: Vec<proto::Metadata>) {
+        
         player.send(OutPacket::HumanSpawn(proto::HumanSpawnPacket {
             entity_id: self.id,
-            username: pl.username.clone(),
+            username: human.username.clone(),
             x: self.sent_pos.0, 
             y: self.sent_pos.1, 
             z: self.sent_pos.2, 
@@ -358,6 +359,12 @@ impl EntityTracker {
             pitch: self.sent_look.1,
             current_item: 0, // TODO:
         }));
+
+        player.send(OutPacket::EntityMetadata(proto::EntityMetadataPacket { 
+            entity_id: self.id,
+            metadata,
+        }));
+
     }
 
     fn spawn_entity_item(&self, player: &ServerPlayer, base: &e::Base, item: &e::Item) {
@@ -425,6 +432,9 @@ impl EntityTracker {
         match base_kind {
             BaseKind::Living(living, living_kind) => {
                 match living_kind {
+                    LivingKind::Human(human) => vec![
+                        proto::Metadata::new_byte(0, (human.sneaking as i8) << 1),
+                    ],
                     LivingKind::Ghast(_) => vec![
                         proto::Metadata::new_byte(16, (living.attack_time > 50) as _),
                     ],
