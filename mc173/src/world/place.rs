@@ -16,6 +16,7 @@ impl World {
     /// This function checks if the given block id can be placed at a particular position in
     /// the world, the given face indicates toward which face this block should be oriented.
     pub fn can_place_block(&mut self, pos: IVec3, face: Face, id: u8) -> bool {
+        
         let base = match id {
             block::BUTTON if face.is_y() => false,
             block::BUTTON => self.is_block_opaque_cube(pos + face.delta()),
@@ -60,7 +61,9 @@ impl World {
             block::SNOW => self.is_block_opaque_cube(pos - IVec3::Y),
             _ => true,
         };
+
         base && self.is_block_replaceable(pos)
+
     }
 
     fn can_place_cactus(&mut self, pos: IVec3) -> bool {

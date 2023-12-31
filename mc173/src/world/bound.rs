@@ -25,7 +25,7 @@ impl World {
     /// block's position as needed. Not to confuse with overlay boxes, which are just used
     /// to client side placement rendering, and used server-side to compute ray tracing 
     /// when using items such as bucket.
-    pub fn iter_colliding_box(&self, pos: IVec3, id: u8, metadata: u8) -> CollidingBoxIter {
+    pub fn iter_block_colliding_boxes(&self, pos: IVec3, id: u8, metadata: u8) -> BlockCollidingBoxesIter {
         
         // Moving piston is a special case because we inherit the block collisions.
         if id == block::PISTON_MOVING {
@@ -37,7 +37,7 @@ impl World {
                     piston.progress
                 };
 
-                return CollidingBoxIter { 
+                return BlockCollidingBoxesIter { 
                     offset: pos.as_dvec3() - piston.face.delta().as_dvec3() * progress as f64, 
                     id, 
                     metadata, 
@@ -47,7 +47,7 @@ impl World {
             }
         }
 
-        CollidingBoxIter { 
+        BlockCollidingBoxesIter { 
             offset: pos.as_dvec3(), 
             id, 
             metadata, 
@@ -56,10 +56,23 @@ impl World {
 
     }
 
+    /// Get the colliding box for a block, this returns a single bounding box that is an
+    /// union between all boxes returned by [`iter_block_colliding_boxes`] iterator.
+    pub fn get_block_colliding_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox> {
+        let mut iter = self.iter_block_colliding_boxes(pos, id, metadata);
+        let mut bb = iter.next()?;
+        while let Some(other) = iter.next() {
+            bb |= other;
+        }
+        Some(bb)
+    }
+
     /// Get the overlay box of the block, this overlay is what should be shown client-side
     /// around the block and where the player can click. Unlike colliding boxes, there is
     /// only one overlay box per block.
-    pub fn get_overlay_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox> {
+    /// 
+    /// **Note that** liquid blocks returns no box.
+    pub fn get_block_overlay_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox> {
 
         let bb = match id {
             block::BED => BoundingBox::new(0.0, 0.0, 0.0, 1.0, 9.0 / 16.0, 1.0),
@@ -114,11 +127,23 @@ impl World {
                     Face::NegY.extrude(0.0, PIXEL_3)
                 }
             }
+            block::WHEAT => Face::NegY.extrude(0.0, 0.25),
+            block::DANDELION |
+            block::POPPY => Face::NegY.extrude(0.3, 0.6),
+            block::RED_MUSHROOM |
+            block::BROWN_MUSHROOM => Face::NegY.extrude(0.3, 0.4),
+            block::DEAD_BUSH |
+            block::SAPLING |
+            block::TALL_GRASS => Face::NegY.extrude(0.1, 0.8),
+            block::WATER_MOVING |
+            block::WATER_STILL |
+            block::LAVA_MOVING |
+            block::LAVA_STILL |
             block::AIR => return None,
             _ => BoundingBox::CUBE,
         };
 
-        Some(bb.offset(pos.as_dvec3()))
+        Some(bb + pos.as_dvec3())
 
     }
 
@@ -135,7 +160,7 @@ impl World {
     /// *Min is inclusive and max is exclusive.*
     pub fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_ {
         self.iter_blocks_in(min, max).flat_map(|(pos, id, metadata)| {
-            self.iter_colliding_box(pos, id, metadata)
+            self.iter_block_colliding_boxes(pos, id, metadata)
         })
     }
 
@@ -150,9 +175,10 @@ impl World {
 
     /// Ray trace from an origin point and return the first colliding blocks, either 
     /// entity or block. The fluid argument is used to hit the fluid **source** blocks or
-    /// not.
+    /// not. The overlay argument is used to select the block overlay box instead of the
+    /// block bound box.
     #[instrument(level = "debug", skip_all)]
-    pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, fluid: bool) -> Option<RayTraceHit> {
+    pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, kind: RayTraceKind) -> Option<RayTraceHit> {
         
         let ray_norm = ray.normalize();
 
@@ -163,22 +189,26 @@ impl World {
         // Break when an invalid chunk is encountered.
         while let Some((block, metadata)) = self.get_block(block_pos) {
 
-            let mut should_check = true;
-            if fluid && matches!(block, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) {
-                should_check = block::fluid::is_source(metadata);
-            }
+            let bb = match kind {
+                RayTraceKind::Colliding => 
+                    self.get_block_colliding_box(block_pos, block, metadata),
+                RayTraceKind::OverlayWithFluid 
+                if matches!(block, block::WATER_MOVING | block::WATER_STILL | block::LAVA_MOVING | block::LAVA_STILL) => 
+                    block::fluid::is_source(metadata)
+                        .then_some(BoundingBox::CUBE + block_pos.as_dvec3()),
+                RayTraceKind::Overlay | RayTraceKind::OverlayWithFluid => 
+                    self.get_block_overlay_box(block_pos, block, metadata),
+            };
 
-            if should_check {
-                if let Some(bb) = self.get_overlay_box(block_pos, block, metadata) {
-                    if let Some((new_ray, face)) = bb.calc_ray_trace(origin, ray) {
-                        return Some(RayTraceHit {
-                            ray: new_ray,
-                            pos: block_pos,
-                            block,
-                            metadata,
-                            face,
-                        });
-                    }
+            if let Some(bb) = bb {
+                if let Some((new_ray, face)) = bb.calc_ray_trace(origin, ray) {
+                    return Some(RayTraceHit {
+                        ray: new_ray,
+                        pos: block_pos,
+                        block,
+                        metadata,
+                        face,
+                    });
                 }
             }
 
@@ -238,7 +268,7 @@ impl World {
 
 /// Internal iterator implementation for bounding boxes of a block with metadata, we must
 /// use an iterator because some blocks have multiple bounding boxes.
-pub struct CollidingBoxIter {
+pub struct BlockCollidingBoxesIter {
     /// The offset to apply the the colliding box.
     offset: DVec3,
     /// The block id.
@@ -249,7 +279,7 @@ pub struct CollidingBoxIter {
     index: u8,
 }
 
-impl Iterator for CollidingBoxIter {
+impl Iterator for BlockCollidingBoxesIter {
 
     type Item = BoundingBox;
 
@@ -333,6 +363,16 @@ impl Iterator for CollidingBoxIter {
 
 }
 
+
+/// Describe the kind of ray tracing to make, this describe how blocks are collided.
+pub enum RayTraceKind {
+    /// The ray trace will be on block colliding boxes.
+    Colliding,
+    /// The ray trace will be on block overlay boxes.
+    Overlay,
+    /// The ray trace will be on block overlay boxes including fluid sources.
+    OverlayWithFluid,
+}
 
 /// Result of a ray trace that hit a block.
 #[derive(Debug, Clone)]

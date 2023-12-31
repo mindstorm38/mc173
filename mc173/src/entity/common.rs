@@ -9,6 +9,7 @@ use crate::block::material::Material;
 use crate::util::{Face, BoundingBox};
 use crate::world::World;
 use crate::block;
+use crate::world::bound::RayTraceKind;
 
 use super::{Entity, BaseKind, LivingKind, Base};
 
@@ -167,7 +168,7 @@ pub fn update_knock_back(base: &mut Base, dir: DVec3) {
 pub fn can_eye_track(world: &World, base: &Base, target_base: &Base) -> bool {
     let origin = calc_eye_pos(base);
     let ray = calc_eye_pos(target_base) - origin;
-    world.ray_trace_blocks(origin, ray, false).is_none()
+    world.ray_trace_blocks(origin, ray, RayTraceKind::Overlay).is_none()
 }
 
 /// Get the path weight function for the given living entity kind.

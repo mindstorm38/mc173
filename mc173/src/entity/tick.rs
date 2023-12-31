@@ -13,6 +13,7 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 use tracing::trace;
 
 use crate::entity::Chicken;
+use crate::world::bound::RayTraceKind;
 use crate::world::{World, Event, EntityEvent};
 use crate::util::Face;
 use crate::item::ItemStack;
@@ -295,7 +296,7 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
     } else {
 
         // Check if we hit a block, if so we update the projectile velocity.
-        let hit_block = world.ray_trace_blocks(base.pos, base.vel, false);
+        let hit_block = world.ray_trace_blocks(base.pos, base.vel, RayTraceKind::Colliding);
 
         // If we hit a block we constrain the velocity to avoid entering the block.
         if let Some(hit_block) = &hit_block {

@@ -11,6 +11,7 @@ use crate::util::Face;
 use crate::block;
 
 use super::World;
+use super::bound::RayTraceKind;
 
 
 impl World {
@@ -307,7 +308,13 @@ impl World {
         let ray = Vec3::new(yaw_dx * pitch_h, pitch_dy, yaw_dz * pitch_h).as_dvec3() * 5.0;
 
         // NOTE: We only hit fluid sources when we use an empty bucket.
-        let Some(hit) = self.ray_trace_blocks(origin, ray, fluid_id == block::AIR) else { 
+        let kind = if fluid_id == block::AIR {
+            RayTraceKind::OverlayWithFluid
+        } else {
+            RayTraceKind::Overlay
+        };
+
+        let Some(hit) = self.ray_trace_blocks(origin, ray, kind) else { 
             // We did not hit anything...
             return 
         };

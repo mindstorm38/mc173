@@ -8,6 +8,7 @@ use crate::util::{BoundingBox, JavaRandom};
 use crate::entity::{Entity, Hurt};
 use crate::block;
 use crate::world::Event;
+use crate::world::bound::RayTraceKind;
 
 use super::World;
 
@@ -110,7 +111,7 @@ impl World {
                     while ray_offset.y <= 1.0 {
                         ray_offset.z = 0.0;
                         while ray_offset.z <= 1.0 {
-                            ray_pass += self.ray_trace_blocks(center, ray + ray_offset, false).is_none() as usize;
+                            ray_pass += self.ray_trace_blocks(center, ray + ray_offset, RayTraceKind::Overlay).is_none() as usize;
                             ray_count += 1;
                             ray_offset.z += step.z;
                         }
