@@ -41,8 +41,8 @@ on them. The priority of each feature is defined by its order in the list.
     - [ ] Use/place behaviors
     - [x] Break behaviors
 - [ ] Entities
-    - [ ] Entity data structures (partial)
-    - [ ] Entity behaviors (partial)
+    - [x] Entity data structures
+    - [ ] Entity behaviors (80%)
 - [ ] Server
     - [x] Protocol
     - [x] Network threading
@@ -66,4 +66,4 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Entity tracking
         - [x] Client-side spawn
 - [x] Lighting engine
-- [ ] World generation
+- [x] World generation
