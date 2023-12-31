@@ -62,6 +62,14 @@ impl World {
             _ => true,
         };
 
+        // If the block we are placing has an exclusion box and any hard entity is inside,
+        // we cancel the prevent the placing.
+        if let Some(bb) = self.get_block_exclusion_box(pos, id) {
+            if self.has_entity_colliding(bb, true) {
+                return false;
+            }
+        }
+
         base && self.is_block_replaceable(pos)
 
     }

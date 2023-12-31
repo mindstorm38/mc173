@@ -67,6 +67,55 @@ impl World {
         Some(bb)
     }
 
+    /// Get the exclusion box of a block, this function doesn't take the block metadata.
+    /// 
+    /// PARITY: The Notchian implementation is terrible because it uses the colliding box
+    /// for the exclusion box but with the metadata of the block currently at the 
+    /// position, so we fix this in this implementation by just returning a full block
+    /// for blocks that usually depends on metadata (such as doors, trapdoors).
+    pub fn get_block_exclusion_box(&self, pos: IVec3, id: u8) -> Option<BoundingBox> {
+
+        let bb = match id {
+            block::BED => Face::NegY.extrude(0.0, 9.0 / 16.0),
+            block::CAKE => Face::NegY.extrude(PIXEL, 0.5),
+            block::CACTUS => Face::NegY.extrude(PIXEL, 1.0),
+            block::SOULSAND => Face::NegY.extrude(0.0, 1.0 - PIXEL_2),
+            block::AIR |
+            block::LEVER |
+            block::BUTTON |
+            block::PORTAL |
+            block::WOOD_PRESSURE_PLATE |
+            block::STONE_PRESSURE_PLATE |
+            block::RAIL |
+            block::POWERED_RAIL |
+            block::DETECTOR_RAIL |
+            block::SIGN |
+            block::WALL_SIGN |
+            block::WHEAT |
+            block::DANDELION |
+            block::POPPY |
+            block::RED_MUSHROOM |
+            block::BROWN_MUSHROOM |
+            block::DEAD_BUSH |
+            block::SAPLING |
+            block::TALL_GRASS |
+            block::WATER_MOVING |
+            block::WATER_STILL |
+            block::LAVA_MOVING |
+            block::LAVA_STILL |
+            block::REDSTONE |
+            block::SUGAR_CANES |
+            block::TORCH |
+            block::REDSTONE_TORCH |
+            block::REDSTONE_TORCH_LIT |
+            block::COBWEB => return None,
+            _ => BoundingBox::CUBE
+        };
+
+        Some(bb + pos.as_dvec3())
+
+    }
+
     /// Get the overlay box of the block, this overlay is what should be shown client-side
     /// around the block and where the player can click. Unlike colliding boxes, there is
     /// only one overlay box per block.
@@ -75,8 +124,10 @@ impl World {
     pub fn get_block_overlay_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox> {
 
         let bb = match id {
-            block::BED => BoundingBox::new(0.0, 0.0, 0.0, 1.0, 9.0 / 16.0, 1.0),
+            block::BED => Face::NegY.extrude(0.0, 9.0 / 16.0),
             block::CAKE => BoundingBox::new((1 + metadata * 2) as f64 / 16.0, 0.0, PIXEL, 1.0 - PIXEL, 0.5, 1.0 - PIXEL),
+            block::CACTUS => Face::NegY.extrude(PIXEL, 1.0),
+            block::REDSTONE => Face::NegY.extrude(0.0, PIXEL),
             block::WOOD_DOOR | 
             block::IRON_DOOR => block::door::get_actual_face(metadata).extrude(0.0, PIXEL_3),
             block::LEVER => {
@@ -135,6 +186,7 @@ impl World {
             block::DEAD_BUSH |
             block::SAPLING |
             block::TALL_GRASS => Face::NegY.extrude(0.1, 0.8),
+            block::SUGAR_CANES => Face::NegY.extrude(PIXEL_2, 1.0),
             block::WATER_MOVING |
             block::WATER_STILL |
             block::LAVA_MOVING |
