@@ -1100,22 +1100,25 @@ impl World {
             // existing) to the removed entity index. We need to update its index in 
             // chunk or orphan entities.
             if let Some(swapped_comp) = self.entities.get(index_to_remove) {
+                // If the swapped entity is already removed, it is no longer in a chunk.
+                if !swapped_comp.inner.is_removed() {
+
+                    let entities = &mut self.chunks.get_mut(&(swapped_comp.cx, swapped_comp.cz))
+                        .expect("entity was not in a chunk")
+                        .entities;
                 
-                let entities = &mut self.chunks.get_mut(&(swapped_comp.cx, swapped_comp.cz))
-                    .expect("entity was not in a chunk")
-                    .entities;
-            
-                // The swapped entity was at the end, so the new length.
-                let previous_index = self.entities.len();
+                    // The swapped entity was at the end, so the new length.
+                    let previous_index = self.entities.len();
+
+                    // Update the mapping from entity unique id to the new index.
+                    let previous_map_index = self.entities_id_map.insert(swapped_comp.id, index_to_remove);
+                    debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
                 
-                // Update the mapping from entity unique id to the new index.
-                let previous_map_index = self.entities_id_map.insert(swapped_comp.id, index_to_remove);
-                debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
-            
-                let remove_success = entities.remove(&previous_index);
-                debug_assert!(remove_success, "entity index not found where it belongs");
-                entities.insert(index_to_remove);
-                
+                    let remove_success = entities.remove(&previous_index);
+                    debug_assert!(remove_success, "entity index not found where it belongs");
+                    entities.insert(index_to_remove);
+
+                }
             }
             
         }
@@ -1178,23 +1181,26 @@ impl World {
             // existing) to the removed entity index. We need to update its index in 
             // chunk or orphan entities.
             if let Some(swapped_comp) = self.block_entities.get(index_to_remove) {
+                // If the block entity is removed, it is no longer in a chunk.
+                if !swapped_comp.inner.is_removed() {
+
+                    let (cx, cz) = calc_chunk_pos_unchecked(swapped_comp.pos);
+                    let block_entities = &mut self.chunks.get_mut(&(cx, cz))
+                        .expect("block entity was not in a chunk")
+                        .entities;
                 
-                let (cx, cz) = calc_chunk_pos_unchecked(swapped_comp.pos);
-                let block_entities = &mut self.chunks.get_mut(&(cx, cz))
-                    .expect("block entity was not in a chunk")
-                    .entities;
-            
-                // The swapped entity was at the end, so the new length.
-                let previous_index = self.block_entities.len();
+                    // The swapped entity was at the end, so the new length.
+                    let previous_index = self.block_entities.len();
+                    
+                    // Update the mapping from entity unique id to the new index.
+                    let previous_map_index = self.block_entities_pos_map.insert(swapped_comp.pos, index_to_remove);
+                    debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous block entity index");
                 
-                // Update the mapping from entity unique id to the new index.
-                let previous_map_index = self.block_entities_pos_map.insert(swapped_comp.pos, index_to_remove);
-                debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous block entity index");
-            
-                let remove_success = block_entities.remove(&previous_index);
-                debug_assert!(remove_success, "entity index not found where it belongs");
-                block_entities.insert(index_to_remove);
-                
+                    let remove_success = block_entities.remove(&previous_index);
+                    debug_assert!(remove_success, "block entity index not found where it belongs");
+                    block_entities.insert(index_to_remove);
+
+                }
             }
             
         }
@@ -1669,6 +1675,11 @@ impl<T> ComponentStorage<T> {
     #[inline]
     fn replace(&mut self, value: Self) -> Self {
         mem::replace(self, value)
+    }
+
+    #[inline]
+    pub fn is_removed(&self) -> bool {
+        matches!(self, Self::Removed)
     }
 
 }
