@@ -42,11 +42,6 @@ pub trait ReadJavaExt: Read {
         Ok(self.read_java_byte()? != 0)
     }
 
-    fn read_java_char(&mut self) -> io::Result<char> {
-        // FIXME: Read real UTF-16 char.
-        Ok(ReadBytesExt::read_u16::<BE>(self)? as u8 as char)
-    }
-
     fn read_java_string16(&mut self, max_len: usize) -> io::Result<String> {
         
         let len = self.read_java_short()?;
@@ -58,10 +53,14 @@ pub trait ReadJavaExt: Read {
             return Err(new_invalid_data_err("exceeded max string length"));
         }
 
-        let mut ret = String::new();
+        let mut raw = Vec::with_capacity(len as usize);
         for _ in 0..len {
-            ret.push(self.read_java_char()?);
+            raw.push(ReadBytesExt::read_u16::<BE>(self)?);
         }
+
+        let ret = char::decode_utf16(raw)
+            .map(|res| res.unwrap_or(char::REPLACEMENT_CHARACTER))
+            .collect::<String>();
 
         Ok(ret)
 
@@ -117,16 +116,6 @@ pub trait WriteJavaExt: Write {
         self.write_java_byte(b as i8)
     }
 
-    fn write_java_char(&mut self, c: char) -> io::Result<()> {
-        // NOTE: Java chars are UTF-16.
-        let mut buf = [0u16; 2];
-        let buf = c.encode_utf16(&mut buf);
-        for code in buf {
-            WriteBytesExt::write_u16::<BE>(self, *code)?;
-        }
-        Ok(())
-    }
-
     fn write_java_string16(&mut self, s: &str) -> io::Result<()> {
         
         // Count the number of UTF-16 java character.
@@ -136,8 +125,8 @@ pub trait WriteJavaExt: Write {
         }
         
         self.write_java_short(len as i16)?;
-        for c in s.chars() {
-            self.write_java_char(c)?;
+        for code in s.encode_utf16() {
+            WriteBytesExt::write_u16::<BE>(self, code)?;
         }
 
         Ok(())
