@@ -271,6 +271,7 @@ impl World {
 
             // Binary search algorithm of the next adjacent block to check.
             let mut tmp_norm = ray_norm;
+            let mut tmp_norm_div_count = 0u8;
             let mut next_block_pos;
 
             'a: loop {
@@ -280,10 +281,17 @@ impl World {
 
                 // If we reached another block, tmp norm is divided by two in order to
                 // converge toward the nearest block.
-                // FIXME: Maybe put a limit in the norm value, to avoid searching 
-                // for infinitesimal collisions.
                 if next_block_pos != block_pos {
+                    
+                    // If the tmp norm has already been divided 7 times, the norm length
+                    // should be 0.015625 and we don't want to go lower.
+                    if tmp_norm_div_count >= 6 {
+                        break 'a;
+                    }
+
+                    tmp_norm_div_count += 1;
                     tmp_norm /= 2.0;
+
                 }
 
                 // The next pos is different, check if it is on a face, or 
