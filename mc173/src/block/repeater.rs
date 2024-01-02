@@ -1,6 +1,6 @@
 //! Redstone repeater metadata functions.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// Get the face where the repeater send power.

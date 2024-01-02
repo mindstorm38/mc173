@@ -8,7 +8,7 @@ use glam::{IVec3, DVec3};
 use tracing::instrument;
 
 use crate::block_entity::BlockEntity;
-use crate::util::{BoundingBox, Face};
+use crate::geom::{BoundingBox, Face};
 use crate::block;
 
 use super::World;

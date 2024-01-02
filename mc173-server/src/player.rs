@@ -18,7 +18,7 @@ use mc173::{block, chunk};
 use mc173::inventory::InventoryHandle;
 use mc173::craft::CraftTracker;
 use mc173::path::PathFinder;
-use mc173::util::Face;
+use mc173::geom::Face;
 
 use crate::proto::{self, Network, NetworkClient, OutPacket, InPacket};
 use crate::world::{ServerWorldState, TickMode};

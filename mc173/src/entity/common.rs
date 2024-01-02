@@ -6,7 +6,7 @@ use std::ops::Sub;
 use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use crate::block::material::Material;
-use crate::util::{Face, BoundingBox};
+use crate::geom::{Face, BoundingBox};
 use crate::world::World;
 use crate::block;
 use crate::world::bound::RayTraceKind;

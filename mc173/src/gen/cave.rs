@@ -2,9 +2,11 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::util::{JavaRandom, MinecraftMath};
+use crate::rand::JavaRandom;
 use crate::chunk::Chunk;
 use crate::block;
+
+use super::math::MinecraftMath;
 
 
 /// A cave generator.

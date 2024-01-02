@@ -12,11 +12,11 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use tracing::trace;
 
-use crate::entity::Chicken;
 use crate::world::bound::RayTraceKind;
 use crate::world::{World, Event, EntityEvent};
-use crate::util::Face;
+use crate::entity::Chicken;
 use crate::item::ItemStack;
+use crate::geom::Face;
 use crate::block;
 
 use super::{Entity,

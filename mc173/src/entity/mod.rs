@@ -4,8 +4,9 @@ use glam::{DVec3, Vec2, IVec3};
 
 use tracing::instrument;
 
-use crate::util::{BoundingBox, JavaRandom};
 use crate::util::default as def;
+use crate::geom::BoundingBox;
+use crate::rand::JavaRandom;
 use crate::item::ItemStack;
 use crate::world::World;
 use crate::block;

@@ -1,6 +1,6 @@
 //! Piston behaviors.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// Get the facing of the piston base or extension.

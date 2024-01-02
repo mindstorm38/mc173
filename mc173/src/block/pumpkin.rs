@@ -1,6 +1,6 @@
 //! Pumpkin block metadata functions.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// Get the face where the pumpkin is carved.

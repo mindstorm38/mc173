@@ -1,4 +1,4 @@
-//! Perlin and octaves noise generators.
+//! Perlin and octaves noise generators at parity with Minecraft world generation.
 //! 
 //! TODO: Ensure parity of wrapping arithmetic where relevant.
 
@@ -7,7 +7,7 @@ use std::fmt;
 
 use glam::{DVec3, DVec2, IVec3};
 
-use super::JavaRandom;
+use crate::rand::JavaRandom;
 
 
 /// A cube of given size for storing noise values.

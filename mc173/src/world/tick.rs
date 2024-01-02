@@ -9,7 +9,7 @@ use crate::block::material::Material;
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
 use crate::gen::tree::TreeGenerator;
-use crate::util::{Face, FaceSet};
+use crate::geom::{Face, FaceSet};
 use crate::{block, item};
 
 use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage, Weather};

@@ -1,5 +1,5 @@
-//! Math utilities specialized for Minecraft, such as sin/cos precomputed tables.
-
+//! Math utilities specialized for Minecraft, such as sin/cos precomputed tables, in order
+//! to get the best parity with Minecraft generation.
 
 #[allow(clippy::approx_constant)]
 const JAVA_PI: f64 = 3.141592653589793;

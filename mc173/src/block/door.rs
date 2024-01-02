@@ -1,6 +1,6 @@
 //! Door block specific logic.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// Get the face of this door.

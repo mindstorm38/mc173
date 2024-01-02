@@ -13,7 +13,7 @@ use crate::block_entity::sign::SignBlockEntity;
 use crate::block_entity::BlockEntity;
 use crate::entity::EntityKind;
 use crate::item::ItemStack;
-use crate::util::Face;
+use crate::geom::Face;
 
 use crate::serde::nbt::{NbtParseError, NbtCompound, NbtCompoundParse};
 

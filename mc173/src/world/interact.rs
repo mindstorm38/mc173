@@ -2,9 +2,9 @@
 
 use glam::IVec3;
 
-use crate::block;
 use crate::block_entity::BlockEntity;
-use crate::util::Face;
+use crate::geom::Face;
+use crate::block;
 
 use super::World;
 

@@ -1,6 +1,6 @@
 //! Common metadata functions.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// Get facing of the dispenser.

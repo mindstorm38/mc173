@@ -22,13 +22,14 @@
 
 use glam::{DVec2, IVec3, Vec3Swizzles, DVec3};
 
-use crate::util::{JavaRandom, PerlinOctaveNoise, NoiseCube};
 use crate::chunk::{Chunk, CHUNK_WIDTH, CHUNK_HEIGHT};
 use crate::block::material::Material;
+use crate::rand::JavaRandom;
 use crate::biome::Biome;
 use crate::world::World;
 use crate::block;
 
+use super::noise::{PerlinOctaveNoise, NoiseCube};
 use super::{ChunkGenerator, FeatureGenerator};
 use super::plant::{PlantGenerator, SugarCanesGenerator, PumpkinGenerator, CactusGenerator};
 use super::liquid::{LakeGenerator, LiquidGenerator};

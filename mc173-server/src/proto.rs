@@ -8,7 +8,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
-use mc173::util::{ReadJavaExt, WriteJavaExt};
+use mc173::io::{ReadJavaExt, WriteJavaExt};
 use mc173::item::ItemStack;
 
 use crate::net;

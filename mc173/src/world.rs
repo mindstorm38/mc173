@@ -23,7 +23,8 @@ use crate::chunk::{Chunk,
     calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos,
     CHUNK_HEIGHT, CHUNK_WIDTH};
 
-use crate::util::{JavaRandom, BoundingBox, Face};
+use crate::geom::{BoundingBox, Face};
+use crate::rand::JavaRandom;
 use crate::item::ItemStack;
 use crate::block;
 

@@ -4,11 +4,13 @@ use glam::{DVec3, IVec3};
 
 use tracing::trace;
 
-use crate::util::{BoundingBox, JavaRandom};
-use crate::entity::{Entity, Hurt};
-use crate::block;
-use crate::world::Event;
+use crate::geom::BoundingBox;
+use crate::rand::JavaRandom;
+
 use crate::world::bound::RayTraceKind;
+use crate::entity::{Entity, Hurt};
+use crate::world::Event;
+use crate::block;
 
 use super::World;
 

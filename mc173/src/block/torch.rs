@@ -1,6 +1,6 @@
 //! Torch (including redstone torch) metadata functions.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// Get the face this torch is attached to.

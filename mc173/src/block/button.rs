@@ -1,6 +1,6 @@
 //! Button special functions for metadata.
 
-use crate::util::Face;
+use crate::geom::Face;
 
 
 /// The the face the button is connected to. In b1.7.3, buttons can only attach to X/Z 

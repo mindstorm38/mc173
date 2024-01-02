@@ -1,6 +1,6 @@
 //! Dispenser block entity.
 
-use crate::util::JavaRandom;
+use crate::rand::JavaRandom;
 use crate::item::ItemStack;
 
 

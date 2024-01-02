@@ -13,8 +13,7 @@ use flate2::read::{GzDecoder, ZlibDecoder};
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 
-
-use crate::util::{ReadJavaExt, WriteJavaExt};
+use crate::io::{ReadJavaExt, WriteJavaExt};
 
 
 /// Internal function to calculate the index of a chunk metadata depending on its 

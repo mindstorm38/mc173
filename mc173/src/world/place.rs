@@ -5,7 +5,7 @@ use glam::IVec3;
 use crate::block_entity::BlockEntity;
 use crate::block::material::Material;
 use crate::util::default as def;
-use crate::util::Face;
+use crate::geom::Face;
 use crate::block;
 
 use super::World;

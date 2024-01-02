@@ -5,10 +5,11 @@ use glam::IVec3;
 use crate::block_entity::spawner::SpawnerBlockEntity;
 use crate::block_entity::chest::ChestBlockEntity;
 use crate::block_entity::BlockEntity;
-use crate::util::{JavaRandom, Face};
 use crate::item::{ItemStack, self};
 use crate::entity::EntityKind;
+use crate::rand::JavaRandom;
 use crate::world::World;
+use crate::geom::Face;
 use crate::block;
 
 use super::FeatureGenerator;

@@ -7,7 +7,7 @@ use crate::gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
 use crate::entity::{Arrow, Entity, Snowball, Tnt};
 use crate::item::{ItemStack, self};
-use crate::util::Face;
+use crate::geom::Face;
 use crate::block;
 
 use super::World;

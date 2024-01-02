@@ -5,7 +5,7 @@ use std::collections::hash_map::Entry;
 
 use glam::IVec3;
 
-use crate::util::{Face, FaceSet};
+use crate::geom::{Face, FaceSet};
 use crate::block;
 
 use super::{World, Event, BlockEvent};

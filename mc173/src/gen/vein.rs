@@ -2,10 +2,11 @@
 
 use glam::{IVec3, DVec3};
 
-use crate::util::{JavaRandom, MinecraftMath};
+use crate::rand::JavaRandom;
 use crate::world::World;
 use crate::block;
 
+use super::math::MinecraftMath;
 use super::FeatureGenerator;
 
 

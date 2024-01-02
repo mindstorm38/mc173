@@ -2,8 +2,8 @@
 
 use glam::IVec3;
 
-use crate::util::Face;
 use crate::world::World;
+use crate::geom::Face;
 
 
 #[derive(Debug, Clone)]

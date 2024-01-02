@@ -1,6 +1,6 @@
 //! World generation module.
 //! 
-//! PARITY: The parity of world generation is really hard to fully to get exact, mostly
+//! PARITY: The parity of world generation is really hard to get fully exact, mostly
 //! because Minecraft itself is not at parity with itself! The world generation scheduling
 //! has a huge impact on chunk populating, so this implementation is on parity but it may
 //! not give exact same world on each generation, just like Minecraft. Terrain however,
@@ -8,10 +8,13 @@
 
 use glam::IVec3;
 
-use crate::util::JavaRandom;
+use crate::rand::JavaRandom;
 use crate::chunk::Chunk;
 use crate::world::World;
 
+// World gen-specific mathematic functions.
+pub mod math;
+pub mod noise;
 
 // Feature generators.
 pub mod dungeon;
@@ -21,8 +24,7 @@ pub mod liquid;
 pub mod tree;
 
 // Chunks carvers.
-mod cave;
-pub use cave::CaveGenerator;
+pub mod cave;
 
 // World generators.
 mod overworld;
