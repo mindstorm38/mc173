@@ -620,6 +620,9 @@ impl World {
         // The entity that has been swapped has a new index, so we need to update its
         // index into the chunk cache...
         if let Some(swapped_comp) = self.entities.get(index) {
+
+            let prev_index = self.entities_id_map.insert(swapped_comp.id, index);
+            debug_assert_eq!(prev_index, Some(swapped_index), "swapped entity is incoherent");
             
             let entities = &mut self.chunks.get_mut(&(swapped_comp.cx, swapped_comp.cz))
                 .expect("swapped entity chunk is missing")
@@ -730,13 +733,16 @@ impl World {
         // reference to this block entity.
         if let Some(swapped_comp) = self.block_entities.get(index) {
 
+            let prev_index = self.block_entities_pos_map.insert(swapped_comp.pos, index);
+            debug_assert_eq!(prev_index, Some(swapped_index), "swapped block entity is incoherent");
+
             let (swapped_cx, swapped_cz) = calc_chunk_pos_unchecked(swapped_comp.pos);
             let block_entities = &mut self.chunks.get_mut(&(swapped_cx, swapped_cz))
                 .expect("swapped block entity chunk is missing")
                 .block_entities;
 
             let removed_index = block_entities.insert(swapped_comp.pos, index);
-            debug_assert_eq!(removed_index, Some(swapped_index), "swapped block entity incoherent in its chunk");
+            debug_assert_eq!(removed_index, Some(swapped_index), "swapped block entity is incoherent in its chunk");
 
         }
 
@@ -1575,6 +1581,315 @@ enum LightUpdateKind {
     Sky,
 }
 
+/// A tick vector is an internal structure used for both entities and block entities,
+/// it acts as a dynamically linked list where where the iteration order is defined before
+/// ticking and where insertion and removal of elements doesn't not affect the ordering.
+/// 
+/// We use this complex data structure because we want to avoid most of the overhead when
+/// ticking entities and block entities, so we want to avoid moving entities (even the
+/// pointers) from/to stack too much. We also want to keep cache efficiency, this is why
+/// we recompute the linked list upon modifications in order to have a ascending pointer
+/// iteration by default, that may be invalidated if any value is removed.
+#[derive(Clone)]
+struct TickVec<T> {
+    /// The inner vector containing all cells with inserted values.
+    inner: Vec<TickCell<T>>,
+    /// This boolean indicate if the any value has been insert or removed from the vector.
+    /// This avoids recomputing the tick linked list on every tick reset.
+    modified: bool,
+    /// The index of the cell currently ticked.
+    index: usize,
+    /// Set to true if the cell currently ticked has been invalidated.
+    invalidated: bool,
+}
+
+/// A cell in the tick vector, its contains previous and next index of the cell to tick.
+#[derive(Clone)]
+struct TickCell<T> {
+    /// The actual value stored.
+    value: T,
+    /// The index of the next value to tick.
+    /// Set to the cell index itself it there is no previous cell to tick.
+    next: usize,
+    /// The index of the previous value to tick.
+    /// Set to the cell index itself it there is no previous cell to tick.
+    prev: usize,
+}
+
+/// A borrowed version of the tick vector, this is better than referencing the vector
+/// because it avoid one level of indirection.
+#[repr(transparent)]
+struct TickSlice<T>([TickCell<T>]);
+
+impl<T> TickVec<T> {
+
+    /// Construct a new empty tick vector, this doesn't not allocate.
+    #[inline]
+    const fn new() -> Self {
+        Self {
+            inner: Vec::new(),
+            modified: false,
+            index: usize::MAX,
+            invalidated: false,
+        }
+    }
+
+    /// Push a new element at the end of this vector, the value index is also returned.
+    #[inline]
+    fn push(&mut self, value: T) -> usize {
+        let index = self.inner.len();
+        self.inner.push(TickCell {
+            value,
+            next: index,
+            prev: index,
+        });
+        self.modified = true;
+        index
+    }
+
+    /// Invalid the value at the given index, therefore removing it from any tick linked
+    /// list. If it is currently being updated
+    fn invalidate(&mut self, index: usize) {
+
+        let TickCell { next, prev, .. } = self.inner[index];
+
+        // Start by updating the link of the previous/next cells for this removed cell.
+        if prev != index {
+            // This condition is to keep the end-of-chain property.
+            if next == index {
+                self.inner[prev].next = prev;
+            } else {
+                self.inner[prev].next = next;
+            }
+        }
+
+        if next != index {
+            if prev == index {
+                self.inner[next].prev = next;
+            } else {
+                self.inner[next].prev = prev;
+            }
+        }
+
+        // The last thing to keep in-sync is the tick index, if it was referencing the
+        // removed value or the swapped one.
+        if self.index == index {
+            // The usize::MAX value is a sentinel because we known that no value will
+            // ever reach this value.
+            self.invalidated = true;
+            if next == index {
+                self.index = usize::MAX;
+            } else {
+                self.index = next;
+            }
+        }
+
+    }
+
+    /// Remove an element in this vector at the given index, the element is swapped with
+    /// the last element of the vector.
+    fn remove(&mut self, index: usize) -> T {
+        
+        // The first step is not to remove the cell, but remove it from its linked list.
+        // This simplifies at lot the swapped cell update because we know that the removed
+        // cell cannot be in any linked list, and so not in the swapped cell linked list.
+        self.invalidate(index);
+
+        // Once it is no longer in a linked list, swap remove it.
+        let cell = self.inner.swap_remove(index);
+
+        // This is the previous index of the cell that was swapped in place, if any.
+        let swapped_index = self.inner.len();
+
+        // If a cell has been swapped in place of the removed index, we need to update
+        // the cell referencing it as its next ticking cell.
+        if let Some(swapped_cell) = self.inner.get_mut(index) {
+
+            // If the swapped cell was referencing itself, update to its new index.
+            if swapped_cell.next == swapped_index {
+                swapped_cell.next = index;
+            }
+
+            // If the swapped cell was referencing itself, update to its new index.
+            // If not we should update the previous cell to reference its new index.
+            if swapped_cell.prev == swapped_index {
+                swapped_cell.prev = index;
+            } else {
+                let swapped_prev = swapped_cell.prev;
+                self.inner[swapped_prev].next = index;
+            }
+            
+        }
+
+        if self.index == swapped_index {
+            // Just update to the next index of the swapped value.
+            self.index = index;
+        }
+        
+        self.modified = true;
+        
+        cell.value
+
+    }
+
+    /// Reset the current tick index.
+    fn reset(&mut self) {
+        
+        if self.inner.is_empty() {
+            self.index = usize::MAX;
+            return;
+        }
+
+        self.index = 0;
+
+        // Update the tick linked list...
+        if mem::take(&mut self.modified) {
+
+            let len = self.inner.len();
+            for i in 1..len {
+                self.inner[i - 1].next = i;
+                self.inner[i].prev = i - 1;
+            }
+            
+            if let Some(cell) = self.inner.first_mut() {
+                cell.prev = 0;
+            }
+
+            if let Some(cell) = self.inner.last_mut() {
+                cell.next = len - 1;
+            }
+
+        }
+
+    }
+
+    /// Go to the next entity to tick.
+    fn advance(&mut self) {
+        // Do nothing if the current value was removed, because we already advanced the 
+        // index before removing it.
+        if self.invalidated {
+            self.invalidated = false;
+        } else {
+            if let Some(cell) = self.inner.get(self.index) {
+                // If the cell was the last one, we set the tick index to usize::MAX which is
+                // like a sentinel because no value will ever reach this index.
+                if cell.next == self.index {
+                    self.index = usize::MAX;
+                } else {
+                    self.index = cell.next;
+                }
+            }
+        }
+    }
+
+    /// Get the current value being ticked.
+    #[inline]
+    #[allow(unused)]
+    fn current(&self) -> Option<(usize, &T)> {
+        if self.invalidated { return None }
+        self.inner.get(self.index).map(|cell| (self.index, &cell.value))
+    }
+
+    /// Get the current value being ticked through as mutable reference.
+    #[inline]
+    fn current_mut(&mut self) -> Option<(usize, &mut T)> {
+        if self.invalidated { return None }
+        self.inner.get_mut(self.index).map(|cell| (self.index, &mut cell.value))
+    }
+
+}
+
+impl<T> TickSlice<T> {
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    #[allow(unused)]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[inline]
+    fn get(&self, index: usize) -> Option<&T> {
+        self.0.get(index).map(|cell| &cell.value)
+    }
+
+    #[inline]
+    fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.0.get_mut(index).map(|cell| &mut cell.value)
+    }
+
+    #[inline]
+    fn iter(&self) -> TickIter<'_, T> {
+        TickIter { inner: self.0.iter() }
+    }
+
+    #[inline]
+    fn iter_mut(&mut self) -> TickIterMut<'_, T> {
+        TickIterMut { inner: self.0.iter_mut() }
+    }
+
+}
+
+impl<T> Deref for TickVec<T> {
+
+    type Target = TickSlice<T>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: TickSlice<T> structure has the same layout as [TickCell<T>] because it
+        // has transparent representation, so we can just cast the pointers.
+        let slice = &self.inner[..];
+        unsafe { &*(slice as *const [TickCell<T>] as *const TickSlice<T>) }
+    }
+
+}
+
+impl<T> DerefMut for TickVec<T> {
+
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Same as above.
+        let slice = &mut self.inner[..];
+        unsafe { &mut *(slice as *mut [TickCell<T>] as *mut TickSlice<T>) }
+    }
+    
+}
+
+struct TickIter<'a, T> {
+    inner: slice::Iter<'a, TickCell<T>>
+}
+
+impl<T> FusedIterator for TickIter<'_, T> {}
+impl<'a, T> Iterator for TickIter<'a, T> {
+
+    type Item = &'a T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|cell| &cell.value)
+    }
+
+}
+
+struct TickIterMut<'a, T> {
+    inner: slice::IterMut<'a, TickCell<T>>
+}
+
+impl<T> FusedIterator for TickIterMut<'_, T> {}
+impl<'a, T> Iterator for TickIterMut<'a, T> {
+
+    type Item = &'a mut T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|cell| &mut cell.value)
+    }
+
+}
 
 /// An iterator for blocks in a world area. 
 /// This yields the block position, id and metadata.
@@ -2052,303 +2367,6 @@ impl Iterator for ChunkRange {
 }
 
 
-/// An update vector is an internal structure used for both entities and block entities,
-/// it acts as a dynamically linked list where where the iteration order is defined before
-/// ticking and where insertion and removal of elements doesn't not affect the ordering.
-/// 
-/// We use this complex structure because we want to avoid most of the overhead when
-/// ticking entities and block entities, so we want to avoid moving entities (even their
-/// pointers) from/to stack to much. We also want to keep cache efficiency, this is why
-/// we recompute the linked list upon modifications, and the linked list is linear.
-#[derive(Clone)]
-struct TickVec<T> {
-    /// The inner vector containing all cells with inserted values.
-    inner: Vec<TickCell<T>>,
-    /// This boolean indicate if the any value has been insert or removed from the vector.
-    /// This avoids recomputing the tick linked list on every tick reset.
-    modified: bool,
-    /// The index of the cell currently ticked.
-    index: usize,
-    /// Set to true if the cell currently ticked has been invalidated.
-    invalidated: bool,
-}
-
-/// A cell in the tick vector, its contains previous and next index of the cell to tick.
-#[derive(Clone)]
-struct TickCell<T> {
-    /// The actual value stored.
-    value: T,
-    /// The index of the next value to tick.
-    /// Set to the cell index itself it there is no previous cell to tick.
-    next: usize,
-    /// The index of the previous value to tick.
-    /// Set to the cell index itself it there is no previous cell to tick.
-    prev: usize,
-}
-
-/// A borrowed version of the tick vector, this is better than referencing the vector
-/// because it avoid one level of indirection.
-#[repr(transparent)]
-struct TickSlice<T>([TickCell<T>]);
-
-impl<T> TickVec<T> {
-
-    /// Construct a new empty tick vector, this doesn't not allocate.
-    #[inline]
-    const fn new() -> Self {
-        Self {
-            inner: Vec::new(),
-            modified: false,
-            index: 0,
-            invalidated: false,
-        }
-    }
-
-    /// Push a new element at the end of this vector, the value index is also returned.
-    #[inline]
-    fn push(&mut self, value: T) -> usize {
-        let index = self.inner.len();
-        self.inner.push(TickCell {
-            value,
-            next: index,
-            prev: index,
-        });
-        self.modified = true;
-        index
-    }
-
-    /// Invalid the value at the given index, therefore removing it from any tick linked
-    /// list. If it is currently being updated
-    fn invalidate(&mut self, index: usize) {
-
-        let TickCell { next, prev, .. } = self.inner[index];
-
-        // Start by updating the link of the previous/next cells for this removed cell.
-        if prev != index {
-            // This condition is to keep the end-of-chain property.
-            if next == index {
-                self.inner[prev].next = prev;
-            } else {
-                self.inner[prev].next = next;
-            }
-        }
-
-        if next != index {
-            if prev == index {
-                self.inner[next].prev = next;
-            } else {
-                self.inner[next].prev = prev;
-            }
-        }
-
-        // The last thing to keep in-sync is the tick index, if it was referencing the
-        // removed value or the swapped one.
-        if self.index == index {
-            // The usize::MAX value is a sentinel because we known that no value will
-            // ever reach this value.
-            self.invalidated = true;
-            if next == index {
-                self.index = usize::MAX;
-            } else {
-                self.index = next;
-            }
-        }
-
-    }
-
-    /// Remove an element in this vector at the given index, the element is swapped with
-    /// the last element of the vector.
-    fn remove(&mut self, index: usize) -> T {
-        
-        // The first step is not to remove the cell, but remove it from its linked list.
-        // This simplifies at lot the swapped cell update because we know that the removed
-        // cell cannot be in any linked list, and so not in the swapped cell linked list.
-        self.invalidate(index);
-
-        // Once it is no longer in a linked list, swap remove it.
-        let cell = self.inner.swap_remove(index);
-
-        // This is the previous index of the cell that was swapped in place, if any.
-        let swapped_index = self.inner.len();
-
-        // If a cell has been swapped in place of the removed index, we need to update
-        // the cell referencing it as its next ticking cell.
-        if let Some(swapped_cell) = self.inner.get_mut(index) {
-
-            // If the swapped cell was referencing itself, update to its new index.
-            if swapped_cell.next == swapped_index {
-                swapped_cell.next = index;
-            }
-
-            // If the swapped cell was referencing itself, update to its new index.
-            // If not we should update the previous cell to reference its new index.
-            if swapped_cell.prev == swapped_index {
-                swapped_cell.prev = index;
-            } else {
-                let swapped_prev = swapped_cell.prev;
-                self.inner[swapped_prev].next = index;
-            }
-            
-        }
-
-        if self.index == swapped_index {
-            // Just update to the next index of the swapped value.
-            self.index = index;
-        }
-        
-        self.modified = true;
-        
-        cell.value
-
-    }
-
-    /// Reset the current tick index.
-    fn reset(&mut self) {
-        
-        self.index = 0;
-
-        // Update the tick linked list...
-        if mem::take(&mut self.modified) {
-
-            let len = self.inner.len();
-            for i in 1..len {
-                self.inner[i - 1].next = i;
-                self.inner[i].prev = i - 1;
-            }
-            
-            if let Some(cell) = self.inner.first_mut() {
-                cell.prev = 0;
-            }
-
-            if let Some(cell) = self.inner.last_mut() {
-                cell.next = len - 1;
-            }
-
-        }
-
-    }
-
-    /// Go to the next entity to tick.
-    fn advance(&mut self) {
-        // Do nothing if the current value was removed, because we already advanced the 
-        // index before removing it.
-        if self.invalidated {
-            self.invalidated = false;
-        } else {
-            if let Some(cell) = self.inner.get(self.index) {
-                // If the cell was the last one, we set the tick index to usize::MAX which is
-                // like a sentinel because no value will ever reach this index.
-                if cell.next == self.index {
-                    self.index = usize::MAX;
-                } else {
-                    self.index = cell.next;
-                }
-            }
-        }
-    }
-
-    /// Get the current value being ticked.
-    #[inline]
-    fn current(&self) -> Option<(usize, &T)> {
-        if self.invalidated { return None }
-        self.inner.get(self.index).map(|cell| (self.index, &cell.value))
-    }
-
-    /// Get the current value being ticked through as mutable reference.
-    #[inline]
-    fn current_mut(&mut self) -> Option<(usize, &mut T)> {
-        if self.invalidated { return None }
-        self.inner.get_mut(self.index).map(|cell| (self.index, &mut cell.value))
-    }
-
-}
-
-impl<T> TickSlice<T> {
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[inline]
-    fn get(&self, index: usize) -> Option<&T> {
-        self.0.get(index).map(|cell| &cell.value)
-    }
-
-    #[inline]
-    fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.0.get_mut(index).map(|cell| &mut cell.value)
-    }
-
-    #[inline]
-    fn iter(&self) -> TickIter<'_, T> {
-        TickIter { inner: self.0.iter() }
-    }
-
-    #[inline]
-    fn iter_mut(&mut self) -> TickIterMut<'_, T> {
-        TickIterMut { inner: self.0.iter_mut() }
-    }
-
-}
-
-impl<T> Deref for TickVec<T> {
-
-    type Target = TickSlice<T>;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        // SAFETY: TickSlice<T> structure has the same layout as [TickCell<T>] because it
-        // has transparent representation, so we can just cast the pointers.
-        let slice = &self.inner[..];
-        unsafe { &*(slice as *const [TickCell<T>] as *const TickSlice<T>) }
-    }
-
-}
-
-impl<T> DerefMut for TickVec<T> {
-
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: Same as above.
-        let slice = &mut self.inner[..];
-        unsafe { &mut *(slice as *mut [TickCell<T>] as *mut TickSlice<T>) }
-    }
-    
-}
-
-struct TickIter<'a, T> {
-    inner: slice::Iter<'a, TickCell<T>>
-}
-
-impl<'a, T> Iterator for TickIter<'a, T> {
-
-    type Item = &'a T;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|cell| &cell.value)
-    }
-
-}
-
-struct TickIterMut<'a, T> {
-    inner: slice::IterMut<'a, TickCell<T>>
-}
-
-impl<'a, T> Iterator for TickIterMut<'a, T> {
-
-    type Item = &'a mut T;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|cell| &mut cell.value)
-    }
-
-}
-
-
-
 #[cfg(test)]
 mod tests {
 
@@ -2363,6 +2381,63 @@ mod tests {
         assert_eq!(ChunkRange::new(0, 0, -1, 0).collect::<Vec<_>>(), []);
         assert_eq!(ChunkRange::new(0, 0, 0, -1).collect::<Vec<_>>(), []);
         assert_eq!(ChunkRange::new(0, 0, -1, -1).collect::<Vec<_>>(), []);
+
+    }
+
+    #[test]
+    fn tick_vec() {
+
+        // We want to extensively test this data structure since it is highly critical 
+        // and its coherency must be guaranteed at runtime to avoid any issue. A lot of
+        // debug assertions are used throughout the code to validate most of the
+        // invariants, in addition to the unit tests.
+
+        let mut v = TickVec::<char>::new();
+        assert_eq!(v.len(), 0);
+        assert!(v.is_empty());
+        assert_eq!(v.current(), None);
+
+        // Construct ['a', 'b', 'c']
+        assert_eq!(v.push('a'), 0);
+        assert_eq!(v.push('b'), 1);
+        assert_eq!(v.push('c'), 2);
+        assert_eq!(v.current(), None);
+        assert_eq!(v.get(0), Some(&'a'));
+        assert_eq!(v.get(1), Some(&'b'));
+        assert_eq!(v.get(2), Some(&'c'));
+        assert_eq!(v.len(), 3);
+
+        // Construct ['c', 'b']
+        assert_eq!(v.remove(0), 'a');
+        assert_eq!(v.get(0), Some(&'c'));
+        assert_eq!(v.len(), 2);
+
+        // Test cursor
+        v.reset();
+        assert_eq!(v.current(), Some((0, &'c')));
+        v.advance();
+        assert_eq!(v.current(), Some((1, &'b')));
+        v.advance();
+        assert_eq!(v.current(), None);
+
+        // Test cursor remove, and construct ['b', 'a']
+        v.reset();
+        assert_eq!(v.current(), Some((0, &'c')));
+        assert_eq!(v.remove(0), 'c');
+        assert_eq!(v.current(), None);
+        v.advance();
+        assert_eq!(v.current(), Some((0, &'b')));
+        assert_eq!(v.push('a'), 1);
+        v.advance();
+        assert_eq!(v.current(), None);
+        assert_eq!(v.get(1), Some(&'a'));
+
+        // Test cursor remove swap
+        v.reset();
+        assert_eq!(v.remove(1), 'a');
+        assert_eq!(v.current(), Some((0, &'b')));
+        v.advance();
+        assert_eq!(v.current(), None);
 
     }
 

@@ -306,7 +306,6 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
             // TODO: If collided horizontal and no path, then jump
 
             if base.rand.next_float() < 0.8 && (base.in_water || base.in_lava) {
-                trace!("entity #{id}, jumping because of 80% chance or water/lava");
                 living.jumping = true;
             }
 
