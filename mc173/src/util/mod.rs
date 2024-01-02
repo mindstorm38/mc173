@@ -1,4 +1,6 @@
 //! Various math utilities.
+//! 
+//! TODO: Remove this util module and just move everything into crate module.
 
 mod noise;
 mod rand;

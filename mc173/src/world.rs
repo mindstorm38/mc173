@@ -1,6 +1,7 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
 use std::collections::{HashMap, BTreeSet, HashSet, VecDeque};
+use std::collections::hash_map::Entry;
 use std::ops::{Deref, DerefMut};
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
@@ -15,14 +16,15 @@ use indexmap::IndexSet;
 
 use tracing::{trace, instrument};
 
+use crate::block_entity::BlockEntity;
+use crate::entity::Entity;
 use crate::biome::Biome;
-use crate::chunk::{Chunk, 
+use crate::chunk::{Chunk,
     calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos,
     CHUNK_HEIGHT, CHUNK_WIDTH};
+
 use crate::util::{JavaRandom, BoundingBox, Face};
-use crate::block_entity::BlockEntity;
 use crate::item::ItemStack;
-use crate::entity::Entity;
 use crate::block;
 
 
@@ -109,7 +111,6 @@ thread_local! {
 /// # Roadmap
 /// 
 /// - Make a diagram to better explain the world structure with entity caching.
-/// - Immediate entity/block entity removal if not ticking.
 #[derive(Clone)]
 pub struct World {
     /// When enabled, this contains the list of events that happened in the world since
@@ -132,14 +133,12 @@ pub struct World {
     /// Total entities count spawned since the world is running. Also used to give 
     /// entities a unique id.
     entities_count: u32,
-    /// The internal list of all loaded entities, they are referred to by their index in
-    /// this list. This implies that when an entity is moved, all index pointing to it
-    /// should be updated to its new index.
-    entities: Vec<EntityComponent>,
+    /// The internal list of all loaded entities.
+    entities: TickVec<EntityComponent>,
     /// Entities' index mapping from their unique id.
     entities_id_map: HashMap<u32, usize>,
     /// Same as entities but for block entities.
-    block_entities: Vec<BlockEntityComponent>,
+    block_entities: TickVec<BlockEntityComponent>,
     /// Mapping of block entities to they block position.
     block_entities_pos_map: HashMap<IVec3, usize>,
     /// Total scheduled ticks count since the world is running.
@@ -176,9 +175,9 @@ impl World {
             rand: JavaRandom::new_seeded(),
             chunks: HashMap::new(),
             entities_count: 0,
-            entities: Vec::new(),
+            entities: TickVec::new(),
             entities_id_map: HashMap::new(),
-            block_entities: Vec::new(),
+            block_entities: TickVec::new(),
             block_entities_pos_map: HashMap::new(),
             scheduled_ticks_count: 0,
             scheduled_ticks: BTreeSet::new(),
@@ -280,11 +279,10 @@ impl World {
             chunk: Arc::clone(&chunk),
             entities: chunk_comp.entities.iter()
                 // Ignoring entities being updated, silently for now.
-                .filter_map(|&index| self.entities[index].inner.as_ref().cloned())
+                .filter_map(|&index| self.entities.get(index).unwrap().inner.clone())
                 .collect(),
             block_entities: chunk_comp.block_entities.iter()
-                .filter_map(|(&pos, &index)| self.block_entities[index].inner.as_ref()
-                    .cloned()
+                .filter_map(|(&pos, &index)| self.block_entities.get(index).unwrap().inner.clone()
                     .map(|e| (pos, e)))
                 .collect(),
         })
@@ -298,34 +296,30 @@ impl World {
         let chunk_comp = self.chunks.remove(&(cx, cz))?;
         let mut ret = None;
 
+        let entities = chunk_comp.entities.iter()
+            .filter_map(|&index| {
+                let comp = self.entities.remove(index);
+                self.entities_id_map.remove(&comp.id);
+                comp.inner
+            })
+            .collect();
+        
+        let block_entities = chunk_comp.block_entities.iter()
+            .filter_map(|(&pos, &index)| {
+                let comp = self.block_entities.remove(index);
+                self.block_entities_pos_map.remove(&pos);
+                comp.inner.map(|e| (pos, e))
+            })
+            .collect();
+        
         if let Some(chunk) = chunk_comp.data {
             ret = Some(ChunkSnapshot { 
                 cx, 
                 cz,
                 chunk,
-                entities: chunk_comp.entities.iter()
-                    // Ignoring entities being updated, silently for now.
-                    .filter_map(|&index| self.entities[index].inner.as_ref().cloned())
-                    .collect(),
-                block_entities: chunk_comp.block_entities.iter()
-                    .filter_map(|(&pos, &index)| self.block_entities[index].inner.as_ref()
-                        .cloned()
-                        .map(|e| (pos, e)))
-                    .collect(),
+                entities,
+                block_entities,
             });
-        }
-
-        for index in chunk_comp.entities {
-            let comp = &mut self.entities[index];
-            let prev = comp.inner.replace(ComponentStorage::Removed);
-            debug_assert!(!matches!(prev, ComponentStorage::Removed), "entity should not already be removed");
-            self.entities_id_map.remove(&comp.id);
-        }
-
-        for (pos, index) in chunk_comp.block_entities {
-            let prev = self.block_entities[index].inner.replace(ComponentStorage::Removed);
-            debug_assert!(!matches!(prev, ComponentStorage::Removed), "block entity should not already be removed");
-            self.block_entities_pos_map.remove(&pos);
         }
 
         ret
@@ -352,11 +346,11 @@ impl World {
         let was_unloaded = chunk_comp.data.replace(chunk).is_none();
         
         if was_unloaded {
-            for &entity_index in &chunk_comp.entities {
-                self.entities[entity_index].loaded = true;
+            for &index in &chunk_comp.entities {
+                self.entities.get_mut(index).unwrap().loaded = true;
             }
-            for &block_entity_index in chunk_comp.block_entities.values() {
-                self.block_entities[block_entity_index].loaded = true;
+            for &index in chunk_comp.block_entities.values() {
+                self.block_entities.get_mut(index).unwrap().loaded = true;
             }
         }
         
@@ -388,12 +382,12 @@ impl World {
         
         if ret.is_some() {
 
-            for &entity_index in &chunk_comp.entities {
-                self.entities[entity_index].loaded = false;
+            for &index in &chunk_comp.entities {
+                self.entities.get_mut(index).unwrap().loaded = false;
             }
 
-            for &block_entity_index in chunk_comp.block_entities.values() {
-                self.block_entities[block_entity_index].loaded = false;
+            for &index in chunk_comp.block_entities.values() {
+                self.block_entities.get_mut(index).unwrap().loaded = false;
             }
 
             self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Remove });
@@ -544,9 +538,6 @@ impl World {
     #[inline(never)]
     fn spawn_entity_inner(&mut self, entity: Box<Entity>) -> u32 {
 
-        // Initial position is used to known in which chunk to cache it.
-        let entity_index = self.entities.len();
-
         // Get the next unique entity id.
         let id = self.entities_count;
         self.entities_count = self.entities_count.checked_add(1)
@@ -555,22 +546,18 @@ impl World {
         trace!("spawn entity #{id} ({:?})", entity.kind());
 
         let (cx, cz) = calc_entity_chunk_pos(entity.0.pos);
-
-        // NOTE: Entities should always be stored in a world chunk.
         let chunk_comp = self.chunks.entry((cx, cz)).or_default();
-        chunk_comp.entities.insert(entity_index);
-
-        let entity_comp = EntityComponent {
-            inner: ComponentStorage::Ready(entity),
+        let entity_index = self.entities.push(EntityComponent {
+            inner: Some(entity),
             id,
             cx,
             cz,
             loaded: chunk_comp.data.is_some(),
-        };
-        
-        self.entities.push(entity_comp);
-        self.entities_id_map.insert(id, entity_index);
+        });
 
+        chunk_comp.entities.insert(entity_index);
+        self.entities_id_map.insert(id, entity_index);
+        
         self.push_event(Event::Entity { id, inner: EntityEvent::Spawn });
         self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
 
@@ -599,7 +586,7 @@ impl World {
     /// this id or if the entity is the current entity being updated.
     pub fn get_entity(&self, id: u32) -> Option<&Entity> {
         let index = *self.entities_id_map.get(&id)?;
-        self.entities[index].inner.as_deref()
+        self.entities.get(index).unwrap().inner.as_deref()
     }
 
     /// Get a generic entity from its unique id. This generic entity can later be checked
@@ -607,7 +594,7 @@ impl World {
     /// this id or if the entity is the current entity being updated.
     pub fn get_entity_mut(&mut self, id: u32) -> Option<&mut Entity> {
         let index = *self.entities_id_map.get(&id)?;
-        self.entities[index].inner.as_deref_mut()
+        self.entities.get_mut(index).unwrap().inner.as_deref_mut()
     }
 
     /// Remove an entity with given id, returning some boxed entity is successful. This
@@ -618,19 +605,31 @@ impl World {
         
         // NOTE: Each entity can be removed once because ID is removed with it.
         let Some(index) = self.entities_id_map.remove(&id) else { return false };
-        let entity_comp = &mut self.entities[index];
-        let prev = entity_comp.inner.replace(ComponentStorage::Removed);
-        debug_assert!(!matches!(prev, ComponentStorage::Removed), "entity should not already be removed");
+        trace!("remove entity #{id}");
+
+        let comp = self.entities.remove(index);
+        let swapped_index = self.entities.len();
         
         // Directly remove the entity from its chunk.
-        let (cx, cz) = (entity_comp.cx, entity_comp.cz);
+        let (cx, cz) = (comp.cx, comp.cz);
         let removed_success = self.chunks.get_mut(&(cx, cz))
             .expect("entity chunk is missing")
             .entities.remove(&index);
-
         debug_assert!(removed_success, "entity missing from its chunk");
 
-        trace!("remove entity #{id}");
+        // The entity that has been swapped has a new index, so we need to update its
+        // index into the chunk cache...
+        if let Some(swapped_comp) = self.entities.get(index) {
+            
+            let entities = &mut self.chunks.get_mut(&(swapped_comp.cx, swapped_comp.cz))
+                .expect("swapped entity chunk is missing")
+                .entities;
+
+            let remove_success = entities.remove(&swapped_index);
+            debug_assert!(remove_success, "swapped entity missing from its chunk");
+            entities.insert(index);
+            
+        }
 
         self.push_event(Event::Entity { id, inner: EntityEvent::Remove });
         self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
@@ -647,27 +646,38 @@ impl World {
     #[inline(never)]
     fn set_block_entity_inner(&mut self, pos: IVec3, block_entity: Box<BlockEntity>) {
 
-        // This is the future index where we insert the block entity.
-        let block_entity_index = self.block_entities.len();
-
-        if let Some(prev_index) = self.block_entities_pos_map.insert(pos, block_entity_index) {
-            // If a block entity was already present at this position, mark the previous
-            // one as removed in order to clean it up later.
-            self.remove_block_entity_inner(prev_index);
-        }
+        trace!("set block entity {pos}");
 
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
-        let chunk_comp = self.chunks.entry((cx, cz)).or_default();
+        match self.block_entities_pos_map.entry(pos) {
+            Entry::Occupied(o) => {
 
-        chunk_comp.block_entities.insert(pos, block_entity_index);
+                // If there is current a block entity at this exact position, we'll just
+                // replace it in-place, this avoid all the insertion of cache coherency.
+                let index = *o.into_mut();
+                self.block_entities.get_mut(index).unwrap().inner = Some(block_entity);
+                // We also need to invalid the value to remove it from the current tick
+                // linked list, if any ticking is currently happening.
+                self.block_entities.invalidate(index);
 
-        let block_entity_comp = BlockEntityComponent { 
-            inner: ComponentStorage::Ready(block_entity), 
-            loaded: chunk_comp.data.is_some(),
-            pos,
-        };
+                self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Remove });
 
-        self.block_entities.push(block_entity_comp);
+            }
+            Entry::Vacant(v) => {
+
+                let chunk_comp = self.chunks.entry((cx, cz)).or_default();
+                let block_entity_index = self.block_entities.push(BlockEntityComponent {
+                    inner: Some(block_entity),
+                    loaded: chunk_comp.data.is_some(),
+                    pos,
+                });
+
+                chunk_comp.block_entities.insert(pos, block_entity_index);
+                v.insert(block_entity_index);
+
+            }
+        }
+
         self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Set });
         self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
 
@@ -688,44 +698,53 @@ impl World {
     /// Get a block entity from its position.
     pub fn get_block_entity(&self, pos: IVec3) -> Option<&BlockEntity> {
         let index = *self.block_entities_pos_map.get(&pos)?;
-        self.block_entities[index].inner.as_deref()
+        self.block_entities.get(index).unwrap().inner.as_deref()
     }
 
     /// Get a block entity from its position.
     pub fn get_block_entity_mut(&mut self, pos: IVec3) -> Option<&mut BlockEntity> {
         let index = *self.block_entities_pos_map.get(&pos)?;
-        self.block_entities[index].inner.as_deref_mut()
-    }
-
-    /// Internal function to mark the block entity at index as removed.
-    fn remove_block_entity_inner(&mut self, index: usize) {
-        
-        let block_entity_comp = &mut self.block_entities[index];
-        let prev = block_entity_comp.inner.replace(ComponentStorage::Removed);
-        debug_assert!(!matches!(prev, ComponentStorage::Removed), "block entity should not already be removed");
-        
-        // Directly remove the block entity from its chunk.
-        let pos = block_entity_comp.pos;
-        let (cx, cz) = calc_chunk_pos_unchecked(pos);
-        let remove_success = self.chunks.get_mut(&(cx, cz))
-            .expect("block entity chunk is missing")
-            .block_entities.remove(&pos)
-            .is_some();
-
-        debug_assert!(remove_success, "block entity missing from its chunk");
-
-        self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Remove });
-        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
-    
+        self.block_entities.get_mut(index).unwrap().inner.as_deref_mut()
     }
 
     /// Remove a block entity from a position. Returning true if successful, in this case
     /// the block entity storage is guaranteed to be freed, but the block entity footprint
     /// in this world will be definitely cleaned after ticking.
     pub fn remove_block_entity(&mut self, pos: IVec3) -> bool {
+
         let Some(index) = self.block_entities_pos_map.remove(&pos) else { return false };
-        self.remove_block_entity_inner(index);
+        trace!("remove block entity {pos}");
+
+        let comp = self.block_entities.remove(index);
+        let swapped_index = self.block_entities.len();
+        
+        // Directly remove the block entity from its chunk.
+        let (cx, cz) = calc_chunk_pos_unchecked(comp.pos);
+        let remove_success = self.chunks.get_mut(&(cx, cz))
+            .expect("block entity chunk is missing")
+            .block_entities.remove(&comp.pos)
+            .is_some();
+        debug_assert!(remove_success, "block entity missing from its chunk");
+
+        // A block entity has been swapped at the removed index, so we need to update any
+        // reference to this block entity.
+        if let Some(swapped_comp) = self.block_entities.get(index) {
+
+            let (swapped_cx, swapped_cz) = calc_chunk_pos_unchecked(swapped_comp.pos);
+            let block_entities = &mut self.chunks.get_mut(&(swapped_cx, swapped_cz))
+                .expect("swapped block entity chunk is missing")
+                .block_entities;
+
+            let removed_index = block_entities.insert(swapped_comp.pos, index);
+            debug_assert_eq!(removed_index, Some(swapped_index), "swapped block entity incoherent in its chunk");
+
+        }
+
+        self.push_event(Event::BlockEntity { pos: comp.pos, inner: BlockEntityEvent::Remove });
+        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
+
         true
+
     }
 
     // =================== //
@@ -782,7 +801,7 @@ impl World {
     pub fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> EntitiesInChunkIter<'_> {
         EntitiesInChunkIter {
             indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.iter()),
-            entities: &self.entities[..],
+            entities: &self.entities,
         }
     }
 
@@ -792,7 +811,7 @@ impl World {
     pub fn iter_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> EntitiesInChunkIterMut<'_> {
         EntitiesInChunkIterMut {
             indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.iter()),
-            entities: &mut self.entities[..],
+            entities: &mut self.entities,
             #[cfg(debug_assertions)]
             returned_pointers: HashSet::new(),
         }
@@ -811,7 +830,7 @@ impl World {
                 chunks: &self.chunks, 
                 range: ChunkRange::new(start_cx, start_cz, end_cx, end_cz) },
             indices: None,
-            entities: &self.entities[..],
+            entities: &self.entities,
             bb,
         }
 
@@ -830,7 +849,7 @@ impl World {
                 chunks: &self.chunks, 
                 range: ChunkRange::new(start_cx, start_cz, end_cx, end_cz) },
             indices: None,
-            entities: &mut self.entities[..],
+            entities: &mut self.entities,
             bb,
             #[cfg(debug_assertions)]
             returned_pointers: HashSet::new(),
@@ -1005,207 +1024,82 @@ impl World {
     #[instrument(skip_all)]
     fn tick_entities(&mut self) {
 
-        let mut indices_to_remove = INDICES_TO_REMOVE.take();
-        debug_assert!(indices_to_remove.is_empty());
+        self.entities.reset();
 
-        // NOTE: Only update the entities that are present at the start of ticking.
-        for entity_index in 0..self.entities.len() {
+        while let Some((_, comp)) = self.entities.current_mut() {
 
-            // We unwrap because all entities should be present except updated one.
-            let entity_comp = &mut self.entities[entity_index];
-            let mut entity = match entity_comp.inner {
-                ComponentStorage::Removed => {
-                    // The entity has been removed, we definitely remove it here.
-                    indices_to_remove.push(entity_index);
-                    continue;
-                }
-                ComponentStorage::Updated => panic!("entity was already being updated"),
-                ComponentStorage::Ready(_) => {
-                    // Do not update the entity if its chunk is not loaded.
-                    if !entity_comp.loaded {
-                        continue;
-                    }
-                    // If the entity is ready for update, set 'Updated' state.
-                    match entity_comp.inner.replace(ComponentStorage::Updated) {
-                        ComponentStorage::Ready(data) => data,
-                        _ => unreachable!()
-                    }
-                }
-            };
+            let mut entity = comp.inner.take()
+                .expect("entity was already being updated");
 
-            let id = entity_comp.id;
-
-            // Store the previous chunk, used when comparing with new chunk.
-            let (prev_cx, prev_cz) = (entity_comp.cx, entity_comp.cz);
+            let id = comp.id;
+            let (prev_cx, prev_cz) = (comp.cx, comp.cz);
             entity.tick(&mut *self, id);
 
-            // Entity is not dead so we re-insert its 
-            let entity_comp = &mut self.entities[entity_index];
-            entity_comp.loaded = true;
-            match entity_comp.inner {
-                ComponentStorage::Ready(_) => panic!("entity should not be ready"),
-                ComponentStorage::Removed => {
-                    // Entity has been removed while ticking.
-                    indices_to_remove.push(entity_index);
-                    continue;
-                }
-                ComponentStorage::Updated => {}
-            }
+            // Get the component again, the entity may have been removed.
+            if let Some((index, comp)) = self.entities.current_mut() {
 
-            // Entity is still in updated state as expected.
-            let (new_cx, new_cz) = calc_entity_chunk_pos(entity.0.pos);
-            entity_comp.inner = ComponentStorage::Ready(entity);
+                // Check if the entity moved to another chunk...
+                let (new_cx, new_cz) = calc_entity_chunk_pos(entity.0.pos);
+                comp.inner = Some(entity);
 
-            // Check if the entity moved to another chunk...
-            if (prev_cx, prev_cz) != (new_cx, new_cz) {
+                if (prev_cx, prev_cz) != (new_cx, new_cz) {
 
-                // NOTE: This part is really critical as this ensures Memory Safety
-                // in iterators and therefore avoids Undefined Behaviors. Each entity
-                // really needs to be in a single chunk at a time.
-                
-                let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
-                    .expect("entity previous chunk is missing")
-                    .entities
-                    .remove(&entity_index);
-                
-                debug_assert!(remove_success, "entity index not found in previous chunk");
+                    // NOTE: This part is really critical as this ensures Memory Safety
+                    // in iterators and therefore avoids Undefined Behaviors. Each entity
+                    // really needs to be in a single chunk at a time.
+                    
+                    let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
+                        .expect("entity previous chunk is missing")
+                        .entities
+                        .remove(&index);
+                    
+                    debug_assert!(remove_success, "entity index not found in previous chunk");
 
-                // Update the world entity to its new chunk and orphan state.
-                entity_comp.cx = new_cx;
-                entity_comp.cz = new_cz;
+                    // Update the world entity to its new chunk and orphan state.
+                    comp.cx = new_cx;
+                    comp.cz = new_cz;
 
-                // Insert the entity in its new chunk.
-                let new_chunk_comp = self.chunks.entry((new_cx, new_cz)).or_default();
-                new_chunk_comp.entities.insert(entity_index);
-                // Update the loaded flag of the entity depending on the new chunk
-                // being loaded or not.
-                entity_comp.loaded = new_chunk_comp.data.is_some();
+                    // Insert the entity in its new chunk.
+                    let new_chunk_comp = self.chunks.entry((new_cx, new_cz)).or_default();
+                    new_chunk_comp.entities.insert(index);
+                    // Update the loaded flag of the entity depending on the new chunk
+                    // being loaded or not.
+                    comp.loaded = new_chunk_comp.data.is_some();
 
-                self.push_event(Event::Chunk { cx: prev_cx, cz: prev_cz, inner: ChunkEvent::Dirty });
-                self.push_event(Event::Chunk { cx: new_cx, cz: new_cz, inner: ChunkEvent::Dirty });
-
-            }
-
-        }
-
-        // It's really important to understand that indices to remove have been pushed
-        // from lower index to higher (because of iteration order). So we need to drain
-        // in reverse in order to remove the last indices first, because of the swap we
-        // are guaranteed that the swapped entity will not be in the indices to remove.
-        for index_to_remove in indices_to_remove.drain(..).rev() {
-
-            self.entities.swap_remove(index_to_remove);
-            
-            // Because we used swap remove, this may have moved the last entity (if
-            // existing) to the removed entity index. We need to update its index in 
-            // chunk or orphan entities.
-            if let Some(swapped_comp) = self.entities.get(index_to_remove) {
-                // If the swapped entity is already removed, it is no longer in a chunk.
-                if !swapped_comp.inner.is_removed() {
-
-                    let entities = &mut self.chunks.get_mut(&(swapped_comp.cx, swapped_comp.cz))
-                        .expect("entity was not in a chunk")
-                        .entities;
-                
-                    // The swapped entity was at the end, so the new length.
-                    let previous_index = self.entities.len();
-
-                    // Update the mapping from entity unique id to the new index.
-                    let previous_map_index = self.entities_id_map.insert(swapped_comp.id, index_to_remove);
-                    debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous entity index");
-                
-                    let remove_success = entities.remove(&previous_index);
-                    debug_assert!(remove_success, "entity index not found where it belongs");
-                    entities.insert(index_to_remove);
+                    self.push_event(Event::Chunk { cx: prev_cx, cz: prev_cz, inner: ChunkEvent::Dirty });
+                    self.push_event(Event::Chunk { cx: new_cx, cz: new_cz, inner: ChunkEvent::Dirty });
 
                 }
-            }
-            
-        }
 
-        INDICES_TO_REMOVE.set(indices_to_remove);
+            }
+
+            self.entities.advance();
+
+        }
 
     }
 
     #[instrument(skip_all)]
     fn tick_block_entities(&mut self) {
 
-        let mut indices_to_remove = INDICES_TO_REMOVE.take();
-        debug_assert!(indices_to_remove.is_empty());
+        self.block_entities.reset();
 
-        // The logic is essentially the same has for entity ticking, but without handling
-        // of position and update of chunks.
-        for block_entity_index in 0..self.block_entities.len() {
+        while let Some((_, comp)) = self.block_entities.current_mut() {
 
-            let block_entity_comp = &mut self.block_entities[block_entity_index];
-            let mut block_entity = match block_entity_comp.inner {
-                ComponentStorage::Removed => {
-                    indices_to_remove.push(block_entity_index);
-                    continue;
-                }
-                ComponentStorage::Updated => panic!("entity was already being updated"),
-                ComponentStorage::Ready(_) => {
-                    if !block_entity_comp.loaded {
-                        continue;
-                    }
-                    match block_entity_comp.inner.replace(ComponentStorage::Updated) {
-                        ComponentStorage::Ready(data) => data,
-                        _ => unreachable!()
-                    }
-                }
-            };
+            let mut block_entity = comp.inner.take()
+                .expect("block entity was already being updated");
 
-            // Tick the block entity at its position.
-            let pos = block_entity_comp.pos;
+            let pos = comp.pos;
             block_entity.tick(self, pos);
 
-            // Re-insert the block entity in the world after update.
-            let block_entity_comp = &mut self.block_entities[block_entity_index];
-            match block_entity_comp.inner {
-                ComponentStorage::Ready(_) => panic!("block entity should not be ready"),
-                ComponentStorage::Removed => {
-                    indices_to_remove.push(block_entity_index);
-                }
-                ComponentStorage::Updated => {
-                    block_entity_comp.inner = ComponentStorage::Ready(block_entity);
-                }
+            // Get the component again and re-insert the block entity.
+            if let Some((_, comp)) = self.block_entities.current_mut() {
+                comp.inner = Some(block_entity);
             }
 
+            self.block_entities.advance();
+
         }
-
-        for index_to_remove in indices_to_remove.drain(..).rev() {
-
-            self.block_entities.swap_remove(index_to_remove);
-            
-            // Because we used swap remove, this may have moved the last entity (if
-            // existing) to the removed entity index. We need to update its index in 
-            // chunk or orphan entities.
-            if let Some(swapped_comp) = self.block_entities.get(index_to_remove) {
-                // If the block entity is removed, it is no longer in a chunk.
-                if !swapped_comp.inner.is_removed() {
-
-                    let (cx, cz) = calc_chunk_pos_unchecked(swapped_comp.pos);
-                    let block_entities = &mut self.chunks.get_mut(&(cx, cz))
-                        .expect("block entity was not in a chunk")
-                        .entities;
-                
-                    // The swapped entity was at the end, so the new length.
-                    let previous_index = self.block_entities.len();
-                    
-                    // Update the mapping from block entity position to the new index.
-                    let previous_map_index = self.block_entities_pos_map.insert(swapped_comp.pos, index_to_remove);
-                    debug_assert_eq!(previous_map_index, Some(previous_index), "incoherent previous block entity index");
-                
-                    let remove_success = block_entities.remove(&previous_index);
-                    debug_assert!(remove_success, "block entity index not found where it belongs");
-                    block_entities.insert(index_to_remove);
-
-                }
-            }
-            
-        }
-
-        INDICES_TO_REMOVE.set(indices_to_remove);
 
     }
 
@@ -1590,7 +1484,7 @@ struct ChunkComponent {
 #[derive(Debug, Clone)]
 struct EntityComponent {
     /// The entity storage.
-    inner: ComponentStorage<Box<Entity>>,
+    inner: Option<Box<Entity>>,
     /// Unique entity id is duplicated here to allow us to access it event when entity
     /// is updating.
     id: u32,
@@ -1606,85 +1500,12 @@ struct EntityComponent {
 #[derive(Debug, Clone)]
 struct BlockEntityComponent {
     /// The block entity storage.
-    inner: ComponentStorage<Box<BlockEntity>>,
+    inner: Option<Box<BlockEntity>>,
     /// True when the chunk this block entity is in is loaded with data.
     loaded: bool,
     /// Position of that block entity.
     pos: IVec3,
 }
-
-/// State of a component storage.
-#[derive(Debug, Clone)]
-enum ComponentStorage<T> {
-    /// The component is present and ready to update.
-    Ready(T),
-    /// The component is temporally owned by the tick function in order to update it.
-    Updated,
-    /// The component has been marked for removal and will be removed on new tick, the
-    /// component should already be removed from the chunk component cache and from its
-    /// world mapping ([entity id => index] or [block entity pos => index]).
-    Removed,
-}
-
-impl<T> ComponentStorage<T> {
-
-    /// If the inner storage is ready for update, return some shared reference to it.
-    #[inline]
-    fn as_ref(&self) -> Option<&T> {
-        match self {
-            Self::Ready(data) => Some(data),
-            _ => None
-        }
-    }
-
-    /// If the inner storage is ready for update, return some exclusive reference to it.
-    #[inline]
-    #[allow(unused)]
-    fn as_mut(&mut self) -> Option<&mut T> {
-        match self {
-            Self::Ready(data) => Some(data),
-            _ => None
-        }
-    }
-    
-    /// If the inner storage data is ready and is [`Deref`], its target is returned.
-    #[inline]
-    fn as_deref(&self) -> Option<&T::Target>
-    where
-        T: Deref
-    {
-        match self {
-            Self::Ready(data) => Some(data.deref()),
-            _ => None
-        }
-    }
-
-    /// If the inner storage data is ready and is [`DerefMut`], its target is returned.
-    #[inline]
-    fn as_deref_mut(&mut self) -> Option<&mut T::Target>
-    where
-        T: DerefMut,
-    {
-        match self {
-            Self::Ready(data) => Some(data.deref_mut()),
-            _ => None
-        }
-    }
-
-    /// Replace that storage with another one, returning the previous one.
-    #[inline]
-    fn replace(&mut self, value: Self) -> Self {
-        mem::replace(self, value)
-    }
-
-    #[inline]
-    pub fn is_removed(&self) -> bool {
-        matches!(self, Self::Removed)
-    }
-
-}
-
-
 
 /// A block tick position, this is always linked to a [`ScheduledTick`] being added to
 /// the tree map, this structure is also stored appart in order to check that two ticks
@@ -1906,7 +1727,7 @@ impl Iterator for BlocksInChunkIter<'_> {
 }
 
 /// An iterator over all entities in the world.
-pub struct EntitiesIter<'a>(slice::Iter<'a, EntityComponent>);
+pub struct EntitiesIter<'a>(TickIter<'a, EntityComponent>);
 
 impl FusedIterator for EntitiesIter<'_> {}
 impl ExactSizeIterator for EntitiesIter<'_> {}
@@ -1932,7 +1753,7 @@ impl<'a> Iterator for EntitiesIter<'a> {
 }
 
 /// An iterator over all entities in the world through mutable references.
-pub struct EntitiesIterMut<'a>(slice::IterMut<'a, EntityComponent>);
+pub struct EntitiesIterMut<'a>(TickIterMut<'a, EntityComponent>);
 
 impl FusedIterator for EntitiesIterMut<'_> {}
 impl ExactSizeIterator for EntitiesIterMut<'_> {}
@@ -1962,7 +1783,7 @@ pub struct EntitiesInChunkIter<'a> {
     /// The entities indices, returned indices are unique within the iterator.
     indices: Option<indexmap::set::Iter<'a, usize>>,
     /// The entities.
-    entities: &'a [EntityComponent],
+    entities: &'a TickSlice<EntityComponent>,
 }
 
 impl FusedIterator for EntitiesInChunkIter<'_> {}
@@ -1974,7 +1795,7 @@ impl<'a> Iterator for EntitiesInChunkIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(&index) = self.indices.as_mut()?.next() {
             // We ignore updated entities.
-            let comp = &self.entities[index];
+            let comp = self.entities.get(index).unwrap();
             if let Some(entity) = comp.inner.as_deref() {
                 return Some((comp.id, entity));
             }
@@ -1998,7 +1819,7 @@ pub struct EntitiesInChunkIterMut<'a> {
     /// The entities indices, returned indices are unique within the iterator.
     indices: Option<indexmap::set::Iter<'a, usize>>,
     /// The entities.
-    entities: &'a mut [EntityComponent],
+    entities: &'a mut TickSlice<EntityComponent>,
     /// Only used when debug assertions are enabled in order to ensure the safety
     /// of the lifetime transmutation.
     #[cfg(debug_assertions)]
@@ -2014,7 +1835,7 @@ impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(&index) = self.indices.as_mut()?.next() {
             // We ignore updated entities.
-            let comp = &mut self.entities[index];
+            let comp = self.entities.get_mut(index).unwrap();
             if let Some(entity) = comp.inner.as_deref_mut() {
 
                 // Only check uniqueness of returned pointer with debug assertions.
@@ -2054,7 +1875,7 @@ pub struct EntitiesCollidingIter<'a> {
     /// The entities indices, returned indices are unique within the iterator.
     indices: Option<indexmap::set::Iter<'a, usize>>,
     /// The entities.
-    entities: &'a [EntityComponent],
+    entities: &'a TickSlice<EntityComponent>,
     /// Bounding box to check.
     bb: BoundingBox,
 }
@@ -2076,7 +1897,7 @@ impl<'a> Iterator for EntitiesCollidingIter<'a> {
 
             // If there is no next index, set indices to none and loop over.
             if let Some(&index) = self.indices.as_mut().unwrap().next() {
-                let comp = &self.entities[index];
+                let comp = self.entities.get(index).unwrap();
                 // We ignore updated/not colliding entities.
                 if let Some(entity) = comp.inner.as_deref() {
                     if entity.0.bb.intersects(self.bb) {
@@ -2099,7 +1920,7 @@ pub struct EntitiesCollidingIterMut<'a> {
     /// The entities indices, returned indices are unique within the iterator.
     indices: Option<indexmap::set::Iter<'a, usize>>,
     /// The entities.
-    entities: &'a mut [EntityComponent],
+    entities: &'a mut TickSlice<EntityComponent>,
     /// Bounding box to check.
     bb: BoundingBox,
     /// Only used when debug assertions are enabled in order to ensure the safety
@@ -2125,7 +1946,7 @@ impl<'a> Iterator for EntitiesCollidingIterMut<'a> {
 
             // If there is no next index, set indices to none and loop over.
             if let Some(&index) = self.indices.as_mut().unwrap().next() {
-                let comp = &mut self.entities[index];
+                let comp = self.entities.get_mut(index).unwrap();
                 // We ignore updated/not colliding entities.
                 if let Some(entity) = comp.inner.as_deref_mut() {
                     if entity.0.bb.intersects(self.bb) {
@@ -2229,6 +2050,303 @@ impl Iterator for ChunkRange {
     }
 
 }
+
+
+/// An update vector is an internal structure used for both entities and block entities,
+/// it acts as a dynamically linked list where where the iteration order is defined before
+/// ticking and where insertion and removal of elements doesn't not affect the ordering.
+/// 
+/// We use this complex structure because we want to avoid most of the overhead when
+/// ticking entities and block entities, so we want to avoid moving entities (even their
+/// pointers) from/to stack to much. We also want to keep cache efficiency, this is why
+/// we recompute the linked list upon modifications, and the linked list is linear.
+#[derive(Clone)]
+struct TickVec<T> {
+    /// The inner vector containing all cells with inserted values.
+    inner: Vec<TickCell<T>>,
+    /// This boolean indicate if the any value has been insert or removed from the vector.
+    /// This avoids recomputing the tick linked list on every tick reset.
+    modified: bool,
+    /// The index of the cell currently ticked.
+    index: usize,
+    /// Set to true if the cell currently ticked has been invalidated.
+    invalidated: bool,
+}
+
+/// A cell in the tick vector, its contains previous and next index of the cell to tick.
+#[derive(Clone)]
+struct TickCell<T> {
+    /// The actual value stored.
+    value: T,
+    /// The index of the next value to tick.
+    /// Set to the cell index itself it there is no previous cell to tick.
+    next: usize,
+    /// The index of the previous value to tick.
+    /// Set to the cell index itself it there is no previous cell to tick.
+    prev: usize,
+}
+
+/// A borrowed version of the tick vector, this is better than referencing the vector
+/// because it avoid one level of indirection.
+#[repr(transparent)]
+struct TickSlice<T>([TickCell<T>]);
+
+impl<T> TickVec<T> {
+
+    /// Construct a new empty tick vector, this doesn't not allocate.
+    #[inline]
+    const fn new() -> Self {
+        Self {
+            inner: Vec::new(),
+            modified: false,
+            index: 0,
+            invalidated: false,
+        }
+    }
+
+    /// Push a new element at the end of this vector, the value index is also returned.
+    #[inline]
+    fn push(&mut self, value: T) -> usize {
+        let index = self.inner.len();
+        self.inner.push(TickCell {
+            value,
+            next: index,
+            prev: index,
+        });
+        self.modified = true;
+        index
+    }
+
+    /// Invalid the value at the given index, therefore removing it from any tick linked
+    /// list. If it is currently being updated
+    fn invalidate(&mut self, index: usize) {
+
+        let TickCell { next, prev, .. } = self.inner[index];
+
+        // Start by updating the link of the previous/next cells for this removed cell.
+        if prev != index {
+            // This condition is to keep the end-of-chain property.
+            if next == index {
+                self.inner[prev].next = prev;
+            } else {
+                self.inner[prev].next = next;
+            }
+        }
+
+        if next != index {
+            if prev == index {
+                self.inner[next].prev = next;
+            } else {
+                self.inner[next].prev = prev;
+            }
+        }
+
+        // The last thing to keep in-sync is the tick index, if it was referencing the
+        // removed value or the swapped one.
+        if self.index == index {
+            // The usize::MAX value is a sentinel because we known that no value will
+            // ever reach this value.
+            self.invalidated = true;
+            if next == index {
+                self.index = usize::MAX;
+            } else {
+                self.index = next;
+            }
+        }
+
+    }
+
+    /// Remove an element in this vector at the given index, the element is swapped with
+    /// the last element of the vector.
+    fn remove(&mut self, index: usize) -> T {
+        
+        // The first step is not to remove the cell, but remove it from its linked list.
+        // This simplifies at lot the swapped cell update because we know that the removed
+        // cell cannot be in any linked list, and so not in the swapped cell linked list.
+        self.invalidate(index);
+
+        // Once it is no longer in a linked list, swap remove it.
+        let cell = self.inner.swap_remove(index);
+
+        // This is the previous index of the cell that was swapped in place, if any.
+        let swapped_index = self.inner.len();
+
+        // If a cell has been swapped in place of the removed index, we need to update
+        // the cell referencing it as its next ticking cell.
+        if let Some(swapped_cell) = self.inner.get_mut(index) {
+
+            // If the swapped cell was referencing itself, update to its new index.
+            if swapped_cell.next == swapped_index {
+                swapped_cell.next = index;
+            }
+
+            // If the swapped cell was referencing itself, update to its new index.
+            // If not we should update the previous cell to reference its new index.
+            if swapped_cell.prev == swapped_index {
+                swapped_cell.prev = index;
+            } else {
+                let swapped_prev = swapped_cell.prev;
+                self.inner[swapped_prev].next = index;
+            }
+            
+        }
+
+        if self.index == swapped_index {
+            // Just update to the next index of the swapped value.
+            self.index = index;
+        }
+        
+        self.modified = true;
+        
+        cell.value
+
+    }
+
+    /// Reset the current tick index.
+    fn reset(&mut self) {
+        
+        self.index = 0;
+
+        // Update the tick linked list...
+        if mem::take(&mut self.modified) {
+
+            let len = self.inner.len();
+            for i in 1..len {
+                self.inner[i - 1].next = i;
+                self.inner[i].prev = i - 1;
+            }
+            
+            if let Some(cell) = self.inner.first_mut() {
+                cell.prev = 0;
+            }
+
+            if let Some(cell) = self.inner.last_mut() {
+                cell.next = len - 1;
+            }
+
+        }
+
+    }
+
+    /// Go to the next entity to tick.
+    fn advance(&mut self) {
+        // Do nothing if the current value was removed, because we already advanced the 
+        // index before removing it.
+        if self.invalidated {
+            self.invalidated = false;
+        } else {
+            if let Some(cell) = self.inner.get(self.index) {
+                // If the cell was the last one, we set the tick index to usize::MAX which is
+                // like a sentinel because no value will ever reach this index.
+                if cell.next == self.index {
+                    self.index = usize::MAX;
+                } else {
+                    self.index = cell.next;
+                }
+            }
+        }
+    }
+
+    /// Get the current value being ticked.
+    #[inline]
+    fn current(&self) -> Option<(usize, &T)> {
+        if self.invalidated { return None }
+        self.inner.get(self.index).map(|cell| (self.index, &cell.value))
+    }
+
+    /// Get the current value being ticked through as mutable reference.
+    #[inline]
+    fn current_mut(&mut self) -> Option<(usize, &mut T)> {
+        if self.invalidated { return None }
+        self.inner.get_mut(self.index).map(|cell| (self.index, &mut cell.value))
+    }
+
+}
+
+impl<T> TickSlice<T> {
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    fn get(&self, index: usize) -> Option<&T> {
+        self.0.get(index).map(|cell| &cell.value)
+    }
+
+    #[inline]
+    fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.0.get_mut(index).map(|cell| &mut cell.value)
+    }
+
+    #[inline]
+    fn iter(&self) -> TickIter<'_, T> {
+        TickIter { inner: self.0.iter() }
+    }
+
+    #[inline]
+    fn iter_mut(&mut self) -> TickIterMut<'_, T> {
+        TickIterMut { inner: self.0.iter_mut() }
+    }
+
+}
+
+impl<T> Deref for TickVec<T> {
+
+    type Target = TickSlice<T>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: TickSlice<T> structure has the same layout as [TickCell<T>] because it
+        // has transparent representation, so we can just cast the pointers.
+        let slice = &self.inner[..];
+        unsafe { &*(slice as *const [TickCell<T>] as *const TickSlice<T>) }
+    }
+
+}
+
+impl<T> DerefMut for TickVec<T> {
+
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Same as above.
+        let slice = &mut self.inner[..];
+        unsafe { &mut *(slice as *mut [TickCell<T>] as *mut TickSlice<T>) }
+    }
+    
+}
+
+struct TickIter<'a, T> {
+    inner: slice::Iter<'a, TickCell<T>>
+}
+
+impl<'a, T> Iterator for TickIter<'a, T> {
+
+    type Item = &'a T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|cell| &cell.value)
+    }
+
+}
+
+struct TickIterMut<'a, T> {
+    inner: slice::IterMut<'a, TickCell<T>>
+}
+
+impl<'a, T> Iterator for TickIterMut<'a, T> {
+
+    type Item = &'a mut T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|cell| &mut cell.value)
+    }
+
+}
+
 
 
 #[cfg(test)]
