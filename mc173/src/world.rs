@@ -12,7 +12,7 @@ use std::slice;
 use std::mem;
 
 use glam::{IVec3, Vec2, DVec3};
-use indexmap::IndexSet;
+use indexmap::IndexMap;
 
 use tracing::{trace, instrument};
 
@@ -278,7 +278,7 @@ impl World {
             cx, 
             cz,
             chunk: Arc::clone(&chunk),
-            entities: chunk_comp.entities.iter()
+            entities: chunk_comp.entities.values()
                 // Ignoring entities being updated, silently for now.
                 .filter_map(|&index| self.entities.get(index).unwrap().inner.clone())
                 .collect(),
@@ -297,20 +297,13 @@ impl World {
         let chunk_comp = self.chunks.remove(&(cx, cz))?;
         let mut ret = None;
 
-        let entities = chunk_comp.entities.iter()
-            .filter_map(|&index| {
-                let comp = self.entities.remove(index);
-                self.entities_id_map.remove(&comp.id);
-                comp.inner
-            })
+        let entities = chunk_comp.entities.keys()
+            .filter_map(|&id| self.remove_entity_inner(id, false).unwrap().inner)
             .collect();
         
-        let block_entities = chunk_comp.block_entities.iter()
-            .filter_map(|(&pos, &index)| {
-                let comp = self.block_entities.remove(index);
-                self.block_entities_pos_map.remove(&pos);
-                comp.inner.map(|e| (pos, e))
-            })
+        let block_entities = chunk_comp.block_entities.keys()
+            .filter_map(|&pos| self.remove_block_entity_inner(pos, false).unwrap().inner
+                .map(|e| (pos, e)))
             .collect();
         
         if let Some(chunk) = chunk_comp.data {
@@ -347,7 +340,7 @@ impl World {
         let was_unloaded = chunk_comp.data.replace(chunk).is_none();
         
         if was_unloaded {
-            for &index in &chunk_comp.entities {
+            for &index in chunk_comp.entities.values() {
                 self.entities.get_mut(index).unwrap().loaded = true;
             }
             for &index in chunk_comp.block_entities.values() {
@@ -383,7 +376,7 @@ impl World {
         
         if ret.is_some() {
 
-            for &index in &chunk_comp.entities {
+            for &index in chunk_comp.entities.values() {
                 self.entities.get_mut(index).unwrap().loaded = false;
             }
 
@@ -556,7 +549,7 @@ impl World {
             loaded: chunk_comp.data.is_some(),
         });
 
-        chunk_comp.entities.insert(entity_index);
+        chunk_comp.entities.insert(id, entity_index);
         self.entities_id_map.insert(id, entity_index);
         
         self.push_event(Event::Entity { id, inner: EntityEvent::Spawn });
@@ -603,20 +596,32 @@ impl World {
     /// storage is guaranteed to be freed after return, but the entity footprint in the
     /// world will be cleaned only after ticking.
     pub fn remove_entity(&mut self, id: u32) -> bool {
-        
-        // NOTE: Each entity can be removed once because ID is removed with it.
-        let Some(index) = self.entities_id_map.remove(&id) else { return false };
-        trace!("remove entity #{id}");
+        self.remove_entity_inner(id, true).is_some()
+    }
 
+    /// Internal version of [`remove_entity`] that returns the removed component.
+    /// 
+    /// The caller can specify if the entity is known to be in an existing chunk
+    /// component, if the caller know that the chunk component is no longer existing,
+    /// it avoids panicking.
+    fn remove_entity_inner(&mut self, id: u32, has_chunk: bool) -> Option<EntityComponent> {
+
+        let index = self.entities_id_map.remove(&id)?;
+        trace!("remove entity #{id}");
+        
         let comp = self.entities.remove(index);
         let swapped_index = self.entities.len();
+        debug_assert_eq!(comp.id, id, "entity incoherent id");
         
-        // Directly remove the entity from its chunk.
+        // Directly remove the entity from its chunk if needed.
         let (cx, cz) = (comp.cx, comp.cz);
-        let removed_success = self.chunks.get_mut(&(cx, cz))
-            .expect("entity chunk is missing")
-            .entities.remove(&index);
-        debug_assert!(removed_success, "entity missing from its chunk");
+        if has_chunk {
+            let removed_index = self.chunks.get_mut(&(cx, cz))
+                .expect("entity chunk is missing")
+                .entities
+                .remove(&id);
+            debug_assert_eq!(removed_index, Some(index), "entity is incoherent in its chunk");
+        }
 
         // The entity that has been swapped has a new index, so we need to update its
         // index into the chunk cache...
@@ -625,20 +630,25 @@ impl World {
             let prev_index = self.entities_id_map.insert(swapped_comp.id, index);
             debug_assert_eq!(prev_index, Some(swapped_index), "swapped entity is incoherent");
             
-            let entities = &mut self.chunks.get_mut(&(swapped_comp.cx, swapped_comp.cz))
-                .expect("swapped entity chunk is missing")
-                .entities;
-
-            let remove_success = entities.remove(&swapped_index);
-            debug_assert!(remove_success, "swapped entity missing from its chunk");
-            entities.insert(index);
+            let (swapped_cx, swapped_cz) = (swapped_comp.cx, swapped_comp.cz);
+            if has_chunk || (swapped_cx, swapped_cz) != (cx, cz) {
+                
+                let removed_index = self.chunks.get_mut(&(swapped_cx, swapped_cz))
+                    .expect("swapped entity chunk is missing")
+                    .entities
+                    .insert(swapped_comp.id, index);
+                debug_assert_eq!(removed_index, Some(swapped_index), "swapped entity is incoherent in its chunk");
             
+            }
+
         }
 
         self.push_event(Event::Entity { id, inner: EntityEvent::Remove });
-        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
+        if has_chunk {
+            self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
+        }
 
-        true
+        Some(comp)
 
     }
 
@@ -715,20 +725,32 @@ impl World {
     /// the block entity storage is guaranteed to be freed, but the block entity footprint
     /// in this world will be definitely cleaned after ticking.
     pub fn remove_block_entity(&mut self, pos: IVec3) -> bool {
+        self.remove_block_entity_inner(pos, true).is_some()
+    }
 
-        let Some(index) = self.block_entities_pos_map.remove(&pos) else { return false };
+    /// Internal version of `remove_block_entity` that returns the removed component.
+    /// 
+    /// The caller can specify if the block entity is known to be in an existing chunk
+    /// component, if the caller know that the chunk component is no longer existing,
+    /// it avoids panicking.
+    fn remove_block_entity_inner(&mut self, pos: IVec3, has_chunk: bool) -> Option<BlockEntityComponent> {
+        
+        let index = self.block_entities_pos_map.remove(&pos)?;
         trace!("remove block entity {pos}");
-
+        
         let comp = self.block_entities.remove(index);
         let swapped_index = self.block_entities.len();
+        debug_assert_eq!(comp.pos, pos, "block entity incoherent position");
         
-        // Directly remove the block entity from its chunk.
-        let (cx, cz) = calc_chunk_pos_unchecked(comp.pos);
-        let remove_success = self.chunks.get_mut(&(cx, cz))
-            .expect("block entity chunk is missing")
-            .block_entities.remove(&comp.pos)
-            .is_some();
-        debug_assert!(remove_success, "block entity missing from its chunk");
+        // Directly remove the block entity from its chunk if needed.
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        if has_chunk {
+            let removed_index = self.chunks.get_mut(&(cx, cz))
+                .expect("block entity chunk is missing")
+                .block_entities
+                .remove(&pos);
+            debug_assert_eq!(removed_index, Some(index), "block entity is incoherent in its chunk");
+        }
 
         // A block entity has been swapped at the removed index, so we need to update any
         // reference to this block entity.
@@ -738,19 +760,24 @@ impl World {
             debug_assert_eq!(prev_index, Some(swapped_index), "swapped block entity is incoherent");
 
             let (swapped_cx, swapped_cz) = calc_chunk_pos_unchecked(swapped_comp.pos);
-            let block_entities = &mut self.chunks.get_mut(&(swapped_cx, swapped_cz))
-                .expect("swapped block entity chunk is missing")
-                .block_entities;
-
-            let removed_index = block_entities.insert(swapped_comp.pos, index);
-            debug_assert_eq!(removed_index, Some(swapped_index), "swapped block entity is incoherent in its chunk");
+            if has_chunk || (swapped_cx, swapped_cz) != (cx, cz) {
+                
+                let removed_index = self.chunks.get_mut(&(swapped_cx, swapped_cz))
+                    .expect("swapped block entity chunk is missing")
+                    .block_entities
+                    .insert(swapped_comp.pos, index);
+                debug_assert_eq!(removed_index, Some(swapped_index), "swapped block entity is incoherent in its chunk");
+                
+            }
 
         }
 
-        self.push_event(Event::BlockEntity { pos: comp.pos, inner: BlockEntityEvent::Remove });
-        self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
+        self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Remove });
+        if has_chunk {
+            self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Dirty });
+        }
 
-        true
+        Some(comp)
 
     }
 
@@ -807,7 +834,7 @@ impl World {
     #[inline]
     pub fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> EntitiesInChunkIter<'_> {
         EntitiesInChunkIter {
-            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.iter()),
+            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.values()),
             entities: &self.entities,
         }
     }
@@ -817,7 +844,7 @@ impl World {
     #[inline]
     pub fn iter_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> EntitiesInChunkIterMut<'_> {
         EntitiesInChunkIterMut {
-            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.iter()),
+            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.entities.values()),
             entities: &mut self.entities,
             #[cfg(debug_assertions)]
             returned_pointers: HashSet::new(),
@@ -1045,6 +1072,8 @@ impl World {
             // Get the component again, the entity may have been removed.
             if let Some((index, comp)) = self.entities.current_mut() {
 
+                debug_assert_eq!(comp.id, id, "entity id incoherent");
+
                 // Check if the entity moved to another chunk...
                 let (new_cx, new_cz) = calc_entity_chunk_pos(entity.0.pos);
                 comp.inner = Some(entity);
@@ -1055,12 +1084,10 @@ impl World {
                     // in iterators and therefore avoids Undefined Behaviors. Each entity
                     // really needs to be in a single chunk at a time.
                     
-                    let remove_success = self.chunks.get_mut(&(prev_cx, prev_cz))
+                    let removed_index = self.chunks.get_mut(&(prev_cx, prev_cz))
                         .expect("entity previous chunk is missing")
-                        .entities
-                        .remove(&index);
-                    
-                    debug_assert!(remove_success, "entity index not found in previous chunk");
+                        .entities.remove(&id);
+                    debug_assert_eq!(removed_index, Some(index), "entity is incoherent in its previous chunk");
 
                     // Update the world entity to its new chunk and orphan state.
                     comp.cx = new_cx;
@@ -1068,7 +1095,8 @@ impl World {
 
                     // Insert the entity in its new chunk.
                     let new_chunk_comp = self.chunks.entry((new_cx, new_cz)).or_default();
-                    new_chunk_comp.entities.insert(index);
+                    let insert_success = new_chunk_comp.entities.insert(id, index).is_none();
+                    debug_assert!(insert_success, "entity was already present in its new chunk");
                     // Update the loaded flag of the entity depending on the new chunk
                     // being loaded or not.
                     comp.loaded = new_chunk_comp.data.is_some();
@@ -1482,7 +1510,7 @@ struct ChunkComponent {
     /// will be more or less likely to happen.
     data: Option<Arc<Chunk>>,
     /// Entities belonging to this chunk.
-    entities: IndexSet<usize>,
+    entities: IndexMap<u32, usize>,
     /// Block entities belonging to this chunk.
     block_entities: HashMap<IVec3, usize>,
 }
@@ -2097,7 +2125,7 @@ impl<'a> Iterator for EntitiesIterMut<'a> {
 /// An iterator of entities within a chunk.
 pub struct EntitiesInChunkIter<'a> {
     /// The entities indices, returned indices are unique within the iterator.
-    indices: Option<indexmap::set::Iter<'a, usize>>,
+    indices: Option<indexmap::map::Values<'a, u32, usize>>,
     /// The entities.
     entities: &'a TickSlice<EntityComponent>,
 }
@@ -2133,7 +2161,7 @@ impl<'a> Iterator for EntitiesInChunkIter<'a> {
 /// An iterator of entities within a chunk through mutable references.
 pub struct EntitiesInChunkIterMut<'a> {
     /// The entities indices, returned indices are unique within the iterator.
-    indices: Option<indexmap::set::Iter<'a, usize>>,
+    indices: Option<indexmap::map::Values<'a, u32, usize>>,
     /// The entities.
     entities: &'a mut TickSlice<EntityComponent>,
     /// Only used when debug assertions are enabled in order to ensure the safety
@@ -2189,7 +2217,7 @@ pub struct EntitiesCollidingIter<'a> {
     /// Chunk components iter whens indices is exhausted.
     chunks: ChunkComponentsIter<'a>,
     /// The entities indices, returned indices are unique within the iterator.
-    indices: Option<indexmap::set::Iter<'a, usize>>,
+    indices: Option<indexmap::map::Values<'a, u32, usize>>,
     /// The entities.
     entities: &'a TickSlice<EntityComponent>,
     /// Bounding box to check.
@@ -2208,7 +2236,7 @@ impl<'a> Iterator for EntitiesCollidingIter<'a> {
         loop {
 
             if self.indices.is_none() {
-                self.indices = Some(self.chunks.next()?.entities.iter());
+                self.indices = Some(self.chunks.next()?.entities.values());
             }
 
             // If there is no next index, set indices to none and loop over.
@@ -2234,7 +2262,7 @@ pub struct EntitiesCollidingIterMut<'a> {
     /// Chunk components iter whens indices is exhausted.
     chunks: ChunkComponentsIter<'a>,
     /// The entities indices, returned indices are unique within the iterator.
-    indices: Option<indexmap::set::Iter<'a, usize>>,
+    indices: Option<indexmap::map::Values<'a, u32, usize>>,
     /// The entities.
     entities: &'a mut TickSlice<EntityComponent>,
     /// Bounding box to check.
@@ -2257,7 +2285,7 @@ impl<'a> Iterator for EntitiesCollidingIterMut<'a> {
         loop {
 
             if self.indices.is_none() {
-                self.indices = Some(self.chunks.next()?.entities.iter());
+                self.indices = Some(self.chunks.next()?.entities.values());
             }
 
             // If there is no next index, set indices to none and loop over.
