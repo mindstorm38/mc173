@@ -123,7 +123,17 @@ impl ServerWorld {
         }
 
         while self.state.storage.request_save_count() != 0 {
-            let _ = self.state.storage.poll();
+            if let Some(reply) = self.state.storage.poll() {
+                match reply {
+                    ChunkStorageReply::Save { cx, cz, res: Ok(()) } => {
+                        debug!("saved chunk in storage: {cx}/{cz}");
+                    }
+                    ChunkStorageReply::Save { cx, cz, res: Err(err) } => {
+                        debug!("failed to save chunk in storage: {cx}/{cz}: {err}");
+                    }
+                    _ => {}
+                }
+            }
         }
 
     }
