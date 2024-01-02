@@ -413,21 +413,6 @@ impl World {
             chunk.set_block(pos, id, metadata);
             chunk.recompute_height(pos);
 
-            // TODO: Move light update to self_notify function to avoid light updates in
-            // chunk generation.
-
-            self.light_updates.push_back(LightUpdate { 
-                kind: LightUpdateKind::Block,
-                pos,
-                credit: 15,
-            });
-
-            self.light_updates.push_back(LightUpdate { 
-                kind: LightUpdateKind::Sky,
-                pos,
-                credit: 15,
-            });
-
             self.push_event(Event::Block { 
                 pos, 
                 inner: BlockEvent::Set {
@@ -449,9 +434,24 @@ impl World {
     /// Same as the `set_block` method, but the previous block and new block are notified
     /// of that removal and addition.
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
+        
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
         self.notify_change_unchecked(pos, prev_id, prev_metadata, id, metadata);
+
+        self.light_updates.push_back(LightUpdate { 
+            kind: LightUpdateKind::Block,
+            pos,
+            credit: 15,
+        });
+
+        self.light_updates.push_back(LightUpdate { 
+            kind: LightUpdateKind::Sky,
+            pos,
+            credit: 15,
+        });
+
         Some((prev_id, prev_metadata))
+
     }
 
     /// Same as the `set_block_self_notify` method, but additionally the blocks around 
