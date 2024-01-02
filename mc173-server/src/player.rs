@@ -624,9 +624,23 @@ impl ServerPlayer {
     }
 
     /// Handle a hand slot packet.
-    fn handle_hand_slot(&mut self, _world: &mut World, slot: i16) {
+    fn handle_hand_slot(&mut self, world: &mut World, slot: i16) {
         if slot >= 0 && slot < 9 {
+
+            // If the previous item was a fishing rod, then we ensure that the bobber id
+            // is unset from the player's entity, so that the bobber will be removed.
+            let prev_stack = self.main_inv[self.hand_slot as usize];
+            if prev_stack.size != 0 && prev_stack.id == item::FISHING_ROD {
+                if prev_stack.id == item::FISHING_ROD {
+
+                    let Entity(base, _) = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
+                    base.bobber_id = None;
+                    
+                }
+            }
+
             self.hand_slot = slot as u8;
+
         } else {
             warn!("from {}, invalid hand slot: {slot}", self.username);
         }

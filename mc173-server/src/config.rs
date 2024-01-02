@@ -23,4 +23,5 @@ pub fn fast_entity() -> bool {
 pub const SEED: i64 = 9999;
 
 /// The spawn position is currently hardcoded.
-pub const SPAWN_POS: DVec3 = DVec3::new(12550800.0, 100.0, 12550800.0);
+pub const SPAWN_POS: DVec3 = DVec3::new(0.0, 100.0, 0.0);
+// pub const SPAWN_POS: DVec3 = DVec3::new(12550800.0, 100.0, 12550800.0);

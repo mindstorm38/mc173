@@ -244,7 +244,6 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
             comp.insert("PushX", push_x);
             comp.insert("PushZ", push_z);
         }
-        BaseKind::Fish(_) => return None, // Not serializable
         BaseKind::LightningBolt(_) => return None, // Not serializable
         BaseKind::FallingBlock(falling_block) => {
             comp.insert("id", "FallingSand");
@@ -264,6 +263,7 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
                 ProjectileKind::Snowball(_) => comp.insert("id", "Snowball"),
                 ProjectileKind::Egg(_) => return None, // Not serializable
                 ProjectileKind::Fireball(_) => return None, // Not serializable
+                ProjectileKind::Bobber(_) => return None, // Not serializable
             }
 
             let block = projectile.state.unwrap_or_default();

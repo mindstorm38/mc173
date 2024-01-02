@@ -30,6 +30,18 @@ impl BoundingBox {
         self.max - self.min
     }
 
+    pub fn size_x(self) -> f64 {
+        self.max.x - self.min.x
+    }
+
+    pub fn size_y(self) -> f64 {
+        self.max.y - self.min.y
+    }
+
+    pub fn size_z(self) -> f64 {
+        self.max.z - self.min.z
+    }
+
     /// Calculate the center of the bounding box.
     pub fn center(self) -> DVec3 {
         (self.min + self.max) / 2.0

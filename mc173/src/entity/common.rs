@@ -5,11 +5,11 @@ use std::ops::Sub;
 
 use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
+use crate::world::bound::RayTraceKind;
 use crate::block::material::Material;
 use crate::geom::{Face, BoundingBox};
 use crate::world::World;
 use crate::block;
-use crate::world::bound::RayTraceKind;
 
 use super::{Entity, BaseKind, LivingKind, Base};
 
@@ -40,6 +40,18 @@ pub fn calc_eye_pos(base: &Base) -> DVec3 {
     let mut pos = base.pos;
     pos.y += base.eye_height as f64;
     pos
+}
+
+/// Return true if the given bounding box is colliding with any fluid (given material).
+pub fn has_fluids_colliding(world: &World, bb: BoundingBox, material: Material) -> bool {
+    debug_assert!(material.is_fluid());
+    world.iter_blocks_in_box(bb)
+        .filter(|&(_, block, _)| block::material::get_material(block) == material)
+        .any(|(pos, _, metadata)| {
+            let dist = block::fluid::get_actual_distance(metadata);
+            let height = 1.0 - dist as f64 / 8.0;
+            pos.y as f64 + height >= bb.min.y
+        })
 }
 
 /// Calculate the velocity of a fluid at given position, this depends on neighbor blocks.

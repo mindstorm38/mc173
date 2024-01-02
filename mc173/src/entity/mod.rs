@@ -31,7 +31,7 @@ pub enum EntityKind {
     Painting,
     Boat,
     Minecart,
-    Fish,
+    Bobber,
     LightningBolt,
     FallingBlock,
     Tnt,
@@ -70,7 +70,6 @@ pub enum BaseKind {
     Painting(Painting),
     Boat(Boat),
     Minecart(Minecart),
-    Fish(Fish),
     LightningBolt(LightningBolt),
     FallingBlock(FallingBlock),
     Tnt(Tnt),
@@ -85,6 +84,7 @@ pub enum ProjectileKind {
     Egg(Egg),
     Fireball(Fireball),
     Snowball(Snowball),
+    Bobber(Bobber),
 }
 
 /// Kind of living entity, this include animals and mobs.
@@ -173,6 +173,8 @@ pub struct Base {
     pub hurt: Vec<Hurt>,
     /// If this entity is ridden, this contains its entity id.
     pub rider_id: Option<u32>,
+    /// If this entity has thrown a bobber for fishing, this contains its entity id.
+    pub bobber_id: Option<u32>,
     /// The random number generator used for this entity.
     pub rand: JavaRandom,
 }
@@ -326,7 +328,14 @@ pub enum Minecart {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Fish { }
+pub struct Bobber { 
+    /// Some entity id if this bobber is attached to an entity instead of floating in 
+    /// water.
+    pub attached_id: Option<u32>,
+    /// The remaining time for the bobber to be caught and have a chance of getting a 
+    /// fish.
+    pub catch_time: u16,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct LightningBolt { }
@@ -540,7 +549,6 @@ impl Entity {
             BaseKind::Painting(_) => Size::new(0.5, 0.5),
             BaseKind::Boat(_) => Size::new_centered(1.5, 0.6),
             BaseKind::Minecart(_) => Size::new_centered(0.98, 0.7),
-            BaseKind::Fish(_) => Size::new(0.25, 0.25),
             BaseKind::LightningBolt(_) => Size::new(0.0, 0.0),
             BaseKind::FallingBlock(_) => Size::new_centered(0.98, 0.98),
             BaseKind::Tnt(_) => Size::new_centered(0.98, 0.98),
@@ -548,6 +556,7 @@ impl Entity {
             BaseKind::Projectile(_, ProjectileKind::Egg(_)) => Size::new(0.5, 0.5),
             BaseKind::Projectile(_, ProjectileKind::Fireball(_)) => Size::new(1.0, 1.0),
             BaseKind::Projectile(_, ProjectileKind::Snowball(_)) => Size::new(0.5, 0.5),
+            BaseKind::Projectile(_, ProjectileKind::Bobber(_)) => Size::new(0.25, 0.25),
             BaseKind::Living(_, LivingKind::Human(player)) => {
                 if player.sleeping {
                     Size::new(0.2, 0.2)
@@ -657,7 +666,7 @@ impl Entity {
             return false;
         }
 
-        // Any colliding water block prevent spawning.
+        // Any colliding fluid block prevent spawning.
         if world.iter_blocks_in_box(base.bb).any(|(_pos, block, _)| block::material::is_fluid(block)) {
             return false;
         }
@@ -677,7 +686,6 @@ impl BaseKind {
             BaseKind::Painting(_) => EntityKind::Painting,
             BaseKind::Boat(_) => EntityKind::Boat,
             BaseKind::Minecart(_) => EntityKind::Minecart,
-            BaseKind::Fish(_) => EntityKind::Fish,
             BaseKind::LightningBolt(_) => EntityKind::LightningBolt,
             BaseKind::FallingBlock(_) => EntityKind::FallingBlock,
             BaseKind::Tnt(_) => EntityKind::Tnt,
@@ -722,6 +730,7 @@ impl ProjectileKind {
             ProjectileKind::Egg(_) => EntityKind::Egg,
             ProjectileKind::Fireball(_) => EntityKind::Fireball,
             ProjectileKind::Snowball(_) => EntityKind::Snowball,
+            ProjectileKind::Bobber(_) => EntityKind::Bobber,
         }
     }
 
@@ -736,7 +745,7 @@ impl EntityKind {
             EntityKind::Painting => Painting::new_default(pos),
             EntityKind::Boat => Boat::new_default(pos),
             EntityKind::Minecart => Minecart::new_default(pos),
-            EntityKind::Fish => Fish::new_default(pos),
+            EntityKind::Bobber => Bobber::new_default(pos),
             EntityKind::LightningBolt => LightningBolt::new_default(pos),
             EntityKind::FallingBlock => FallingBlock::new_default(pos),
             EntityKind::Tnt => Tnt::new_default(pos),
@@ -768,7 +777,7 @@ impl EntityKind {
     pub fn is_hard(self) -> bool {
         match self {
             EntityKind::Item |
-            EntityKind::Fish |
+            EntityKind::Bobber |
             EntityKind::LightningBolt |
             EntityKind::Arrow |
             EntityKind::Egg |
@@ -906,7 +915,6 @@ impl_new_with!(Base:
     Painting, 
     Boat, 
     Minecart, 
-    Fish, 
     LightningBolt, 
     FallingBlock |_: &mut Base, this: &mut FallingBlock| {
         this.block_id = block::SAND;
@@ -934,4 +942,5 @@ impl_new_with!(Projectile:
     Arrow,
     Egg,
     Fireball,
-    Snowball);
+    Snowball,
+    Bobber);

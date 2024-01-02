@@ -12,11 +12,12 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 
 use tracing::trace;
 
+use crate::block::material::Material;
 use crate::world::bound::RayTraceKind;
 use crate::world::{World, Event, EntityEvent};
 use crate::entity::Chicken;
 use crate::item::ItemStack;
-use crate::geom::Face;
+use crate::geom::{Face, BoundingBox};
 use crate::block;
 
 use super::{Entity,
@@ -282,6 +283,42 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
     projectile.shake = projectile.shake.saturating_sub(1);
     projectile.state_time = projectile.state_time.saturating_add(1);
 
+    // If this is a fishing rod bobber, we force its position, but we also prevent it to
+    // enter the block hit state.
+    if let ProjectileKind::Bobber(bobber) = projectile_kind {
+
+        // Kill the bobber by default, keep it if the owner is still alive and still
+        // declare it has the its bobber.
+        let mut remove_bobber = true;
+
+        if let Some(owner_id) = projectile.owner_id {
+            if let Some(Entity(owner_base, _)) = world.get_entity(owner_id) {
+                if owner_base.bobber_id == Some(id) {
+                    remove_bobber = false;
+                }
+            }
+        }
+
+        if remove_bobber {
+            world.remove_entity(id);
+            return;
+        }
+
+        if let Some(attached_id) = bobber.attached_id {
+            if let Some(Entity(attached_base, _)) = world.get_entity(attached_id) {
+                base.pos.x = attached_base.pos.x;
+                base.pos.y = attached_base.bb.min.y + attached_base.size.height as f64 * 0.8;
+                base.pos.z = attached_base.pos.z;
+                projectile.state = None;
+                common::update_bounding_box_from_pos(base);
+                return;
+            } else {
+                bobber.attached_id = None;
+            }
+        }
+
+    }
+
     if let Some(hit) = projectile.state {
         if (hit.block, hit.metadata) == world.get_block(hit.pos).unwrap() {
             if projectile.state_time == 1200 {
@@ -292,6 +329,8 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             base.vel *= (base.rand.next_float_vec() * 0.2).as_dvec3();
             projectile.state = None;
             projectile.state_time = 0;
+            // PARITY: The Notchian implementation directly execute the following code
+            // but only for the fishing bobber.
         }
     } else {
 
@@ -303,15 +342,19 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             base.vel = hit_block.ray;
         }
 
-        // Only prevent collision with owner for the first 4 ticks.
-        let owner_id = projectile.owner_id.filter(|_| projectile.state_time < 5);
+        // Only prevent collision with owner for the first 4 ticks. The fireball is the
+        // only one to be 24 ticks instead.
+        let owner_invincible_time = match projectile_kind {
+            ProjectileKind::Fireball(_) => 25,
+            _ => 5
+        };
+        let owner_id = projectile.owner_id.filter(|_| projectile.state_time < owner_invincible_time);
         
         // We try to find an entity that collided with the ray.
         let hit_entity = world.iter_entities_colliding_mut(base.bb.offset(base.vel).inflate(DVec3::ONE))
             // Filter out entities that we cannot collide with.
             .filter(|(target_id, Entity(_, target_base_kind))| {
                 match target_base_kind {
-                    BaseKind::Fish(_) |
                     BaseKind::Item(_) |
                     BaseKind::LightningBolt(_) |
                     BaseKind::Projectile(_, _) => false,
@@ -321,22 +364,22 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             })
             // Check if the current ray intersects with the entity bounding box,
             // inflated by 0.3, if so we return the entity and the ray length^2.
-            .filter_map(|(_, target_entity)| {
+            .filter_map(|(target_id, target_entity)| {
                 target_entity.0.bb
                     .inflate(DVec3::splat(0.3))
                     .calc_ray_trace(base.pos, base.vel)
-                    .map(|(new_ray, _)| (target_entity, new_ray.length_squared()))
+                    .map(|(new_ray, _)| (target_id, target_entity, new_ray.length_squared()))
             })
             // Take the entity closer to the origin.
-            .min_by(|(_, len1), (_, len2)| len1.total_cmp(len2))
-            // Keep only the entity, if found.
-            .map(|(entity, _)| entity);
+            .min_by(|(_, _, len1), (_, _, len2)| len1.total_cmp(len2))
+            // Don't keep the ray length.
+            .map(|(target_id, target_entity, _)| (target_id, target_entity));
 
         // The logic when hitting a block or entity depends on projectile kind.
         match projectile_kind {
             ProjectileKind::Arrow(_) => {
 
-                if let Some(Entity(hit_base, _)) = hit_entity {
+                if let Some((_, Entity(hit_base, _))) = hit_entity {
                     hit_base.hurt.push(Hurt { 
                         damage: 4, 
                         origin_id: projectile.owner_id,
@@ -379,7 +422,7 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             ProjectileKind::Snowball(_) |
             ProjectileKind::Egg(_) => {
 
-                if let Some(Entity(hit_base, _)) = hit_entity {
+                if let Some((_, Entity(hit_base, _))) = hit_entity {
                     hit_base.hurt.push(Hurt { 
                         damage: 0, 
                         origin_id: projectile.owner_id,
@@ -422,6 +465,28 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
                 }
 
             }
+            ProjectileKind::Bobber(bobber) => {
+
+                if let Some((hit_id, Entity(hit_base, _))) = hit_entity {
+
+                    hit_base.hurt.push(Hurt { 
+                        damage: 0, 
+                        origin_id: projectile.owner_id,
+                    });
+
+                    bobber.attached_id = Some(hit_id);
+
+                } else if let Some(hit_block) = hit_block {
+
+                    projectile.state = Some(ProjectileHit {
+                        pos: hit_block.pos,
+                        block: hit_block.block,
+                        metadata: hit_block.metadata,
+                    });
+
+                }
+
+            }
         }
 
         base.pos += base.vel;
@@ -439,6 +504,70 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             }
 
             base.vel += fireball.accel;
+
+        } else if let ProjectileKind::Bobber(bobber) = projectile_kind {
+
+            // PARITY: The bobber in Notchian implementation is really weird, so I just
+            // tried here to make a better logic that do not use the block collision
+            // after the ray tracing, this would be redundant for not so much improvement.
+            
+            let mut fluid_boost = 0.0;
+            for delta in 0u8..5 {
+
+                let min_y = base.bb.min.y + base.bb.size_y() * (delta + 0) as f64 / 5.0;
+                let max_y = base.bb.min.y + base.bb.size_y() * (delta + 1) as f64 / 5.0;
+
+                let check_bb = BoundingBox {
+                    min: DVec3 { 
+                        x: base.bb.min.x, 
+                        y: min_y, 
+                        z: base.bb.min.z,
+                    },
+                    max: DVec3 {
+                        x: base.bb.max.x,
+                        y: max_y,
+                        z: base.bb.max.z,
+                    },
+                };
+
+                if common::has_fluids_colliding(world, check_bb, Material::Water) {
+                    fluid_boost += 1.0 / 5.0;
+                }
+
+            }
+
+            if fluid_boost > 0.0 {
+
+                if bobber.catch_time > 0 {
+                    bobber.catch_time -= 1;
+                } else {
+
+                    let chance = 500;
+                    // TODO: If canLightningStrikeAt, it's 300
+
+                    if base.rand.next_int_bounded(chance) == 0 {
+                        bobber.catch_time = base.rand.next_int_bounded(30) as u16 + 10;
+                        base.vel.y -= 0.2;
+                    }
+
+                }
+
+            }
+
+            if bobber.catch_time > 0 {
+                base.vel.y -= (base.rand.next_float() * base.rand.next_float() * base.rand.next_float()) as f64 * 0.2;
+            }
+
+            let mut vel_factor = 0.92;
+            // TODO: vel_factor = 0.5 if collided.
+
+            base.vel.y += (fluid_boost * 2.0 - 1.0) * 0.04;
+            if fluid_boost > 0.0 {
+                vel_factor *= 0.9;
+                base.vel.y *= 0.8;
+            }
+
+            base.vel *= vel_factor;
 
         } else {
             

@@ -54,7 +54,7 @@ impl EntityTracker {
 
         let (distance, interval, vel_enable) = match entity.kind() {
             EntityKind::Human => (512, 2, false),
-            EntityKind::Fish => (64, 5, true),
+            EntityKind::Bobber => (64, 5, true),
             EntityKind::Arrow => (64, 20, false),
             EntityKind::Fireball => (64, 1, false), // Notchian use 10 ticks
             EntityKind::Snowball => (64, 10, false),
@@ -306,7 +306,6 @@ impl EntityTracker {
             BaseKind::Minecart(e::Minecart::Normal) => self.spawn_entity_object(player, 10, false),
             BaseKind::Minecart(e::Minecart::Chest { .. }) => self.spawn_entity_object(player, 11, false),
             BaseKind::Minecart(e::Minecart::Furnace { .. }) => self.spawn_entity_object(player, 12, false),
-            BaseKind::Fish(_) => self.spawn_entity_object(player, 90, false),
             BaseKind::LightningBolt(_) => (),
             BaseKind::FallingBlock(falling_block) => {
                 // NOTE: We use sand for any block id that is unsupported.
@@ -322,6 +321,7 @@ impl EntityTracker {
                     ProjectileKind::Egg(_) => self.spawn_entity_object(player, 62, true),
                     ProjectileKind::Fireball(_) => self.spawn_entity_object(player, 63, true),
                     ProjectileKind::Snowball(_) => self.spawn_entity_object(player, 61, true),
+                    ProjectileKind::Bobber(_) => self.spawn_entity_object(player, 90, true),
                 }
             }
             BaseKind::Living(_, living_kind) => {

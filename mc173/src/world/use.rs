@@ -2,10 +2,10 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
+use crate::entity::{Arrow, Entity, Snowball, Tnt, Bobber, BaseKind, ProjectileKind, Item};
 use crate::inventory::InventoryHandle;
 use crate::gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
-use crate::entity::{Arrow, Entity, Snowball, Tnt};
 use crate::item::{ItemStack, self};
 use crate::geom::Face;
 use crate::block;
@@ -68,6 +68,7 @@ impl World {
             item::LAVA_BUCKET => self.use_bucket_stack(inv, index, entity_id),
             item::BOW => self.use_bow_stack(inv, index, entity_id),
             item::SNOWBALL => self.use_snowball_stack(inv, index, entity_id),
+            item::FISHING_ROD => self.use_fishing_rod_stack(inv, index, entity_id),
             _ => ()
         }
 
@@ -402,7 +403,7 @@ impl World {
     fn use_snowball_stack(&mut self, inv: &mut InventoryHandle, index: usize, entity_id: u32) {
 
         let stack = inv.get(index);
-        inv.set(index, stack.with_size(stack.size - 1));
+        inv.set(index, stack.inc_damage(1));
 
         let Entity(base, _) = self.get_entity(entity_id).unwrap();
 
@@ -432,6 +433,92 @@ impl World {
         });
 
         self.spawn_entity(snowball);
+
+    }
+
+    fn use_fishing_rod_stack(&mut self, inv: &mut InventoryHandle, index: usize, entity_id: u32) {
+
+        let Entity(base, _) = self.get_entity_mut(entity_id).unwrap();
+
+        // Save the pos before dropping the base reference.
+        let base_pos = base.pos;
+        let base_look = base.look;
+        let mut new_bobber_id = base.bobber_id;
+
+        let mut item_damage = 0;
+
+        if let Some(bobber_id) = new_bobber_id {
+            
+            if let Some(Entity(bobber_base, BaseKind::Projectile(bobber_projectile, ProjectileKind::Bobber(bobber)))) = self.get_entity(bobber_id) {
+
+                let bobber_pos = bobber_base.pos;
+
+                let bobber_delta = base_pos - bobber_pos;
+                let bobber_dist = bobber_delta.length();
+                let mut bobber_accel = bobber_delta * 0.1;
+                bobber_accel.y += bobber_dist.sqrt() * 0.08;
+
+                if let Some(attached_id) = bobber.attached_id {
+                    if let Some(Entity(attached_base, _)) = self.get_entity_mut(attached_id) {
+                        attached_base.vel += bobber_accel;
+                        item_damage = 3;
+                    }
+                } else if bobber.catch_time > 0 {
+
+                    self.spawn_entity(Item::new_with(|item_base, item| {
+                        item_base.persistent = true;
+                        item_base.pos = bobber_pos;
+                        item_base.vel = bobber_accel;
+                        item.stack = ItemStack::new_single(item::RAW_FISH, 0);
+                    }));
+
+                    item_damage = 1;
+
+                } else if bobber_projectile.state.is_some() {
+                    item_damage = 2;
+                }
+
+            }
+
+            self.remove_entity(bobber_id);
+            new_bobber_id = None;
+
+        } else {
+
+            let bobber = Bobber::new_with(|throw_base, throw_projectile, _| {
+            
+                throw_base.pos = base_pos;
+                throw_base.pos.y += 1.62 - 0.1;
+                throw_base.look = base_look;
+    
+                let (yaw_sin, yaw_cos) = throw_base.look.x.sin_cos();
+                let (pitch_sin, pitch_cos) = throw_base.look.y.sin_cos();
+    
+                // PARITY: Notchian implementation multiplies the initial velocity Y component
+                // by 0.4 for unknown reason, to fix the aim issue we removed this here.
+                throw_base.vel.x = (-yaw_sin * pitch_cos) as f64;
+                throw_base.vel.z = (yaw_cos * pitch_cos) as f64;
+                throw_base.vel.y = (-pitch_sin) as f64;
+                
+                throw_base.pos.x += throw_base.vel.x * 0.16;
+                throw_base.pos.z += throw_base.vel.z * 0.16;
+    
+                throw_base.vel += throw_base.rand.next_gaussian_vec() * 0.0075;
+                throw_base.vel *= 1.5;
+    
+                throw_projectile.owner_id = Some(entity_id);
+    
+            });
+    
+            new_bobber_id = Some(self.spawn_entity(bobber));
+
+        }
+
+        let Entity(base, _) = self.get_entity_mut(entity_id).unwrap();
+        base.bobber_id = new_bobber_id;
+
+        let stack = inv.get(index);
+        inv.set(index, stack.inc_damage(item_damage));
 
     }
 
