@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::io;
 
-use glam::{Vec2, DVec3};
+use glam::Vec2;
 
 use tracing::{warn, info, instrument};
 
 use mc173::world::{Dimension, Weather};
 use mc173::entity::{self as e};
 
+use crate::config;
 use crate::proto::{self, Network, NetworkEvent, NetworkClient, InPacket, OutPacket};
 use crate::offline::OfflinePlayer;
 use crate::player::ServerPlayer;
@@ -192,7 +193,7 @@ impl Server {
             return;
         }
 
-        let spawn_pos = DVec3::new(0.0, 100.0, 0.0);
+        let spawn_pos = config::SPAWN_POS;
 
         // Get the offline player, if not existing we create a new one with the 
         let offline_player = self.offline_players.entry(packet.username.clone())

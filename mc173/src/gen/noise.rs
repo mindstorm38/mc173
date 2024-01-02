@@ -1,6 +1,11 @@
 //! Perlin and octaves noise generators at parity with Minecraft world generation.
 //! 
-//! TODO: Ensure parity of wrapping arithmetic where relevant.
+//! Note that in this module, every usage of the primitive cast operator `as` that
+//! are narrowing the values are documented and justified to be at parity with the
+//! Java conversion.
+//! 
+//! Reference for the narrowing casts in Java: 
+//! https://docs.oracle.com/javase/specs/jls/se7/html/jls-5.html
 
 use std::mem;
 use std::fmt;
@@ -100,6 +105,9 @@ impl PerlinNoise {
 
     /// Create a new perlin noise initialized with the given RNG.
     pub fn new(rand: &mut JavaRandom) -> Self {
+
+        // NOTE: The narrowing casts in this function are safe because with statically
+        // know that we are in range (512 or 256) and i32 or u16 is enough.
 
         let offset = rand.next_double_vec() * 256.0;
 
@@ -440,12 +448,19 @@ fn grad2(value: u16, x: f64, z: f64) -> f64 {
 #[inline]
 fn calc_pos(mut pos: f64) -> (f64, f64, usize) {
 
-    let floor = pos.floor();
-    pos -= floor;
-    let factor = pos * pos * pos * (pos * (pos * 6.0 - 15.0) + 10.0);
-    let index = (floor as i32 & 255) as usize;
+    // PARITY: This function is really important to reproduce the infamous "Far Lands",
+    // the manual floor implementation is really important to keep like this, and avoid
+    // using the `.floor` function that just ignore the integer overflow rule that 
+    // saturate the integer value if the floating point value is too high.
 
-    // TODO: Check parity of wrapping arithmetic.
+    let mut floor = pos as i32;
+    if pos < floor as f64 {
+        floor = floor.wrapping_sub(1);
+    }
+
+    pos -= floor as f64;
+    let factor = pos * pos * pos * (pos * (pos * 6.0 - 15.0) + 10.0);
+    let index = (floor & 255) as usize;
 
     (pos, factor, index)
 
@@ -453,7 +468,8 @@ fn calc_pos(mut pos: f64) -> (f64, f64, usize) {
 
 #[inline]
 fn wrap(value: f64) -> i32 {
-    if value > 0.0 { value as i32 } else { value as i32 - 1 }
+    let ret = value as i32;
+    if value > 0.0 { ret } else { ret.wrapping_sub(1) }
 }
 
 #[inline]

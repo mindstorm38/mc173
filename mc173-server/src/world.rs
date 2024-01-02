@@ -23,10 +23,7 @@ use crate::proto::{self, OutPacket};
 use crate::entity::EntityTracker;
 use crate::player::ServerPlayer;
 use crate::chunk::ChunkTrackers;
-
-
-/// Server world seed is currently hardcoded.
-const SEED: i64 = 9999;
+use crate::config;
 
 
 /// A single world in the server, this structure keep tracks of players and entities
@@ -88,7 +85,7 @@ impl ServerWorld {
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));
 
-        let seed = SEED;
+        let seed = config::SEED;
         
         Self {
             world: inner,
@@ -292,9 +289,8 @@ impl ServerWorld {
             });
         }
 
-        // FIXME: Temporary code.
-        let center_cx = 0;
-        let center_cz = 0;
+        // NOTE: Temporary code.
+        let (center_cx, center_cz) = chunk::calc_entity_chunk_pos(config::SPAWN_POS);
         for cx in center_cx - 10..=center_cx + 10 {
             for cz in center_cz - 10..=center_cz + 10 {
                 self.state.storage.request_load(cx, cz);

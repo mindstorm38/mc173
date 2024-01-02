@@ -1,6 +1,7 @@
 //! The configuration for the server, given from environment variables and lazy 
 //! initialized when needed.
 
+use glam::DVec3;
 use once_cell::race::OnceBool;
 use std::env;
 
@@ -16,3 +17,10 @@ pub fn fast_entity() -> bool {
             .unwrap_or(false)
     })
 }
+
+
+/// Server world seed is currently hardcoded.
+pub const SEED: i64 = 9999;
+
+/// The spawn position is currently hardcoded.
+pub const SPAWN_POS: DVec3 = DVec3::new(12550800.0, 100.0, 12550800.0);
