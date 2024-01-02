@@ -307,6 +307,7 @@ impl World {
             .collect();
         
         if let Some(chunk) = chunk_comp.data {
+
             ret = Some(ChunkSnapshot { 
                 cx, 
                 cz,
@@ -314,6 +315,9 @@ impl World {
                 entities,
                 block_entities,
             });
+
+            self.push_event(Event::Chunk { cx, cz, inner: ChunkEvent::Remove });
+
         }
 
         ret
