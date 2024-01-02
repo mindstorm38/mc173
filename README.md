@@ -3,14 +3,14 @@ A work-in-progress Minecraft beta 1.7.3 server made in Rust. This project split 
 crate from data structure and logic crate, the latter is made to be used be developers.
 
 ## Logic
-The logic crate is available at [mc173/](/mc173/) and provides the core data structures
-such as worlds, chunks and entities, but also the behaviors for blocks, items and 
-entities.
+The logic crate [mc173](/mc173/) provides the core data structures such as worlds, chunks 
+and entities, but also the behaviors for blocks, items and entities. It also provides a
+lot of utilities related to Minecraft.
 
 ## Server
-The server crate is available at [mc173-server/](/mc173-server/), it's an implementation 
-of the *Notchian* server protocol, it is built on top of the logic crate and has threaded 
-networking, it also defines protocol structures.
+The server crate [mc173-server](/mc173-server/) is an implementation of the *Notchian* 
+server protocol, it is built on top of the logic crate and has threaded networking, it 
+also defines protocol structures.
 
 ## Roadmap
 There is a lot of work to be done in order to provide a fully functional server on 

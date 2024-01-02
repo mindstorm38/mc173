@@ -2,7 +2,13 @@
 name = "mc173"
 version = "0.1.0"
 edition = "2021"
-description = "Base data structure and logic for running a Minecraft beta 1.7.3 world"
+description = "Minecraft beta 1.7.3 base data structures and logic for running a world"
+readme = "../README.md"
+homepage = "https://github.com/mindstorm38/mc173"
+repository = "https://github.com/mindstorm38/mc173"
+license = "MIT"
+keywords = ["minecraft", "game", "backend"]
+categories = ["games"]
 
 [dependencies]
 crossbeam-channel = "0.5"

@@ -3,6 +3,12 @@ name = "mc173-server"
 version = "0.1.0"
 edition = "2021"
 description = "Minecraft beta 1.7.3 protocol and server implementation compatible with Notchian client"
+readme = "../README.md"
+homepage = "https://github.com/mindstorm38/mc173"
+repository = "https://github.com/mindstorm38/mc173"
+license = "MIT"
+keywords = ["minecraft", "game", "server"]
+categories = ["games"]
 
 [dependencies]
 mc173 = { path = "../mc173" }
