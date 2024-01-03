@@ -50,9 +50,6 @@ thread_local! {
     /// executed. This is mandatory since ticking a block requires full mutable access to
     /// the world, but it's not possible while owning a reference to a chunk.
     static RANDOM_TICKS_PENDING: Cell<Vec<(IVec3, u8, u8)>> = const { Cell::new(Vec::new()) };
-    /// This thread local vector is used to temporally store entities or block entities 
-    /// indices that should be removed just after the update loop.
-    static INDICES_TO_REMOVE: Cell<Vec<usize>> = const { Cell::new(Vec::new()) };
 }
 
 
