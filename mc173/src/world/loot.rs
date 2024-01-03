@@ -11,6 +11,7 @@ use crate::{block, item};
 use super::World;
 
 
+/// Methods related to loot spawning in the world and block loot randomization.
 impl World {
 
     /// Spawn item entity in the world containing the given stack. The velocity of the 

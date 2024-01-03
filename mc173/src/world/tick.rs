@@ -15,6 +15,7 @@ use crate::{block, item};
 use super::{World, Dimension, Event, BlockEntityEvent, BlockEntityStorage, Weather};
 
 
+/// Methods related to block scheduled ticking and random ticking.
 impl World {
 
     /// Tick a block in the world. The random boolean indicates if it's a random tick.

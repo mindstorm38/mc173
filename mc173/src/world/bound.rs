@@ -19,6 +19,7 @@ const PIXEL_2: f64 = 2.0 / 16.0;
 const PIXEL_3: f64 = 3.0 / 16.0;
 
 
+/// Methods related to block collisions and overlay bounds and also for ray tracing.
 impl World {
 
     /// Get the colliding boxes for a block, the colliding box will be offset to the 
@@ -58,6 +59,8 @@ impl World {
 
     /// Get the colliding box for a block, this returns a single bounding box that is an
     /// union between all boxes returned by [`iter_block_colliding_boxes`] iterator.
+    /// 
+    /// [`iter_block_colliding_boxes`]: Self::iter_block_colliding_boxes
     pub fn get_block_colliding_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox> {
         let mut iter = self.iter_block_colliding_boxes(pos, id, metadata);
         let mut bb = iter.next()?;

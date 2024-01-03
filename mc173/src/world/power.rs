@@ -9,6 +9,7 @@ use crate::block;
 use super::World;
 
 
+/// Methods related to redstone power calculation in the world.
 impl World {
 
     /// Check if the given block position get any active power from surrounding faces.

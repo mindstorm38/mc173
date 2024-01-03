@@ -11,6 +11,7 @@ use crate::block;
 use super::{World, Event, BlockEvent};
 
 
+/// Methods related to block self and neighbor notifications.
 impl World {
 
     /// Notify all blocks around the position, the notification origin block id is given.

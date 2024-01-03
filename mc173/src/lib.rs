@@ -1,4 +1,4 @@
-//! A Minecraft beta 1.7.3 server in Rust.
+//! A Minecraft beta 1.7.3 server backend in Rust.
 
 pub mod io;
 pub mod util;
@@ -21,4 +21,3 @@ pub mod world;
 pub mod storage;
 pub mod serde;
 pub mod gen;
-

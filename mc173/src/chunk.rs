@@ -1,6 +1,6 @@
 //! A chunk storing block and light data of a world, optimized for runtime performance. 
-//! This  module only provides low-level data structures, refer to the [`mc173::world`] 
-//! module for world manipulation methods.
+//! This  module only provides low-level data structures, refer to the 
+//! [`world`](crate::world) module for world manipulation methods.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -17,9 +17,9 @@ pub const CHUNK_WIDTH: usize = 16;
 /// Chunk height.
 pub const CHUNK_HEIGHT: usize = 128;
 /// Internal chunk 2D size, in number of columns per chunk.
-const CHUNK_2D_SIZE: usize = CHUNK_WIDTH * CHUNK_WIDTH;
+pub const CHUNK_2D_SIZE: usize = CHUNK_WIDTH * CHUNK_WIDTH;
 /// Internal chunk 3D size, in number of block per chunk.
-const CHUNK_3D_SIZE: usize = CHUNK_HEIGHT * CHUNK_2D_SIZE;
+pub const CHUNK_3D_SIZE: usize = CHUNK_HEIGHT * CHUNK_2D_SIZE;
 
 
 /// Calculate the index in the chunk's arrays for the given position (local or not). This
@@ -70,7 +70,7 @@ pub fn calc_entity_chunk_pos(pos: DVec3) -> (i32, i32) {
 
 
 /// Data structure storing every chunk-local data, chunks are a world subdivision of 
-/// 16x16x256 blocks.
+/// 16x16x128 blocks.
 #[derive(Clone)]
 pub struct Chunk {
     /// The numeric identifier of the block.

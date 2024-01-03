@@ -9,6 +9,7 @@ use crate::block;
 use super::World;
 
 
+/// Methods related to block interactions when client clicks on a block.
 impl World {
 
     /// Interact with a block at given position. This function returns true if an 

@@ -5,7 +5,7 @@
 //! Java conversion.
 //! 
 //! Reference for the narrowing casts in Java: 
-//! https://docs.oracle.com/javase/specs/jls/se7/html/jls-5.html
+//! <https://docs.oracle.com/javase/specs/jls/se7/html/jls-5.html>
 
 use std::mem;
 use std::fmt;

@@ -14,6 +14,8 @@ use crate::block;
 
 use super::World;
 
+
+/// Methods related to explosions.
 impl World {
 
     /// Make an explosion in the world at the given position and size. The explosion can

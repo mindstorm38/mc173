@@ -1,4 +1,4 @@
-//! Block enumeration and behaviors.
+//! Block enumeration and functions to query their metadata state.
 
 use crate::item::Item;
 

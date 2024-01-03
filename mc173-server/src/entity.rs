@@ -248,7 +248,8 @@ impl EntityTracker {
 
     }
 
-    /// Update players to track or untrack this entity. See [`update_tracking_player`].
+    /// Update players to track or untrack this entity. 
+    /// See [`update_tracking_player`](Self::update_tracking_player).
     pub fn update_tracking_players(&self, players: &mut [ServerPlayer], world: &World) {
         for player in players {
             self.update_tracking_player(player, world);

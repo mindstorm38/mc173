@@ -13,6 +13,8 @@ pub struct InventoryHandle<'a> {
 
 impl<'a> InventoryHandle<'a> {
 
+    /// Construct a new inventory handle to a slice of item stacks. This functions panics
+    /// if the given slice is bigger than 64 stacks.
     pub fn new(inv: &'a mut [ItemStack]) -> Self {
         assert!(inv.len() <= 64);
         Self {
@@ -21,11 +23,13 @@ impl<'a> InventoryHandle<'a> {
         }
     }
 
+    /// Get the item stack at the given index.
     #[inline]
     pub fn get(&self, index: usize) -> ItemStack {
         self.inv[index]
     }
 
+    /// Set the item stack at the given index.
     #[inline]
     pub fn set(&mut self, index: usize, stack: ItemStack) {
         self.inv[index] = stack;

@@ -11,6 +11,7 @@ use crate::block;
 use super::World;
 
 
+/// Methods related to block placing.
 impl World {
 
     /// This function checks if the given block id can be placed at a particular position in

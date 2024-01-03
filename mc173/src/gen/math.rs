@@ -34,7 +34,7 @@ pub trait MinecraftMath: Copy {
     /// Computes the cosine of a number (in radians) with parity with Notchian impl.
     fn mc_cos(self) -> Self;
 
-    /// Same as [`sin_cos`] but for Notchian impl.
+    /// Same as [`f32::sin_cos`] but for Notchian impl.
     #[inline]
     fn mc_sin_cos(self) -> (Self, Self) {
         (self.mc_sin(), self.mc_cos())

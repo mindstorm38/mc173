@@ -8,6 +8,7 @@ use crate::block;
 use super::World;
 
 
+/// Shortcut methods for directly querying and checking a block material and properties.
 impl World {
 
     /// Get the block material at given position, defaults to air if no chunk.

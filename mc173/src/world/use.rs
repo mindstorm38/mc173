@@ -14,6 +14,7 @@ use super::World;
 use super::bound::RayTraceKind;
 
 
+/// Methods related to item usage in the world.
 impl World {
 
     /// Use an item stack on a given block, this is basically the action of left click. 

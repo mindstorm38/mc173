@@ -300,8 +300,9 @@ impl<'a> PathFinder<'a> {
 
     }
 
-    /// A specialization or [`find_path`] to find a path of a moving bounding box to a 
-    /// given position. The actual position of the bounding is its bottom center.
+    /// A specialization or [`find_path`](Self::find_path) to find a path of a moving 
+    /// bounding box to a given position. The actual position of the bounding is its 
+    /// bottom center.
     pub fn find_path_from_bounding_box(&mut self, from: BoundingBox, to: DVec3, dist: f32) -> Option<Vec<IVec3>> {
         
         // println!("== find_path_from_bounding_box: from {from}, to {to}, dist {dist}");

@@ -53,6 +53,10 @@ thread_local! {
 }
 
 
+/// A data-structure that fully describes a Minecraft beta 1.7.3 world, with all its 
+/// blocks, lights, biomes, entities and block entities. It also keep the current state
+/// of the world such as time and weather and allows ticking it step by step.
+/// 
 /// # Components 
 /// 
 /// This data structure stores different kind of component:
@@ -83,8 +87,10 @@ thread_local! {
 /// 
 /// This structure also allows listening for events within it through a queue of 
 /// [`Event`], events listening is disabled by default but can be enabled by swapping
-/// a `Vec<Event>` into the world using the [`World::swap_events`]. Events are generated
-/// either by world's ticking logic or by manual changes to the world.
+/// a `Vec<Event>` into the world using the [`swap_events`](Self::swap_events). Events 
+/// are generated either by world's ticking logic or by manual changes to the world. 
+/// Events are ordered chronologically, for example and entity cannot be removed before 
+/// being spawned.
 /// 
 /// # Naming convention
 /// 
@@ -161,6 +167,7 @@ pub struct World {
     sky_light_subtracted: u8,
 }
 
+/// Core methods for worlds.
 impl World {
 
     /// Create a new world of the given dimension with no events queue by default, so
@@ -190,20 +197,25 @@ impl World {
 
     /// This function can be used to swap in a new events queue and return the previous
     /// one if relevant. Giving *None* events queue disable events registration using
-    /// the [`push_event`] method. Swapping out the events is the only way of reading
-    /// them afterward.
+    /// the [`push_event`] method. Swapping out the events is the only way of reading 
+    /// them afterward without borrowing the world.
+    /// 
+    /// [`push_event`]: Self::push_event
     pub fn swap_events(&mut self, events: Option<Vec<Event>>) -> Option<Vec<Event>> {
         mem::replace(&mut self.events, events)
     }
 
     /// Return true if this world has an internal events queue that enables usage of the
     /// [`push_event`] method.
+    /// 
+    /// [`push_event`]: Self::push_event
     pub fn has_events(&self) -> bool {
         self.events.is_some()
     }
 
     /// Push an event in this world. This only actually push the event if events are 
-    /// enabled. Events queue can be swapped using [`swap_events`] method.swap_events
+    /// enabled. Events queue can be swapped using [`swap_events`](Self::swap_events) 
+    /// method.
     #[inline]
     pub fn push_event(&mut self, event: Event) {
         if let Some(events) = &mut self.events {
@@ -329,12 +341,10 @@ impl World {
     /// given chunk only contains block and light data, so no entity or block entity will
     /// be added by this function.
     /// 
-    /// If any chunk is existing at this coordinate, it will be replaced and all of its
-    /// entities will be transferred to that new chunk.
+    /// If any chunk is existing at this coordinate, it's just replaced and all entities
+    /// and block entities are not touched.
     /// 
-    /// The world allows entities to update outside of actual chunks, such entities are
-    /// known as orphan ones. If such entities are currently present at this chunk's
-    /// coordinates, they will be moved to this new chunk.
+    /// Only entities and block entities that are in a chunk will be ticked.
     pub fn set_chunk(&mut self, cx: i32, cz: i32, chunk: Arc<Chunk>) {
        
         let chunk_comp = self.chunks.entry((cx, cz)).or_default();
@@ -432,8 +442,10 @@ impl World {
 
     }
 
-    /// Same as the `set_block` method, but the previous block and new block are notified
-    /// of that removal and addition.
+    /// Same as the [`set_block`] method, but the previous block and new block are 
+    /// notified of that removal and addition.
+    /// 
+    /// [`set_block`]: Self::set_block
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
@@ -455,8 +467,10 @@ impl World {
 
     }
 
-    /// Same as the `set_block_self_notify` method, but additionally the blocks around 
+    /// Same as the [`set_block_self_notify`] method, but additionally the blocks around 
     /// are notified of that neighbor change.
+    /// 
+    /// [`set_block_self_notify`]: Self::set_block_self_notify
     pub fn set_block_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (prev_id, prev_metadata) = self.set_block_self_notify(pos, id, metadata)?;
         self.notify_blocks_around(pos, id);
@@ -1063,6 +1077,11 @@ impl World {
 
         while let Some((_, comp)) = self.entities.current_mut() {
 
+            if !comp.loaded {
+                self.entities.advance();
+                continue;
+            }
+
             let mut entity = comp.inner.take()
                 .expect("entity was already being updated");
 
@@ -1121,6 +1140,11 @@ impl World {
         self.block_entities.reset();
 
         while let Some((_, comp)) = self.block_entities.current_mut() {
+            
+            if !comp.loaded {
+                self.block_entities.advance();
+                continue;
+            }
 
             let mut block_entity = comp.inner.take()
                 .expect("block entity was already being updated");
@@ -1249,12 +1273,12 @@ pub enum Weather {
     Thunder,
 }
 
-/// Light value of a position in the world.
+/// Light values of a position in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Light {
     /// Block light level.
     pub block: u8,
-    /// Sky light level, can the absolute sky light or the actual one depending on query.
+    /// Sky light level.
     pub sky: u8,
     /// The real sky light level, depending on the time and weather.
     pub sky_real: u8,
@@ -1339,6 +1363,7 @@ pub enum Event {
     }
 }
 
+/// An event with a block.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockEvent {
     /// A block has been changed in the world.
@@ -1361,6 +1386,7 @@ pub enum BlockEvent {
     },
 }
 
+/// An event with an entity.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityEvent {
     /// The entity has been spawned. The initial chunk position is given.
@@ -1394,6 +1420,7 @@ pub enum EntityEvent {
     Metadata,
 }
 
+/// An event with a block entity.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockEntityEvent {
     /// The block entity has been set at its position.
@@ -1434,6 +1461,7 @@ pub enum BlockEntityProgress {
     FurnaceBurnRemainingTime,
 }
 
+/// An event with a chunk.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChunkEvent {
     /// The chunk has been set at its position. A chunk may have been replaced at that
@@ -2213,7 +2241,7 @@ impl<'a> Iterator for EntitiesInChunkIterMut<'a> {
 
 }
 
-/// An iterator of entities within a chunk.
+/// An iterator of entities that collide with a bounding box.
 pub struct EntitiesCollidingIter<'a> {
     /// Chunk components iter whens indices is exhausted.
     chunks: ChunkComponentsIter<'a>,
@@ -2258,7 +2286,7 @@ impl<'a> Iterator for EntitiesCollidingIter<'a> {
 
 }
 
-/// An iterator of entities within a chunk through mutable references.
+/// An iterator of entities that collide with a bounding box through mutable references.
 pub struct EntitiesCollidingIterMut<'a> {
     /// Chunk components iter whens indices is exhausted.
     chunks: ChunkComponentsIter<'a>,
