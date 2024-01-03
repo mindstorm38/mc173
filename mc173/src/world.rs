@@ -1666,12 +1666,12 @@ struct TickVec<T> {
 struct TickCell<T> {
     /// The actual value stored.
     value: T,
-    /// The index of the next value to tick.
-    /// Set to the cell index itself it there is no previous cell to tick.
-    next: usize,
     /// The index of the previous value to tick.
     /// Set to the cell index itself it there is no previous cell to tick.
     prev: usize,
+    /// The index of the next value to tick.
+    /// Set to the cell index itself it there is no previous cell to tick.
+    next: usize,
 }
 
 /// A borrowed version of the tick vector, this is better than referencing the vector
@@ -1701,8 +1701,8 @@ impl<T> TickVec<T> {
         let index = self.inner.len();
         self.inner.push(TickCell {
             value,
-            next: Self::END,
             prev: Self::END,
+            next: Self::END,
         });
         self.modified = true;
         index
@@ -1712,7 +1712,9 @@ impl<T> TickVec<T> {
     /// list. If it is currently being updated
     fn invalidate(&mut self, index: usize) {
 
-        let TickCell { next, prev, .. } = self.inner[index];
+        let cell = &mut self.inner[index];
+        let prev = mem::replace(&mut cell.prev, Self::END);
+        let next = mem::replace(&mut cell.next, Self::END);
 
         // Start by updating the link of the previous/next cells for this removed cell.
         if prev != Self::END {
@@ -1750,13 +1752,16 @@ impl<T> TickVec<T> {
 
         // If a cell has been swapped in place of the removed index, we need to update
         // the cell referencing it as its next ticking cell.
-        if let Some(swapped_cell) = self.inner.get_mut(index) {
+        if let Some(&TickCell { prev, next, .. }) = self.inner.get(index) {
 
-            // If the swapped cell was referencing itself, update to its new index.
-            // If not we should update the previous cell to reference its new index.
-            if swapped_cell.prev != Self::END {
-                let swapped_prev = swapped_cell.prev;
-                self.inner[swapped_prev].next = index;
+            // Relink the previous cell to the new index of this one.
+            if prev != Self::END {
+                self.inner[prev].next = index;
+            }
+
+            // Relink the next cell to the next index of this one.
+            if next != Self::END {
+                self.inner[next].prev = index;
             }
             
         }
