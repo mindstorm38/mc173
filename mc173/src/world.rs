@@ -1681,13 +1681,16 @@ struct TickSlice<T>([TickCell<T>]);
 
 impl<T> TickVec<T> {
 
+    /// This is our end of list sentinel.
+    const END: usize = usize::MAX;
+
     /// Construct a new empty tick vector, this doesn't not allocate.
     #[inline]
     const fn new() -> Self {
         Self {
             inner: Vec::new(),
             modified: false,
-            index: usize::MAX,
+            index: Self::END,
             invalidated: false,
         }
     }
@@ -1698,8 +1701,8 @@ impl<T> TickVec<T> {
         let index = self.inner.len();
         self.inner.push(TickCell {
             value,
-            next: index,
-            prev: index,
+            next: Self::END,
+            prev: Self::END,
         });
         self.modified = true;
         index
@@ -1712,34 +1715,20 @@ impl<T> TickVec<T> {
         let TickCell { next, prev, .. } = self.inner[index];
 
         // Start by updating the link of the previous/next cells for this removed cell.
-        if prev != index {
+        if prev != Self::END {
             // This condition is to keep the end-of-chain property.
-            if next == index {
-                self.inner[prev].next = prev;
-            } else {
-                self.inner[prev].next = next;
-            }
+            self.inner[prev].next = next;
         }
 
-        if next != index {
-            if prev == index {
-                self.inner[next].prev = next;
-            } else {
-                self.inner[next].prev = prev;
-            }
+        if next != Self::END {
+            self.inner[next].prev = prev;
         }
 
         // The last thing to keep in-sync is the tick index, if it was referencing the
         // removed value or the swapped one.
         if self.index == index {
-            // The usize::MAX value is a sentinel because we known that no value will
-            // ever reach this value.
             self.invalidated = true;
-            if next == index {
-                self.index = usize::MAX;
-            } else {
-                self.index = next;
-            }
+            self.index = next;
         }
 
     }
@@ -1764,15 +1753,8 @@ impl<T> TickVec<T> {
         if let Some(swapped_cell) = self.inner.get_mut(index) {
 
             // If the swapped cell was referencing itself, update to its new index.
-            if swapped_cell.next == swapped_index {
-                swapped_cell.next = index;
-            }
-
-            // If the swapped cell was referencing itself, update to its new index.
             // If not we should update the previous cell to reference its new index.
-            if swapped_cell.prev == swapped_index {
-                swapped_cell.prev = index;
-            } else {
+            if swapped_cell.prev != Self::END {
                 let swapped_prev = swapped_cell.prev;
                 self.inner[swapped_prev].next = index;
             }
@@ -1794,7 +1776,7 @@ impl<T> TickVec<T> {
     fn reset(&mut self) {
         
         if self.inner.is_empty() {
-            self.index = usize::MAX;
+            self.index = Self::END;
             return;
         }
 
@@ -1803,18 +1785,17 @@ impl<T> TickVec<T> {
         // Update the tick linked list...
         if mem::take(&mut self.modified) {
 
-            let len = self.inner.len();
-            for i in 1..len {
+            for i in 1..self.inner.len() {
                 self.inner[i - 1].next = i;
                 self.inner[i].prev = i - 1;
             }
             
             if let Some(cell) = self.inner.first_mut() {
-                cell.prev = 0;
+                cell.prev = Self::END;
             }
 
             if let Some(cell) = self.inner.last_mut() {
-                cell.next = len - 1;
+                cell.next = Self::END;
             }
 
         }
@@ -1829,13 +1810,10 @@ impl<T> TickVec<T> {
             self.invalidated = false;
         } else {
             if let Some(cell) = self.inner.get(self.index) {
-                // If the cell was the last one, we set the tick index to usize::MAX which is
-                // like a sentinel because no value will ever reach this index.
-                if cell.next == self.index {
-                    self.index = usize::MAX;
-                } else {
-                    self.index = cell.next;
-                }
+                self.index = cell.next;
+            } else {
+                // If the index is invalid, it should be the end sentinel.
+                debug_assert_eq!(self.index, Self::END);
             }
         }
     }

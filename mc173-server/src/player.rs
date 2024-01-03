@@ -266,6 +266,7 @@ impl ServerPlayer {
                     "skeleton" => EntityKind::Skeleton,
                     "ghast" => EntityKind::Ghast,
                     "slime" => EntityKind::Slime,
+                    "creeper" => EntityKind::Creeper,
                     _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind_raw}"))
                 };
 
