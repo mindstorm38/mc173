@@ -4,7 +4,7 @@ crate from data structure and logic crate, the latter is made to be used be deve
 
 ## Logic
 
-![Crates.io Total Downloads](https://img.shields.io/crates/d/mc173?style=flat-square)
+[![Crates.io Total Downloads](https://img.shields.io/crates/d/mc173?style=flat-square)](https://crates.io/crates/mc173)
 
 The logic crate [mc173](/mc173/) provides the core data structures such as worlds, chunks 
 and entities, but also the behaviors for blocks, items and entities. It also provides a
@@ -12,7 +12,7 @@ lot of utilities related to Minecraft.
 
 ## Server
 
-![Crates.io Total Downloads](https://img.shields.io/crates/d/mc173-server?style=flat-square)
+[![Crates.io Total Downloads](https://img.shields.io/crates/d/mc173-server?style=flat-square)](https://crates.io/crates/mc173-server)
 
 The server crate [mc173-server](/mc173-server/) is an implementation of the *Notchian* 
 server protocol, it is built on top of the logic crate and has threaded networking, it 
