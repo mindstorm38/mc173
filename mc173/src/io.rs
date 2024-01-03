@@ -78,7 +78,7 @@ pub trait ReadJavaExt: Read {
 
 }
 
-/// Extension trait with Minecraft-specific packet read methods.
+/// Extension trait with Minecraft-specific packet write methods.
 pub trait WriteJavaExt: Write {
 
     #[inline]

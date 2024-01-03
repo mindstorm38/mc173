@@ -1,4 +1,4 @@
-//! This module contains definition and behaviors for block entities.
+//! Block entities structures and logic implementation.
 
 use glam::IVec3;
 

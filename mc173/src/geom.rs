@@ -1,4 +1,4 @@
-//! Various geometry utilities that completes the `glam` math crate.
+//! Various geometry utilities that completes the [`glam`] math crate.
 
 use std::ops::{Add, AddAssign, Sub, SubAssign, BitOr, BitOrAssign};
 use std::fmt;
@@ -312,7 +312,7 @@ impl fmt::Display for BoundingBox {
 }
 
 
-/// Represent a cube facing.
+/// Represent a facing in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Face {

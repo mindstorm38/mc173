@@ -1,4 +1,4 @@
-//! Trying a new architecture for entity structure (again!!!).
+//! Entities structures and logic implementation.
 
 use glam::{DVec3, Vec2, IVec3};
 
