@@ -4,6 +4,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use tracing::instrument;
 
+use crate::block::material::Material;
 use crate::util::default as def;
 use crate::geom::BoundingBox;
 use crate::rand::JavaRandom;
@@ -54,6 +55,20 @@ pub enum EntityKind {
     Skeleton,
     Spider,
     Zombie,
+}
+
+/// Category of entity enumeration, this defines various common properties for groups of
+/// entities, such as natural spawning properties. 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntityCategory {
+    /// All animal entities.
+    Animal = 0,
+    /// Water animal entities.
+    WaterAnimal = 1,
+    /// Mob entities.
+    Mob = 2,
+    /// All remaining entities.
+    Other = 3,
 }
 
 /// Base type that contains all entity types, this is composed of the entity base data,
@@ -532,6 +547,12 @@ impl Entity {
         self.1.entity_kind()
     }
 
+    /// Get the category of entity from this instance.
+    #[inline]
+    pub fn category(&self) -> EntityCategory {
+        self.kind().category()
+    }
+
     /// This this entity from its id in a world.
     #[instrument(level = "debug", skip_all)]
     pub fn tick(&mut self, world: &mut World, id: u32) {
@@ -621,7 +642,9 @@ impl Entity {
             z: base.bb.center_z().floor() as i32,
         };
 
-        if kind.is_animal() {
+        let category = kind.category();
+
+        if category == EntityCategory::Animal {
             
             // Animals can only spawn on grass blocks.
             if !world.is_block(block_pos - IVec3::Y, block::GRASS) {
@@ -633,7 +656,7 @@ impl Entity {
                 return false;
             }
 
-        } else if kind.is_mob() {
+        } else if category == EntityCategory::Mob {
 
             let light = world.get_light(block_pos);
 
@@ -649,7 +672,7 @@ impl Entity {
 
         }
 
-        if kind.is_creature() {
+        if category != EntityCategory::Other {
             let weight_func = common::path_weight_func(living_kind);
             if weight_func(world, block_pos) < 0.0 {
                 return false;
@@ -787,44 +810,62 @@ impl EntityKind {
         }
     }
 
-    /// Return true if this entity kind is an animal.
-    #[inline]
-    pub fn is_animal(self) -> bool {
+    /// Get the category of this entity kind.
+    pub fn category(self) -> EntityCategory {
         match self {
             EntityKind::Pig |
             EntityKind::Chicken |
             EntityKind::Cow |
             EntityKind::Sheep |
-            EntityKind::Squid |
-            EntityKind::Wolf => true,
-            _ => false
-        }
-    }
-
-    /// Return true if this entity kind is a mob.
-    #[inline]
-    pub fn is_mob(self) -> bool {
-        match self {
+            EntityKind::Wolf => EntityCategory::Animal,
+            EntityKind::Squid => EntityCategory::WaterAnimal,
             EntityKind::Creeper |
             EntityKind::Giant |
             EntityKind::PigZombie |
             EntityKind::Skeleton |
             EntityKind::Spider |
-            EntityKind::Zombie => true,
-            _ => false
+            EntityKind::Zombie => EntityCategory::Mob,
+            _ => EntityCategory::Other
         }
     }
 
-    /// Return true if this entity kind is a water creature.
-    #[inline]
-    pub fn is_water(self) -> bool {
-        self == EntityKind::Squid
+    /// Returns the maximum number of entities of that kind that can be spawned at once
+    /// when natural spawning in a single chunk.
+    pub fn natural_spawn_max_chunk_count(self) -> usize {
+        match self {
+            EntityKind::Ghast => 1,
+            EntityKind::Wolf => 8,
+            _ => 4,
+        }
     }
 
-    /// Return true if this entity is any kind of creature (all except human).
-    #[inline]
-    pub fn is_creature(self) -> bool {
-        self.is_animal() || self.is_mob() || self.is_water()
+}
+
+impl EntityCategory {
+
+    pub const ALL: [Self; 4] = [Self::Animal, Self::WaterAnimal, Self::Mob, Self::Other];
+    
+    /// Returns the maximum number of entities of this category before preventing more
+    /// natural spawning. This number will be multiplied by the number of spawn-able
+    /// chunks and then by 256 (16x16 chunks). So this is the maximum count of entities
+    /// per 16x16 chunks loaded.
+    pub fn natural_spawn_max_world_count(self) -> usize {
+        match self {
+            EntityCategory::Animal => 15,
+            EntityCategory::WaterAnimal => 5,
+            EntityCategory::Mob => 70,
+            EntityCategory::Other => 0,
+        }
+    }
+
+    /// Returns the material this entity is able to spawn in, this is a preliminary check.
+    pub fn natural_spawn_material(self) -> Material {
+        match self {
+            EntityCategory::Animal => Material::Air,
+            EntityCategory::WaterAnimal => Material::Water,
+            EntityCategory::Mob => Material::Air,
+            EntityCategory::Other => Material::Air,
+        }
     }
 
 }

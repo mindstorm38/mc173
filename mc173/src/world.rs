@@ -16,8 +16,8 @@ use indexmap::IndexMap;
 
 use tracing::{trace, instrument};
 
+use crate::entity::{Entity, EntityCategory};
 use crate::block_entity::BlockEntity;
-use crate::entity::Entity;
 use crate::biome::Biome;
 use crate::chunk::{Chunk,
     calc_chunk_pos, calc_chunk_pos_unchecked, calc_entity_chunk_pos,
@@ -932,8 +932,9 @@ impl World {
 
         self.tick_weather();
         // TODO: Wake up all sleeping player if day time.
-        // TODO: Perform mob spawning.
         
+        // TODO: self.tick_natural_spawn();
+
         self.tick_sky_light();
 
         self.time += 1;
@@ -971,6 +972,112 @@ impl World {
             let delay = self.rand.next_int_bounded(bound) as u64 + 12000;
             self.weather_next_time = self.time + delay;
 
+        }
+
+    }
+
+    /// Do natural animal and mob spawning in the world.
+    #[instrument(skip_all)]
+    fn tick_natural_spawn(&mut self) {
+
+        // Categories of entities to spawn, also used to count how many are currently 
+        // loaded in the world. We have 4 slots in this array because there are 4
+        // entity categories.
+        let mut categories_count = [0; EntityCategory::ALL.len()];
+
+        // Count every entity category.
+        for comp in self.entities.iter() {
+            if comp.loaded {
+                if let Some(entity) = comp.inner.as_deref() {
+                    categories_count[entity.category() as usize] += 1;
+                }
+            }
+        }
+
+        // For each category, determine if the category can be naturally spawned.
+        let categories = EntityCategory::ALL.map(|category| {
+            let max_count = category.natural_spawn_max_world_count();
+            if max_count == 0 {
+                false
+            } else {
+                categories_count[category as usize] <= max_count * self.chunks.len() / 256
+            }
+        });
+
+        // PARITY: The Notchian implementation has the opposite logic for iterating. To
+        // summarize, the goal here is, for any enabled category, to find only one chunk
+        // to spawn for that category.
+        for (&(cx, cz), chunk) in &mut self.chunks {
+            if let Some(chunk_data) = &chunk.data {
+
+                let biome = chunk_data.get_biome(IVec3::ZERO);
+
+                for category in EntityCategory::ALL {
+
+                    // Skip this category if it is disabled.
+                    if !categories[category as usize] {
+                        continue;
+                    }
+
+                    let kinds = biome.natural_entity_kinds(category);
+
+                    // Ignore this chunk is its biome cannot spawn any entity.
+                    if kinds.is_empty() {
+                        continue;
+                    }
+
+                    // Next we pick a random spawn position within the chunk and check it.
+                    let center_pos = IVec3 {
+                        x: cx * 16 + self.rand.next_int_bounded(16),
+                        y: self.rand.next_int_bounded(128),
+                        z: cz * 16 + self.rand.next_int_bounded(16),
+                    };
+
+                    // If the block is not valid to spawn the category in, skip chunk.
+                    let (block, _) = chunk_data.get_block(center_pos);
+                    if block::material::get_material(block) != category.natural_spawn_material() {
+                        continue;
+                    }
+
+                    let chance_sum = kinds.iter().map(|kind| kind.chance).sum::<u16>();
+                    let index = self.rand.next_int_bounded(chance_sum as i32) as u16;
+                    let mut chance_acc = 0;
+                    let mut kind = kinds[0].kind;
+
+                    for test_kind in kinds {
+                        chance_acc += test_kind.chance;
+                        if index < chance_acc {
+                            kind = test_kind.kind;
+                            break;
+                        }
+                    }
+
+                    for _ in 0..3 {
+
+                        for _ in 0..4 {
+
+                            let spawn_pos = center_pos + IVec3 {
+                                x: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
+                                y: self.rand.next_int_bounded(1) - self.rand.next_int_bounded(1),
+                                z: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
+                            };
+
+                            let spawn_pos = spawn_pos.as_dvec3() + DVec3::new(0.5, 0.0, 0.5);
+
+                            // TODO: Only spawn if no player in 24 blocks range
+                            // TODO: Do not spawn inside spawn chunks
+
+                            let mut entity = kind.new_default(spawn_pos);
+                            entity.0.persistent = true;
+                            entity.0.look.x = self.rand.next_float() * std::f32::consts::TAU;
+
+                        }
+
+                    }
+
+                }
+
+            }
         }
 
     }
