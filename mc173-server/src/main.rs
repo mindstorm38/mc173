@@ -16,6 +16,7 @@ pub mod chunk;
 pub mod entity;
 pub mod offline;
 pub mod player;
+pub mod command;
 
 // This module link the previous ones to make a fully functional, multi-world server.
 pub mod server;

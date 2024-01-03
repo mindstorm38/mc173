@@ -1,7 +1,6 @@
 //! Server player tracker.
 
 use std::collections::HashSet;
-use std::mem;
 
 use glam::{DVec3, Vec2, IVec3};
 
@@ -10,19 +9,19 @@ use tracing::{warn, instrument};
 use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress, EntityEvent};
 use mc173::world::interact::Interaction;
 
-use mc173::entity::{self as e, EntityKind, Entity, Hurt, BaseKind, LivingKind};
+use mc173::entity::{self as e, Entity, Hurt, BaseKind, LivingKind};
 use mc173::block_entity::BlockEntity;
 use mc173::item::{self, ItemStack};
 use mc173::{block, chunk};
 
 use mc173::inventory::InventoryHandle;
 use mc173::craft::CraftTracker;
-use mc173::path::PathFinder;
 use mc173::geom::Face;
 
 use crate::proto::{self, Network, NetworkClient, OutPacket, InPacket};
-use crate::world::{ServerWorldState, TickMode};
+use crate::command::{self, CommandContext};
 use crate::chunk::new_chunk_data_packet;
+use crate::world::ServerWorldState;
 use crate::offline::OfflinePlayer;
 
 
@@ -199,240 +198,13 @@ impl ServerPlayer {
     /// Handle a chat message packet.
     fn handle_chat(&mut self, world: &mut World, state: &mut ServerWorldState, message: String) {
         if message.starts_with('/') {
-            let parts = message.split_whitespace().collect::<Vec<_>>();
-            if let Err(message) = self.handle_chat_command(world, state, &parts) {
-                self.send_chat(message);
-            }
-        }
-    }
-
-    /// Handle a chat command, parsed from a chat message packet starting with '/'.
-    fn handle_chat_command(&mut self, world: &mut World, state: &mut ServerWorldState, parts: &[&str]) -> Result<(), String> {
-
-        match *parts {
-            ["/give", item_raw, _] |
-            ["/give", item_raw] => {
-
-                let (
-                    id_raw, 
-                    metadata_raw
-                ) = item_raw.split_once(':').unwrap_or((item_raw, ""));
-
-                let id;
-                if let Ok(direct_id) = id_raw.parse::<u16>() {
-                    id = direct_id;
-                } else if let Some(name_id) = item::from_name(id_raw.trim_start_matches("i/")) {
-                    id = name_id;
-                } else if let Some(block_id) = block::from_name(id_raw.trim_start_matches("b/")) {
-                    id = block_id as u16;
-                } else {
-                    return Err(format!("§cError: unknown item name or id:§r {id_raw}"));
-                }
-
-                let item = item::from_id(id);
-                if item.name.is_empty() {
-                    return Err(format!("§cError: unknown item id:§r {id_raw}"));
-                }
-
-                let mut stack = ItemStack::new_sized(id, 0, item.max_stack_size);
-
-                if !metadata_raw.is_empty() {
-                    stack.damage = metadata_raw.parse::<u16>()
-                        .map_err(|_| format!("§cError: invalid item damage:§r {metadata_raw}"))?;
-                }
-
-                if let Some(size_raw) = parts.get(2) {
-                    stack.size = size_raw.parse::<u16>()
-                        .map_err(|_| format!("§cError: invalid stack size:§r {size_raw}"))?;
-                }
-
-                self.send_chat(format!("§aGiving §r{}§a (§r{}:{}§a) x§r{}§a to §r{}", item.name, stack.id, stack.damage, stack.size, self.username));
-                self.pickup_stack(&mut stack);
-                Ok(())
-
-            }
-            ["/give", ..] => Err(format!("§eUsage: /give <item>[:<damage>] [<size>]")),
-            ["/spawn", entity_kind_raw, ..] => {
-
-                let entity_kind = match entity_kind_raw {
-                    "item" => EntityKind::Item,
-                    "boat" => EntityKind::Boat,
-                    "minecart" => EntityKind::Minecart,
-                    "pig" => EntityKind::Pig,
-                    "chicken" => EntityKind::Chicken,
-                    "cow" => EntityKind::Cow,
-                    "sheep" => EntityKind::Sheep,
-                    "zombie" => EntityKind::Zombie,
-                    "skeleton" => EntityKind::Skeleton,
-                    "ghast" => EntityKind::Ghast,
-                    "slime" => EntityKind::Slime,
-                    "creeper" => EntityKind::Creeper,
-                    _ => return Err(format!("§cError: invalid or unsupported entity kind: {entity_kind_raw}"))
-                };
-
-                let mut entity = entity_kind.new_default(self.pos);
-                entity.0.persistent = true;
-
-                let entity_id = world.spawn_entity(entity);
-                self.send_chat(format!("§aEntity spawned:§r {entity_id}"));
-
-                Ok(())
-
-            }
-            ["/spawn", ..] => Err(format!("§eUsage: /spawn <entity_kind> [<params>...]")),
-            ["/time", ..] => {
-                self.send_chat(format!("§aTime:§r {}", world.get_time()));
-                Ok(())
-            }
-            ["/weather", ..] => {
-                self.send_chat(format!("§aWeather:§r {:?}", world.get_weather()));
-                Ok(())
-            }
-            ["/pos", ..] => {
-
-                let block_pos = self.pos.floor().as_ivec3();
-                self.send_chat(format!("§aPosition information"));
-                self.send_chat(format!("§a- Real:§r {}", self.pos));
-                self.send_chat(format!("§a- Block:§r {}", block_pos));
-
-                if let Some(height) = world.get_height(block_pos) {
-                    self.send_chat(format!("§a- Height:§r {}", height));
-                }
-
-                let light = world.get_light(block_pos);
-                self.send_chat(format!("§a- Block light:§r {}", light.block));
-                self.send_chat(format!("§a- Sky light:§r {}", light.sky));
-                self.send_chat(format!("§a- Sky real light:§r {}", light.sky_real));
-                self.send_chat(format!("§a- Brightness:§r {}", light.brightness()));
-
-                if let Some(biome) = world.get_biome(block_pos) {
-                    self.send_chat(format!("§a- Biome:§r {biome:?}"));
-                }
-
-                Ok(())
-
-            }
-            ["/effect", effect_raw] |
-            ["/effect", effect_raw, _] => {
-
-                let (effect_id, mut effect_data) = match effect_raw {
-                    "click" => (1000, 0),
-                    "click2" => (1001, 0),
-                    "bow" => (1002, 0),
-                    "door" => (1003, 0),
-                    "fizz" => (1004, 0),
-                    "record_13" => (1005, 2000),
-                    "record_cat" => (1005, 2001),
-                    "smoke" => (2000, 0),
-                    "break" => (2001, 0),
-                    _ => {
-                        let id = effect_raw.parse::<u32>()
-                            .map_err(|_| format!("§cError: invalid effect id:§r {effect_raw}"))?;
-                        (id, 0)
-                    }
-                };
-
-                if let Some(effect_data_raw) = parts.get(2) {
-                    effect_data = effect_data_raw.parse::<u32>()
-                        .map_err(|_| format!("§cError: invalid effect data:§r {effect_data_raw}"))?;
-                }
-
-                let pos = self.pos.floor().as_ivec3();
-                self.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
-                    x: pos.x,
-                    y: pos.y as i8,
-                    z: pos.z,
-                    effect_id,
-                    effect_data,
-                }));
-
-                self.send_chat(format!("§aPlayed effect:§r {effect_id}/{effect_data}"));
-                Ok(())
-                
-            }
-            ["/effect", ..] => Err(format!("§eUsage: /effect <id> [<data>]")),
-            ["/pathfinder", x_raw, y_raw, z_raw] => {
-
-                // This command is used to debug the pathfinder from the player to the
-                // given position.
-
-                let from = self.pos.floor().as_ivec3();
-                let to = IVec3 {
-                    x: x_raw.parse::<i32>().map_err(|_| format!("§cError: invalid x:§r {x_raw}"))?,
-                    y: y_raw.parse::<i32>().map_err(|_| format!("§cError: invalid y:§r {y_raw}"))?,
-                    z: z_raw.parse::<i32>().map_err(|_| format!("§cError: invalid z:§r {z_raw}"))?,
-                };
-
-                if let Some(path) = PathFinder::new(world).find_path(from, to, IVec3::ONE, 20.0) {
-                    
-                    for pos in path {
-                        world.set_block(pos, block::DEAD_BUSH, 0);
-                    }
-
-                    Ok(())
-
-                } else {
-                    Err(format!("§cError: path not found"))
-                }
-
-            }
-            ["/pathfinder", ..] => Err(format!("§eUsage: /pathfinder <x> <y> <z>")),
-            ["/tick", "freeze"] => {
-                self.send_chat(format!("§aWorld ticking:§r freeze"));
-                state.tick_mode = TickMode::Manual(0);
-                Ok(())
-            }
-            ["/tick", "auto"] => {
-                self.send_chat(format!("§aWorld ticking:§r auto"));
-                state.tick_mode = TickMode::Auto;
-                Ok(())
-            }
-            ["/tick", "step"] => {
-                self.send_chat(format!("§aWorld ticking:§r step"));
-                state.tick_mode = TickMode::Manual(1);
-                Ok(())
-            }
-            ["/tick", "step", step_count] => {
-
-                let step_count = step_count.parse::<u32>()
-                    .map_err(|_| format!("§cError: invalid step count:§r {step_count}"))?;
-
-                self.send_chat(format!("§aWorld ticking:§r {step_count} steps"));
-                state.tick_mode = TickMode::Manual(step_count);
-                Ok(())
-
-            }
-            ["/tick", ..] => Err(format!("§eUsage: /tick [freeze|auto|step <n>]")),
-            ["/kill", ..] => {
-
-                let ids = world.iter_entities().map(|(id, _)| id).collect::<Vec<_>>();
-                for id in ids {
-                    if id != self.entity_id {
-                        assert!(world.remove_entity(id));
-                        self.send_chat(format!("§aKilled entity:§r {id}"));
-                    }
-                }
-                
-                Ok(())
-
-            }
-            ["/explode", ..] => {
-
-                world.explode(self.pos, 4.0, false, Some(self.entity_id));
-                self.send_chat(format!("§aExplode at:§r {}", self.pos));
-                Ok(())
-
-            }
-            ["/stats", ..] => {
-
-                self.send_chat(format!("§aServer statistics"));
-                self.send_chat(format!("§a- Tick duration:§r {:.1} ms", state.tick_duration.get() * 1000.0));
-                self.send_chat(format!("§a- Tick interval:§r {:.1} ms", state.tick_interval.get() * 1000.0));
-                self.send_chat(format!("§a- Events count:§r {:.1} ({:.1} B)", state.events_count.get(), state.events_count.get() * mem::size_of::<Event>() as f32));
-                Ok(())
-
-            }
-            _ => Err(format!("§eUnknown command!"))
+            let parts = message[1..].split_whitespace().collect::<Vec<_>>();
+            command::handle_command(CommandContext {
+                parts: &parts,
+                world,
+                state,
+                player: self,
+            });
         }
     }
 
