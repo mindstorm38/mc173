@@ -1510,8 +1510,10 @@ impl Light {
     /// Calculate the block brightness from its light levels.
     #[inline]
     pub fn brightness(self) -> f32 {
-        let base = 1.0 - self.block as f32 / 15.0;
-        (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - 0.05) + 0.05
+        // TODO: In nether, base is 0.1
+        const OFFSET: f32 = 0.05;
+        let base = 1.0 - self.max_real() as f32 / 15.0;
+        (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - OFFSET) + OFFSET
     }
 
 }
