@@ -261,7 +261,7 @@ impl ChunkTracker {
     /// in the future for this chunk.
     fn set_dirty(&mut self) -> Option<Instant> {
 
-        const MAX_INTERVAL: Duration = Duration::from_secs(30);
+        const MAX_INTERVAL: Duration = Duration::from_secs(60);
         const MIN_INTERVAL: Duration = Duration::from_secs(4);
         const INTERVAL_STEP: Duration = Duration::from_secs(4);
 
@@ -276,7 +276,7 @@ impl ChunkTracker {
 
         // If a save has already happened in the past.
         if let Some(last_save) = self.last_save {
-            // We subtract the interval base in order to possibly reach zero duration en
+            // We subtract the interval base in order to possibly reach zero duration and
             // therefore be equal to the initial interval of zero and increase interval.
             let elapsed = now.saturating_duration_since(last_save);
             if elapsed > self.save_interval {

@@ -50,6 +50,8 @@ thread_local! {
     /// executed. This is mandatory since ticking a block requires full mutable access to
     /// the world, but it's not possible while owning a reference to a chunk.
     static RANDOM_TICKS_PENDING: Cell<Vec<(IVec3, u8, u8)>> = const { Cell::new(Vec::new()) };
+    /// A temporary list of loaded chunks positions.
+    static LOADED_CHUNKS: Cell<Vec<(i32, i32)>> = const { Cell::new(Vec::new()) };
 }
 
 
@@ -990,7 +992,7 @@ impl World {
         self.tick_weather();
         // TODO: Wake up all sleeping player if day time.
         
-        // TODO: self.tick_natural_spawn();
+        self.tick_natural_spawn();
 
         self.tick_sky_light();
 
@@ -1037,6 +1039,11 @@ impl World {
     #[instrument(skip_all)]
     fn tick_natural_spawn(&mut self) {
 
+        /// The maximum manhattan distance a chunk can be loaded.
+        const CHUNK_MAX_DIST: u32 = 8;
+        /// The minimum distance required from any player entity to spawn.
+        const SPAWN_MIN_DIST_SQUARED: f64 = 24.0 * 24.0;
+
         // Categories of entities to spawn, also used to count how many are currently 
         // loaded in the world. We have 4 slots in this array because there are 4
         // entity categories.
@@ -1051,83 +1058,117 @@ impl World {
             }
         }
 
-        // For each category, determine if the category can be naturally spawned.
-        let categories = EntityCategory::ALL.map(|category| {
-            let max_count = category.natural_spawn_max_world_count();
-            if max_count == 0 {
-                false
-            } else {
-                categories_count[category as usize] <= max_count * self.chunks.len() / 256
-            }
+        // Temporary list of chunks loaded by data and players in range.
+        let mut loaded_chunks = LOADED_CHUNKS.take();
+        loaded_chunks.clear();
+        loaded_chunks.extend(self.chunks.iter()
+            .filter_map(|(&pos, comp)| comp.data.is_some().then_some(pos)));
+        loaded_chunks.retain(|&(cx, cz)| {
+            self.entities_player_map.values()
+                .map(|&index| self.entities.get(index).unwrap())
+                .any(|comp| comp.cx.abs_diff(cx) <= CHUNK_MAX_DIST && comp.cz.abs_diff(cz) <= CHUNK_MAX_DIST)
         });
 
-        // PARITY: The Notchian implementation has the opposite logic for iterating. To
-        // summarize, the goal here is, for any enabled category, to find only one chunk
-        // to spawn for that category.
-        for (&(cx, cz), chunk) in &mut self.chunks {
-            if let Some(chunk_data) = &chunk.data {
+        for category in EntityCategory::ALL {
+
+            let max_world_count = category.natural_spawn_max_world_count();
+
+            // Skip the category if it cannot spawn.
+            if max_world_count == 0 {
+                continue;
+            }
+            // Skip the category if it already has enough loaded entities.
+            if categories_count[category as usize] > max_world_count * self.chunks.len() / 256 {
+                continue;
+            }
+
+            'chunks: for &(cx, cz) in &loaded_chunks {
+
+                // Temporary borrowing of chunk data to query biome and block.
+                let chunk = self.chunks.get(&(cx, cz)).unwrap();
+                let chunk_data = chunk.data.as_deref().unwrap();
 
                 let biome = chunk_data.get_biome(IVec3::ZERO);
+                let kinds = biome.natural_entity_kinds(category);
 
-                for category in EntityCategory::ALL {
+                // Ignore this chunk is its biome cannot spawn any entity.
+                if kinds.is_empty() {
+                    continue;
+                }
 
-                    // Skip this category if it is disabled.
-                    if !categories[category as usize] {
-                        continue;
+                // Next we pick a random spawn position within the chunk and check it.
+                let center_pos = IVec3 {
+                    x: cx * 16 + self.rand.next_int_bounded(16),
+                    y: self.rand.next_int_bounded(128),
+                    z: cz * 16 + self.rand.next_int_bounded(16),
+                };
+
+                // If the block is not valid to spawn the category in, skip chunk.
+                let (block, _) = chunk_data.get_block(center_pos);
+                if block::material::get_material(block) != category.natural_spawn_material() {
+                    continue;
+                }
+
+                let chance_sum = kinds.iter().map(|kind| kind.chance).sum::<u16>();
+                let index = self.rand.next_int_bounded(chance_sum as i32) as u16;
+                let mut chance_acc = 0;
+                let mut kind = kinds[0].kind;
+
+                for test_kind in kinds {
+                    chance_acc += test_kind.chance;
+                    if index < chance_acc {
+                        kind = test_kind.kind;
+                        break;
                     }
+                }
 
-                    let kinds = biome.natural_entity_kinds(category);
+                // Keep the maximum chunk count to compare with spawn count.
+                let max_chunk_count = kind.natural_spawn_max_chunk_count();
 
-                    // Ignore this chunk is its biome cannot spawn any entity.
-                    if kinds.is_empty() {
-                        continue;
-                    }
+                // Keep track of the total number of entity spawned in that chunk.
+                let mut spawn_count = 0usize;
 
-                    // Next we pick a random spawn position within the chunk and check it.
-                    let center_pos = IVec3 {
-                        x: cx * 16 + self.rand.next_int_bounded(16),
-                        y: self.rand.next_int_bounded(128),
-                        z: cz * 16 + self.rand.next_int_bounded(16),
-                    };
+                for _ in 0..3 {
 
-                    // If the block is not valid to spawn the category in, skip chunk.
-                    let (block, _) = chunk_data.get_block(center_pos);
-                    if block::material::get_material(block) != category.natural_spawn_material() {
-                        continue;
-                    }
+                    let mut spawn_pos = center_pos;
 
-                    let chance_sum = kinds.iter().map(|kind| kind.chance).sum::<u16>();
-                    let index = self.rand.next_int_bounded(chance_sum as i32) as u16;
-                    let mut chance_acc = 0;
-                    let mut kind = kinds[0].kind;
+                    for _ in 0..4 {
 
-                    for test_kind in kinds {
-                        chance_acc += test_kind.chance;
-                        if index < chance_acc {
-                            kind = test_kind.kind;
-                            break;
+                        spawn_pos += IVec3 {
+                            x: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
+                            y: self.rand.next_int_bounded(1) - self.rand.next_int_bounded(1),
+                            z: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
+                        };
+
+                        let spawn_pos = spawn_pos.as_dvec3() + DVec3::new(0.5, 0.0, 0.5);
+                        let close_player = self.iter_player_entities()
+                            .any(|(_, Entity(player_base, _))| {
+                                player_base.pos.distance_squared(spawn_pos) < SPAWN_MIN_DIST_SQUARED
+                            });
+
+                        // Skip this try if there are player close to the spawn point.
+                        if close_player {
+                            continue;
                         }
-                    }
 
-                    for _ in 0..3 {
+                        // TODO: Do not spawn inside spawn chunks
 
-                        for _ in 0..4 {
+                        let mut entity = kind.new_default(spawn_pos);
+                        entity.0.persistent = true;
+                        entity.0.look.x = self.rand.next_float() * std::f32::consts::TAU;
 
-                            let spawn_pos = center_pos + IVec3 {
-                                x: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
-                                y: self.rand.next_int_bounded(1) - self.rand.next_int_bounded(1),
-                                z: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
-                            };
+                        // Skip if the entity cannot be spawned.
+                        if !entity.can_naturally_spawn(self) {
+                            continue;
+                        }
 
-                            let spawn_pos = spawn_pos.as_dvec3() + DVec3::new(0.5, 0.0, 0.5);
+                        // TODO: Spawning spider has 1% chance of being spider jockey.
+                        // TODO: Random sheep wool color.
 
-                            // TODO: Only spawn if no player in 24 blocks range
-                            // TODO: Do not spawn inside spawn chunks
-
-                            let mut entity = kind.new_default(spawn_pos);
-                            entity.0.persistent = true;
-                            entity.0.look.x = self.rand.next_float() * std::f32::consts::TAU;
-
+                        self.spawn_entity(entity);
+                        spawn_count += 1;
+                        if spawn_count >= max_chunk_count {
+                            continue 'chunks;
                         }
 
                     }
@@ -1135,7 +1176,11 @@ impl World {
                 }
 
             }
+
         }
+
+        // To avoid too short allocation...
+        LOADED_CHUNKS.set(loaded_chunks);
 
     }
 

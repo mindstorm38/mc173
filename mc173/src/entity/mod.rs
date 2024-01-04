@@ -684,14 +684,18 @@ impl Entity {
             return false;
         }
 
-        // Any block colliding prevent spawning.
-        if world.iter_blocks_boxes_colliding(base.bb).next().is_some() {
-            return false;
-        }
+        if category != EntityCategory::WaterAnimal {
+            
+            // Any block colliding prevent spawning.
+            if world.iter_blocks_boxes_colliding(base.bb).next().is_some() {
+                return false;
+            }
 
-        // Any colliding fluid block prevent spawning.
-        if world.iter_blocks_in_box(base.bb).any(|(_pos, block, _)| block::material::is_fluid(block)) {
-            return false;
+            // Any colliding fluid block prevent spawning.
+            if world.iter_blocks_in_box(base.bb).any(|(_pos, block, _)| block::material::is_fluid(block)) {
+                return false;
+            }
+
         }
 
         true
@@ -824,7 +828,8 @@ impl EntityKind {
             EntityKind::PigZombie |
             EntityKind::Skeleton |
             EntityKind::Spider |
-            EntityKind::Zombie => EntityCategory::Mob,
+            EntityKind::Zombie |
+            EntityKind::Slime => EntityCategory::Mob,
             _ => EntityCategory::Other
         }
     }

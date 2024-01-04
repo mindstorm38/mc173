@@ -6,7 +6,7 @@ use glam::IVec3;
 
 use mc173::item::{self, ItemStack};
 use mc173::world::{World, Event};
-use mc173::entity::EntityKind;
+use mc173::entity::{EntityKind, EntityCategory};
 use mc173::path::PathFinder;
 use mc173::block;
 
@@ -157,6 +157,8 @@ const COMMANDS: &'static [Command] = &[
 
 fn cmd_help(ctx: CommandContext) -> CommandResult {
 
+    ctx.player.send_chat(format!("§8========================"));
+    
     for cmd in COMMANDS {
         if cmd.usage.is_empty() {
             ctx.player.send_chat(format!("§a/{}:§r {}", cmd.name, cmd.description));
@@ -260,6 +262,8 @@ fn cmd_weather(ctx: CommandContext) -> CommandResult {
 }
 
 fn cmd_pos(ctx: CommandContext) -> CommandResult { 
+    
+    ctx.player.send_chat(format!("§8========================"));
     
     let block_pos = ctx.player.pos.floor().as_ivec3();
     ctx.player.send_chat(format!("§aReal:§r {}", ctx.player.pos));
@@ -387,13 +391,15 @@ fn cmd_tick(ctx: CommandContext) -> CommandResult {
 fn cmd_clean(ctx: CommandContext) -> CommandResult { 
 
     let ids = ctx.world.iter_entities().map(|(id, _)| id).collect::<Vec<_>>();
+    let mut removed_count = 0;
     for id in ids {
-        if id != ctx.player.entity_id {
+        if !ctx.world.is_entity_player(id) {
             assert!(ctx.world.remove_entity(id));
-            ctx.player.send_chat(format!("§aKilled entity:§r {id}"));
+            removed_count += 1;
         }
     }
     
+    ctx.player.send_chat(format!("§aCleaned entities:§r {removed_count}"));
     Ok(())
 
 }
@@ -408,9 +414,20 @@ fn cmd_explode(ctx: CommandContext) -> CommandResult {
 
 fn cmd_perf(ctx: CommandContext) -> CommandResult { 
 
+    ctx.player.send_chat(format!("§8========================"));
     ctx.player.send_chat(format!("§aTick duration:§r {:.1} ms", ctx.state.tick_duration.get() * 1000.0));
     ctx.player.send_chat(format!("§aTick interval:§r {:.1} ms", ctx.state.tick_interval.get() * 1000.0));
     ctx.player.send_chat(format!("§aEvents count:§r {:.1} ({:.1} B)", ctx.state.events_count.get(), ctx.state.events_count.get() * mem::size_of::<Event>() as f32));
+    
+    let mut categories_count = [0usize; EntityCategory::ALL.len()];
+    for (_, entity) in ctx.world.iter_entities() {
+        categories_count[entity.category() as usize] += 1;
+    }
+
+    for category in EntityCategory::ALL {
+        ctx.player.send_chat(format!("§a{category:?} count:§r {}", categories_count[category as usize]));
+    }
+
     Ok(())
 
 }

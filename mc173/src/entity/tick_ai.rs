@@ -214,7 +214,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
     // At the end, we can have an entity or a block to target.
     if let Some(target) = target_pos {
 
-        trace!("entity #{id}, path finding: {}", target.pos);
+        // trace!("entity #{id}, path finding: {}", target.pos);
 
         let path = PathFinder::new(world)
             .find_path_from_bounding_box(base.bb, target.pos, PATH_FINDER_MAX_DIST)
@@ -294,7 +294,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
                 }
 
             } else {
-                trace!("entity #{id}, path finished");
+                // trace!("entity #{id}, path finished");
                 living.path = None;
             }
 
@@ -312,7 +312,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
             return;  // Do not fallback to living AI
 
         } else {
-            trace!("entity #{id}, forget path because 1% chance")
+            // trace!("entity #{id}, forget path because 1% chance")
         }
 
     }
