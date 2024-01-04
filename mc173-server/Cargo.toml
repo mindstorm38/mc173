@@ -6,7 +6,7 @@ description = "Minecraft beta 1.7.3 protocol and server implementation compatibl
 readme = "../README.md"
 homepage = "https://github.com/mindstorm38/mc173"
 repository = "https://github.com/mindstorm38/mc173"
-license = "MIT"
+license = "Apache-2.0"
 keywords = ["minecraft", "game", "server"]
 categories = ["games"]
 
