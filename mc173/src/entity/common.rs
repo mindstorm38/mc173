@@ -11,7 +11,7 @@ use crate::geom::{Face, BoundingBox};
 use crate::world::World;
 use crate::block;
 
-use super::{Entity, BaseKind, LivingKind, Base};
+use super::{Entity, LivingKind, Base};
 
 
 /// Internal macro to make a refutable pattern assignment that just panic if refuted.
@@ -101,10 +101,10 @@ pub fn calc_entity_brightness(world: &World, base: &Base) -> f32 {
     world.get_light(check_pos.floor().as_ivec3()).brightness()
 }
 
-pub fn find_closest_player_entity(world: &World, center: DVec3, dist: f64) -> Option<(u32, &Entity)> {
-    let max_dist_sq = dist.powi(2);
-    world.iter_entities()
-        .filter(|(_, entity)| matches!(entity.1, BaseKind::Living(_, LivingKind::Human(_))))
+/// Find a the closest player entity (as defined in [`World`]) within the given radius.
+pub fn find_closest_player_entity(world: &World, center: DVec3, max_dist: f64) -> Option<(u32, &Entity)> {
+    let max_dist_sq = max_dist.powi(2);
+    world.iter_player_entities()
         .map(|(entity_id, entity)| (entity_id, entity, entity.0.pos.distance_squared(center)))
         .filter(|&(_, _, dist_sq)| dist_sq <= max_dist_sq)
         .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))

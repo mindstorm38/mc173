@@ -141,6 +141,8 @@ pub struct World {
     entities: TickVec<EntityComponent>,
     /// Entities' index mapping from their unique id.
     entities_id_map: HashMap<u32, usize>,
+    /// This index map contains a mapping for every player entity.
+    entities_player_map: IndexMap<u32, usize>,
     /// Same as entities but for block entities.
     block_entities: TickVec<BlockEntityComponent>,
     /// Mapping of block entities to they block position.
@@ -182,6 +184,7 @@ impl World {
             entities_count: 0,
             entities: TickVec::new(),
             entities_id_map: HashMap::new(),
+            entities_player_map: IndexMap::new(),
             block_entities: TickVec::new(),
             block_entities_pos_map: HashMap::new(),
             scheduled_ticks_count: 0,
@@ -623,6 +626,9 @@ impl World {
 
         let index = self.entities_id_map.remove(&id)?;
         trace!("remove entity #{id}");
+
+        // Also remove the entity from the player map, if it was.
+        self.entities_player_map.remove(&id);
         
         let comp = self.entities.remove(index);
         let swapped_index = self.entities.len();
@@ -644,6 +650,9 @@ impl World {
 
             let prev_index = self.entities_id_map.insert(swapped_comp.id, index);
             debug_assert_eq!(prev_index, Some(swapped_index), "swapped entity is incoherent");
+
+            // Update the index of the entity within the player map, if it is a player.
+            self.entities_player_map.entry(swapped_comp.id).and_modify(|i| *i = index);
             
             let (swapped_cx, swapped_cz) = (swapped_comp.cx, swapped_comp.cz);
             if has_chunk || (swapped_cx, swapped_cz) != (cx, cz) {
@@ -665,6 +674,31 @@ impl World {
 
         Some(comp)
 
+    }
+    
+    // =================== //
+    //   PLAYER ENTITIES   //
+    // =================== //
+
+    /// Set an entity that is already existing to be a player entity. Player entities are
+    /// used as dynamic anchors in the world that are used for things like natural entity
+    /// despawning when players are too far away, or for looking at players.
+    /// 
+    /// This methods returns true if the property has been successfully set.
+    pub fn set_entity_player(&mut self, id: u32, player: bool) -> bool {
+        let Some(&index) = self.entities_id_map.get(&id) else { return false };
+        if player {
+            self.entities_player_map.insert(id, index);
+        } else {
+            self.entities_player_map.remove(&id);
+        }
+        true
+    }
+
+    /// Returns true if the given entity by its id is a player entity. This also returns
+    /// false if the entity isn't existing.
+    pub fn is_entity_player(&mut self, id: u32) -> bool {
+        self.entities_player_map.contains_key(&id)
     }
 
     // =================== //
@@ -831,17 +865,40 @@ impl World {
         BlocksInChunkIter::new(self, cx, cz)
     }
 
-    /// Iterate over all entities in the world. The currently updated entity is not 
-    /// included in this iterator.
+    /// Iterate over all entities in the world.
+    /// *This function can't return the current updated entity.*
     #[inline]
     pub fn iter_entities(&self) -> EntitiesIter<'_> {
         EntitiesIter(self.entities.iter())
     }
 
     /// Iterator over all entities in the world through mutable references.
+    /// *This function can't return the current updated entity.*
     #[inline]
     pub fn iter_entities_mut(&mut self) -> EntitiesIterMut<'_> {
         EntitiesIterMut(self.entities.iter_mut())
+    }
+
+    /// Iterate over all player entities in the world.
+    /// *This function can't return the current updated entity.*
+    #[inline]
+    pub fn iter_player_entities(&self) -> PlayerEntitiesIter<'_> {
+        PlayerEntitiesIter {
+            indices: Some(self.entities_player_map.values()),
+            entities: &self.entities,
+        }
+    }
+
+    /// Iterate over all player entities in the world through mutable references.
+    /// *This function can't return the current updated entity.*
+    #[inline]
+    pub fn iter_player_entities_mut(&mut self) -> PlayerEntitiesIterMut<'_> {
+        PlayerEntitiesIterMut {
+            indices: Some(self.entities_player_map.values()),
+            entities: &mut self.entities,
+            #[cfg(debug_assertions)]
+            returned_pointers: HashSet::new(),
+        }
     }
 
     /// Iterate over all entities of the given chunk.
@@ -2240,6 +2297,14 @@ impl<'a> Iterator for EntitiesIterMut<'a> {
     }
 
 }
+
+// TODO: we are currently using type alias because the logic is exactly the same and it's
+// a pain to implement, maybe just use a wrapper in the future.
+/// An iterator of player entities in the world.
+pub type PlayerEntitiesIter<'a> = EntitiesInChunkIter<'a>;
+
+/// An iterator of player entities in the world through mutable references.
+pub type PlayerEntitiesIterMut<'a> = EntitiesInChunkIterMut<'a>;
 
 /// An iterator of entities within a chunk.
 pub struct EntitiesInChunkIter<'a> {

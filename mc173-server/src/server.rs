@@ -217,12 +217,12 @@ impl Server {
             base.look = offline_player.look;
             base.persistent = false;
             base.can_pickup = true;
-            base.controlled = true;
             living.health = 200;  // FIXME: Lot of HP for testing.
             player.username = packet.username.clone();
         });
 
         let entity_id = world.world.spawn_entity(entity);
+        world.world.set_entity_player(entity_id, true);
 
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {

@@ -133,9 +133,6 @@ pub struct Base {
     /// are typically non-persistent because these are not real entities. Some entities
     /// cannot be persistent as they are not supported by the Notchian serialization.
     pub persistent: bool,
-    /// Set to true when this entity is externally controlled.
-    /// FIXME: This property is being tested.
-    pub controlled: bool,
     /// The last size that was used when recomputing the bounding box based on the 
     /// position, we keep it in order to check that the bounding box don't shift too far
     /// from it because of rounding errors, and also to keep the height center. This is
@@ -554,6 +551,9 @@ impl Entity {
     }
 
     /// This this entity from its id in a world.
+    /// 
+    /// **This is really important to no change the entity kind when ticking the 
+    /// function.**
     #[instrument(level = "debug", skip_all)]
     pub fn tick(&mut self, world: &mut World, id: u32) {
         tick::tick(world, id, self);
