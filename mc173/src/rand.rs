@@ -102,7 +102,10 @@ impl JavaRandom {
 
     pub fn next_int_bounded(&mut self, bound: i32) -> i32 {
 
+        debug_assert!(bound >= 0, "bound is negative");
+
         if (bound & -bound) == bound {
+            // If the bound is a power of two, this is simpler.
             (((bound as i64).wrapping_mul(self.next(31) as i64)) >> 31) as i32
         } else {
 
@@ -112,7 +115,7 @@ impl JavaRandom {
             loop {
                 bits = self.next(31);
                 val = bits.rem_euclid(bound);
-                if bits - val + (bound - 1) >= 0 {
+                if bits.wrapping_sub(val).wrapping_add(bound - 1) >= 0 {
                     break;
                 }
             }

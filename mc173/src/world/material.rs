@@ -26,6 +26,9 @@ impl World {
     }
 
     /// Return true if the block at position is opaque.
+    /// 
+    /// FIXME: A lot of calls to this function should instead be for "normal_cube". This
+    /// is not exactly the same properties in the Notchian implementation.
     pub fn is_block_opaque_cube(&self, pos: IVec3) -> bool {
         if let Some((id, _)) = self.get_block(pos) {
             block::material::is_opaque_cube(id)

@@ -1097,7 +1097,7 @@ impl World {
                 continue;
             }
 
-            'chunks: for &(cx, cz) in &loaded_chunks {
+            for &(cx, cz) in &loaded_chunks {
 
                 // Temporary borrowing of chunk data to query biome and block.
                 let chunk = self.chunks.get(&(cx, cz)).unwrap();
@@ -1143,11 +1143,11 @@ impl World {
                 // Keep track of the total number of entity spawned in that chunk.
                 let mut spawn_count = 0usize;
 
-                for _ in 0..3 {
+                'pack: for _ in 0..3 {
 
                     let mut spawn_pos = center_pos;
 
-                    for _ in 0..4 {
+                    'chain: for _ in 0..4 {
 
                         spawn_pos += IVec3 {
                             x: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
@@ -1155,14 +1155,54 @@ impl World {
                             z: self.rand.next_int_bounded(6) - self.rand.next_int_bounded(6),
                         };
 
-                        let spawn_pos = spawn_pos.as_dvec3() + DVec3::new(0.5, 0.0, 0.5);
-                        let close_player = self.iter_player_entities()
-                            .any(|(_, Entity(player_base, _))| {
-                                player_base.pos.distance_squared(spawn_pos) < SPAWN_MIN_DIST_SQUARED
-                            });
+                        // Preliminary check if the block position is valid.
+                        if category == EntityCategory::WaterAnimal {
 
-                        // Skip this try if there are player close to the spawn point.
-                        if close_player {
+                            // Water animals can only spawn in liquid.
+                            if !self.get_block_material(spawn_pos).is_fluid() {
+                                continue;
+                            }
+
+                            // Water animals cannot spawn if above block is opaque.
+                            if self.is_block_opaque_cube(spawn_pos + IVec3::Y) {
+                                continue;
+                            }
+
+                        } else {
+                            
+                            // The 2 block column should not be opaque cube.
+                            if self.is_block_opaque_cube(spawn_pos) || self.is_block_opaque_cube(spawn_pos + IVec3::Y) {
+                                continue;
+                            }
+
+                            // Block below should be opaque.
+                            if !self.is_block_opaque_cube(spawn_pos - IVec3::Y) {
+                                continue;
+                            }
+
+                            // PARITY: We don't do the fluid block check because it would
+                            // be redundant with the check in 'can_natural_spawn'.
+
+                        }
+
+                        let spawn_pos = spawn_pos.as_dvec3() + DVec3::new(0.5, 0.0, 0.5);
+
+                        // PARITY: We check that this entity would be in the 128.0 block 
+                        // no-despawn range of at least one player. This avoid entities
+                        // to be instantly removed after spawning.
+                        let mut close_player = false;
+                        for (_, Entity(player_base, _)) in self.iter_player_entities() {
+                            // If there is a player too close to that spawn point, abort.
+                            let player_dist_sq = player_base.pos.distance_squared(spawn_pos);
+                            if player_dist_sq < SPAWN_MIN_DIST_SQUARED {
+                                continue 'chain;
+                            } else if player_dist_sq <= 128.0 * 128.0 {
+                                close_player = true;
+                            }
+                        }
+
+                        // Skip if no player is in range to keep this natural entity.
+                        if !close_player {
                             continue;
                         }
 
@@ -1183,7 +1223,7 @@ impl World {
                         self.spawn_entity(entity);
                         spawn_count += 1;
                         if spawn_count >= max_chunk_count {
-                            continue 'chunks;
+                            break 'pack;
                         }
 
                     }
