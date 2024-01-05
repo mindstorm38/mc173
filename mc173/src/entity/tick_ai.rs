@@ -365,7 +365,7 @@ fn tick_slime_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
         living.jumping = true;
         living.accel_strafing = 1.0 - base.rand.next_float() * 2.0;
-        living.accel_forward = slime.size as f32;
+        living.accel_forward = slime.size as f32 + 1.0;
 
     } else {
         living.jumping = false;

@@ -155,7 +155,7 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
                 "Giant" => LivingKind::Giant(e::Giant::default()),
                 "Zombie" => LivingKind::Zombie(e::Zombie::default()),
                 "Slime" => LivingKind::Slime(e::Slime {
-                    size: comp.get_int("Size")?.clamp(0, 254) as u8 + 1,
+                    size: comp.get_int("Size")?.clamp(0, 255) as u8,
                     ..Default::default()
                 }),
                 "Ghast" => LivingKind::Ghast(e::Ghast::default()),
@@ -282,7 +282,7 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
                 LivingKind::Ghast(_) => comp.insert("id", "Ghast"),
                 LivingKind::Slime(slime) => {
                     comp.insert("id", "Slime");
-                    comp.insert("Size", slime.size.max(1) as u32 - 1);
+                    comp.insert("Size", slime.size as u32);
                 }
                 LivingKind::Pig(pig) => {
                     comp.insert("id", "Pig");

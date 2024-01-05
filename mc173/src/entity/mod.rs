@@ -412,7 +412,8 @@ pub struct Ghast {
 
 #[derive(Debug, Clone, Default)]
 pub struct Slime {
-    /// Size of the slime.
+    /// Size of the slime, this is a bit different because here the size is initially 
+    /// at 0 and this is equivalent to 1 in Notchian implementation.
     pub size: u8,
     /// Remaining time before jumping.
     pub jump_remaining_time: u32,
@@ -598,7 +599,7 @@ impl Entity {
             }
             BaseKind::Living(_, LivingKind::Ghast(_)) => Size::new(4.0, 4.0),
             BaseKind::Living(_, LivingKind::Slime(slime)) => {
-                let factor = slime.size as f32;
+                let factor = slime.size as f32 + 1.0;
                 Size::new(0.6 * factor, 0.6 * factor)
             }
             BaseKind::Living(_, LivingKind::Pig(_)) => Size::new(0.9, 0.9),
@@ -913,7 +914,7 @@ macro_rules! impl_new_with {
         })*
 
     };
-    ( Living: $( $kind:ident $def_health:expr ),* ) => {
+    ( Living: $( $kind:ident ($def_health:expr) $($def:expr)?),* ) => {
         
         $(impl $kind {
             
@@ -924,6 +925,7 @@ macro_rules! impl_new_with {
                 let mut entity = Box::new(Entity(def(), BaseKind::Living(def(), LivingKind::$kind(def()))));
                 let Entity(base, BaseKind::Living(living, LivingKind::$kind(this))) = &mut *entity else { unreachable!() };
                 living.health = $def_health;
+                $( ($def)(base, living, this); )?
                 func(base, living, this);
                 entity.resize();
                 entity
@@ -979,21 +981,21 @@ impl_new_with!(Base:
     Tnt);
 
 impl_new_with!(Living: 
-    Human 20,
-    Ghast 10,
-    Slime 1,
-    Pig 10,
-    Chicken 4,
-    Cow 10,
-    Sheep 10,
-    Squid 10,
-    Wolf 8,
-    Creeper 20,
-    Giant 200,
-    PigZombie 20,
-    Skeleton 20,
-    Spider 20,
-    Zombie 20);
+    Human(20),
+    Ghast(10),
+    Slime(1),
+    Pig(10),
+    Chicken(4),
+    Cow(10),
+    Sheep(10),
+    Squid(10),
+    Wolf(8),
+    Creeper(20),
+    Giant(200),
+    PigZombie(20),
+    Skeleton(20),
+    Spider(20),
+    Zombie(20));
     
 impl_new_with!(Projectile: 
     Arrow,

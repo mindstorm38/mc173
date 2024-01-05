@@ -440,7 +440,7 @@ impl EntityTracker {
                         proto::Metadata::new_byte(16, (living.attack_time > 50) as _),
                     ],
                     LivingKind::Slime(slime) => vec![
-                        proto::Metadata::new_byte(16, slime.size as i8),
+                        proto::Metadata::new_byte(16, (slime.size as i8).saturating_add(1)),
                     ],
                     LivingKind::Pig(pig) => vec![
                         proto::Metadata::new_byte(16, pig.saddle as _),

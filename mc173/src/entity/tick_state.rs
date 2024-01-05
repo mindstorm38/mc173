@@ -283,7 +283,7 @@ fn spawn_living_loot(world: &mut World, base: &mut Base, _living: &mut Living, l
             spawn_many_loot(world, base.pos, ItemStack::new_single(item::BONE, 0), base.rand.next_int_bounded(3) as usize);
             return;
         }
-        LivingKind::Slime(slime) if slime.size == 1 => 
+        LivingKind::Slime(slime) if slime.size == 0 => 
             ItemStack::new_single(item::SLIMEBALL, 0),
         LivingKind::Spider(_) => 
             ItemStack::new_single(item::STRING, 0),
