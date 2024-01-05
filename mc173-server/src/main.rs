@@ -54,7 +54,8 @@ fn init_tracing() {
         .or_else(|_| EnvFilter::try_new("debug"))
         .unwrap();
 
-    let fmt_layer = tracing_subscriber::fmt::layer();
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_target(false);
 
     let (flame_layer, _) = FlameLayer::with_file("./tracing.folded").unwrap();
     let flame_layer = flame_layer.with_file_and_line(false);
