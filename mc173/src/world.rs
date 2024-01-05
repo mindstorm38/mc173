@@ -16,7 +16,7 @@ use indexmap::IndexMap;
 
 use tracing::{trace, instrument};
 
-use crate::entity::{Entity, EntityCategory};
+use crate::entity::{Entity, EntityCategory, EntityKind};
 use crate::block_entity::BlockEntity;
 use crate::biome::Biome;
 use crate::chunk::{Chunk,
@@ -557,7 +557,8 @@ impl World {
         self.entities_count = self.entities_count.checked_add(1)
             .expect("entity count overflow");
 
-        trace!("spawn entity #{id} ({:?})", entity.kind());
+        let kind = entity.kind();
+        trace!("spawn entity #{id} ({:?})", kind);
 
         let (cx, cz) = calc_entity_chunk_pos(entity.0.pos);
         let chunk_comp = self.chunks.entry((cx, cz)).or_default();
@@ -567,6 +568,7 @@ impl World {
             cx,
             cz,
             loaded: chunk_comp.data.is_some(),
+            kind,
         });
 
         chunk_comp.entities.insert(id, entity_index);
@@ -593,6 +595,12 @@ impl World {
     /// Return true if an entity is present from its id.
     pub fn contains_entity(&self, id: u32) -> bool {
         self.entities_id_map.contains_key(&id)
+    }
+
+    /// Return the number of entities in the world, loaded or not.
+    #[inline]
+    pub fn get_entity_count(&self) -> usize {
+        self.entities.len()
     }
 
     /// Get a generic entity from its unique id. This generic entity can later be checked
@@ -627,7 +635,6 @@ impl World {
     fn remove_entity_inner(&mut self, id: u32, has_chunk: bool) -> Option<EntityComponent> {
 
         let index = self.entities_id_map.remove(&id)?;
-        trace!("remove entity #{id}");
 
         // Also remove the entity from the player map, if it was.
         self.entities_player_map.remove(&id);
@@ -635,6 +642,8 @@ impl World {
         let comp = self.entities.remove(index);
         let swapped_index = self.entities.len();
         debug_assert_eq!(comp.id, id, "entity incoherent id");
+
+        trace!("remove entity #{id} ({:?})", comp.kind);
         
         // Directly remove the entity from its chunk if needed.
         let (cx, cz) = (comp.cx, comp.cz);
@@ -701,6 +710,12 @@ impl World {
     /// false if the entity isn't existing.
     pub fn is_entity_player(&mut self, id: u32) -> bool {
         self.entities_player_map.contains_key(&id)
+    }
+
+    /// Returns the number of player entities in the world, loaded or not.
+    #[inline]
+    pub fn get_entity_player_count(&self) -> usize {
+        self.entities_player_map.len()
     }
 
     // =================== //
@@ -1769,6 +1784,9 @@ struct EntityComponent {
     cz: i32,
     /// True when the chunk this entity is in is loaded with data.
     loaded: bool,
+    /// This field describes the initial entity kind of the entity when spawned, it should
+    /// not be changed afterward by ticking functions.
+    kind: EntityKind,
 }
 
 /// Internal type for storing a world block entity.

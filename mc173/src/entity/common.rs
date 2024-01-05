@@ -102,13 +102,13 @@ pub fn calc_entity_brightness(world: &World, base: &Base) -> f32 {
 }
 
 /// Find a the closest player entity (as defined in [`World`]) within the given radius.
-pub fn find_closest_player_entity(world: &World, center: DVec3, max_dist: f64) -> Option<(u32, &Entity)> {
+pub fn find_closest_player_entity(world: &World, center: DVec3, max_dist: f64) -> Option<(u32, &Entity, f64)> {
     let max_dist_sq = max_dist.powi(2);
     world.iter_player_entities()
         .map(|(entity_id, entity)| (entity_id, entity, entity.0.pos.distance_squared(center)))
         .filter(|&(_, _, dist_sq)| dist_sq <= max_dist_sq)
         .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
-        .map(|(entity_id, entity, _)| (entity_id, entity))
+        .map(|(entity_id, entity, dist_sq)| (entity_id, entity, dist_sq.sqrt()))
 }
 
 /// This function recompute the current bounding box from the position and the last

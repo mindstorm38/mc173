@@ -217,6 +217,7 @@ impl Server {
             base.look = offline_player.look;
             base.persistent = false;
             base.can_pickup = true;
+            living.artificial = true;
             living.health = 200;  // FIXME: Lot of HP for testing.
             player.username = packet.username.clone();
         });

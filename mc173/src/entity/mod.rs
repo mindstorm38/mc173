@@ -204,6 +204,10 @@ pub struct Hurt {
 /// The data common to all living entities.
 #[derive(Debug, Clone, Default)]
 pub struct Living {
+    /// Set to true if an entity is artificial, as opposed to natural. If not artificial,
+    /// an entity is despawned when too far from the closest player (maximum distance of 
+    /// 128.0 blocks).
+    pub artificial: bool,
     /// The health.
     pub health: u16,
     /// The last damage inflicted to the entity during `hurt_time`, this is used to only
@@ -230,6 +234,11 @@ pub struct Living {
     pub attack_target: Option<u32>,
     /// The path this creature needs to follow.
     pub path: Option<Path>,
+    /// This timer is used on entities that are wandering too far from players or that
+    /// take hurt damages. This is only used on entities that are AI ticked and on non
+    /// persistent living entities. When this time reaches 600 and there are players in
+    /// the 128.0 block distance, then this entity has 1/800 chance of despawning.
+    pub wander_time: u16,
 }
 
 /// The data common to all projectile entities.

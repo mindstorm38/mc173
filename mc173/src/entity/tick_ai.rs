@@ -9,7 +9,7 @@ use crate::entity::{Fireball, Path, LookTarget};
 use crate::world::{World, Event, EntityEvent};
 use crate::path::PathFinder;
 
-use super::{Entity, BaseKind, LivingKind};
+use super::{Entity, BaseKind, LivingKind, EntityCategory};
 use super::common::{self, let_expect};
 use super::tick_attack;
 
@@ -17,7 +17,7 @@ use super::tick_attack;
 /// Tick entity "artificial intelligence", like attacking players.
 pub(super) fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
     match entity {
-        Entity(_, BaseKind::Living(_, LivingKind::Human(_))) => (),  // Fo
+        Entity(_, BaseKind::Living(_, LivingKind::Human(_))) => (),
         Entity(_, BaseKind::Living(_, LivingKind::Ghast(_))) => tick_ghast_ai(world, id, entity),
         Entity(_, BaseKind::Living(_, LivingKind::Squid(_))) => tick_squid_ai(world, id, entity),
         Entity(_, BaseKind::Living(_, LivingKind::Slime(_))) => tick_slime_ai(world, id, entity),
@@ -26,6 +26,8 @@ pub(super) fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
     }
 }
 
+/// This is the fallback for all ground entities to just look in random directions.
+/// 
 /// REF: EntityLiving::updatePlayerActionState
 fn tick_living_ai(world: &mut World, _id: u32, entity: &mut Entity) {
 
@@ -37,16 +39,14 @@ fn tick_living_ai(world: &mut World, _id: u32, entity: &mut Entity) {
     const LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.6981317007977318);
     /// Slow look step used for sitting dogs.
     const SLOW_LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.3490658503988659);
-    
-    let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
-    // TODO: Handle kill when closest player is too far away.
+    let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
 
     living.accel_strafing = 0.0;
     living.accel_forward = 0.0;
 
     if base.rand.next_float() < 0.02 {
-        if let Some((target_entity_id, _)) = common::find_closest_player_entity(world, base.pos, LOOK_AT_MAX_DIST) {
+        if let Some((target_entity_id, _, _)) = common::find_closest_player_entity(world, base.pos, LOOK_AT_MAX_DIST) {
             living.look_target = Some(LookTarget {
                 entity_id: target_entity_id,
                 remaining_time: base.rand.next_int_bounded(20) as u32 + 10,
@@ -123,6 +123,10 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
         overwrite: bool,
     }
 
+    if tick_natural_despawn(world, id, entity) {
+        return;
+    }
+
     let_expect!(Entity(base, BaseKind::Living(living, living_kind)) = entity);
     
     // Target position to path find to.
@@ -166,7 +170,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
         };
 
         if search_around {
-            if let Some((target_id, Entity(target_base, _))) = common::find_closest_player_entity(world, base.pos, 16.0) {
+            if let Some((target_id, Entity(target_base, _), _)) = common::find_closest_player_entity(world, base.pos, 16.0) {
                 trace!("entity #{id}, attack target found: #{target_id}");
                 living.attack_target = Some(target_id);
                 target_pos = Some(Target { 
@@ -326,18 +330,20 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
 /// Tick a slime entity AI.
 /// 
 /// REF: EntitySlime::updatePlayerActionState
-fn tick_slime_ai(world: &mut World, _id: u32, entity: &mut Entity) {
+fn tick_slime_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
     /// Look step for slime: 10/20 deg
     const LOOK_STEP: Vec2 = Vec2::new(0.17453292519943295, 0.3490658503988659);
     
-    // TODO: despawn entity if too far away from player
+    if tick_natural_despawn(world, id, entity) {
+        return;
+    }
 
     let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Slime(slime))) = entity);
 
     // Searching the closest player entities behind 16.0 blocks.
     let closest_player = common::find_closest_player_entity(world, base.pos, 16.0);
-    if let Some((_, Entity(closest_base, _))) = closest_player {
+    if let Some((_, Entity(closest_base, _), _)) = closest_player {
         common::update_look_at_entity_by_step(base, closest_base, LOOK_STEP);
     }
 
@@ -379,7 +385,9 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
     // Maximum distance to shoot a player, beyond this the ghast just follow its vel.
     const SHOT_MAX_DIST_SQUARED: f64 = 64.0 * 64.0;
 
-    // TODO: despawn entity if too far away from player
+    if tick_natural_despawn(world, id, entity) {
+        return;
+    }
 
     let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Ghast(ghast))) = entity);
 
@@ -434,7 +442,7 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
     // Only then we search for the closest player if required.
     if target_entity.is_none() || ghast.attack_target_time == 0 {
-        if let Some((closest_id, closest_entity)) = common::find_closest_player_entity(world, base.pos, 100.0) {
+        if let Some((closest_id, closest_entity, _)) = common::find_closest_player_entity(world, base.pos, 100.0) {
             living.attack_target = Some(closest_id);
             target_entity = Some(closest_entity);
             ghast.attack_target_time = 20;
@@ -511,11 +519,13 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
 /// Tick a squid entity AI.
 /// 
 /// REF: EntitySquid::updatePlayerActionState
-fn tick_squid_ai(_world: &mut World, _id: u32, entity: &mut Entity) {
+fn tick_squid_ai(world: &mut World, id: u32, entity: &mut Entity) {
+
+    if tick_natural_despawn(world, id, entity) {
+        return;
+    }
 
     let_expect!(Entity(base, BaseKind::Living(_living, LivingKind::Squid(_squid))) = entity);
-
-    // TODO: despawn if too far
 
     if base.rand.next_int_bounded(50) == 0 || !base.in_water || false /* not yet accelerated */ {
         
@@ -526,6 +536,61 @@ fn tick_squid_ai(_world: &mut World, _id: u32, entity: &mut Entity) {
         base.look.x = base.rand.next_float() * std::f32::consts::TAU;
         base.look.y = base.rand.next_float() * 0.46365 * 2.0 - 0.46365;
 
+    }
+
+}
+
+/// Internal function to handle the entity despawning range of entities, which is 128 
+/// blocks away from the closest player. This functions return true if the entity is
+/// has been removed for being too far or too old.
+fn tick_natural_despawn(world: &mut World, id: u32, entity: &mut Entity) -> bool {
+
+    // Only living entities can naturally despawned.
+    let Entity(base, BaseKind::Living(living, living_kind)) = entity else {
+        return false;
+    };
+
+    // Can't despawn persistent entities.
+    if living.artificial {
+        return false;
+    }
+
+    // We don't despawn natural wolf that are tamed.
+    if let LivingKind::Wolf(wolf) = living_kind {
+        if wolf.owner.is_some() {
+            return false;
+        }
+    }
+
+    // Increment the interaction time, mobs that are in high brightness locations have
+    // faster increment.
+    living.wander_time = living.wander_time.saturating_add(1);
+    if living_kind.entity_kind().category() == EntityCategory::Mob {
+        if common::calc_entity_brightness(world, base) > 0.5 {
+            living.wander_time = living.wander_time.saturating_add(2);
+        }
+    }
+
+    // We only despawn if there are player in the server, but the entity is not in range.
+    if world.get_entity_player_count() == 0 {
+        return false;
+    }
+
+    if let Some((_, _, dist)) = common::find_closest_player_entity(world, base.pos, 128.0) {
+        if dist < 32.0 {
+            living.wander_time = 0;
+            false
+        } else if living.wander_time > 600 && base.rand.next_int_bounded(800) == 0 {
+            // The entity has not interacted with player in long time, randomly despawn.
+            world.remove_entity(id);
+            true
+        } else {
+            false
+        }
+    } else {
+        // No player in 128 range, despawn this natural entity entity.
+        world.remove_entity(id);
+        true
     }
 
 }

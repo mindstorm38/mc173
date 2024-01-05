@@ -174,6 +174,9 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
             break;
         }
 
+        // Reset the interaction time of the entity when it get hurt.
+        living.wander_time = 0;
+
         // Calculate the actual damage dealt on this tick depending on cooldown.
         let mut actual_damage = 0;
         if living.hurt_time == 0 {
