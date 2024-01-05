@@ -506,8 +506,6 @@ impl World {
     // =================== //
 
     /// Get light level at the given position, in range 0..16.
-    /// 
-    /// TODO: Maybe always return light, with default value if chunk is absent.
     pub fn get_light(&self, mut pos: IVec3) -> Light {
         
         if pos.y > 127 {
@@ -1563,7 +1561,7 @@ impl Light {
     /// Calculate the block brightness from its light levels.
     #[inline]
     pub fn brightness(self) -> f32 {
-        // TODO: In nether, base is 0.1
+        // TODO: In nether, OFFSET is 0.1
         const OFFSET: f32 = 0.05;
         let base = 1.0 - self.max_real() as f32 / 15.0;
         (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - OFFSET) + OFFSET

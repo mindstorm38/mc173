@@ -171,8 +171,6 @@ pub struct Base {
     pub in_water: bool,
     /// Is this entity in lava.
     pub in_lava: bool,
-    /// True if the entity is immune to fire.
-    pub fire_immune: bool,
     /// Total fall distance, will be used upon contact to calculate damages to deal.
     pub fall_distance: f32,
     /// Remaining fire ticks.

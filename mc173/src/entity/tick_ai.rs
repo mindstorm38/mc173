@@ -165,7 +165,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
             LivingKind::Zombie(_) => true,
             LivingKind::PigZombie(pig_zombie) => pig_zombie.anger,
             LivingKind::Wolf(wolf) => wolf.angry,
-            LivingKind::Spider(_) => common::calc_entity_brightness(world, base) < 0.5,
+            LivingKind::Spider(_) => common::get_entity_light(world, base).brightness() < 0.5,
             _ => false,
         };
 
@@ -566,7 +566,7 @@ fn tick_natural_despawn(world: &mut World, id: u32, entity: &mut Entity) -> bool
     // faster increment.
     living.wander_time = living.wander_time.saturating_add(1);
     if living_kind.entity_kind().category() == EntityCategory::Mob {
-        if common::calc_entity_brightness(world, base) > 0.5 {
+        if common::get_entity_light(world, base).brightness() > 0.5 {
             living.wander_time = living.wander_time.saturating_add(2);
         }
     }

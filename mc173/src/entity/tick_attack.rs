@@ -71,7 +71,7 @@ fn tick_spider_attack(world: &mut World, id: u32, entity: &mut Entity, target_id
     let_expect!(Entity(base, BaseKind::Living(living, LivingKind::Spider(_))) = entity);
     
     // If the brightness has changed, there if 1% chance to loose target.
-    if common::calc_entity_brightness(world, base) > 0.5 && base.rand.next_int_bounded(100) == 0 {
+    if common::get_entity_light(world, base).brightness() > 0.5 && base.rand.next_int_bounded(100) == 0 {
         // Loose target because it's too bright.
         living.attack_target = None;
     } else if dist_squared > MIN_DIST_SQUARED && dist_squared < MAX_DIST_SQUARED && base.rand.next_int_bounded(10) == 0 {

@@ -58,19 +58,15 @@ fn tick_state_base(world: &mut World, id: u32, entity: &mut Entity) {
     if base.in_water {
         base.fire_time = 0;
         base.fall_distance = 0.0;
-    } else if base.fire_immune {
+    } else if matches!(base_kind, BaseKind::Living(_, LivingKind::Ghast(_) | LivingKind::PigZombie(_))) {
         base.fire_time = 0;
     }
 
-    if base.fire_time != 0 {
-        if false { // if fire immune
-            base.fire_time = base.fire_time.saturating_sub(4);
-        } else {
-            if base.fire_time % 20 == 0 {
-                // TODO: Damage entity
-            }
-            base.fire_time -= 1;
+    if base.fire_time > 0 {
+        if base.fire_time % 20 == 0 {
+            base.hurt.push(Hurt { damage: 1, origin_id: None });
         }
+        base.fire_time -= 1;
     }
 
     // Check if there is a lava block colliding...
@@ -155,12 +151,33 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
 
     // TODO: Air time underwater
 
+
+    // If the zombie/skeleton see the sky light, set it on fire.
+    if matches!(living_kind, LivingKind::Zombie(_) | LivingKind::Skeleton(_)) {
+        let block_pos = base.pos.floor().as_ivec3();
+        let height = world.get_height(block_pos).unwrap_or(0) as i32;
+        if block_pos.y >= height {
+            let light = common::get_entity_light(world, base);
+            if light.sky_real >= 12 {
+                if base.rand.next_float() * 30.0 < (light.brightness() - 0.4) * 2.0 {
+                    base.fire_time = 300;
+                }
+            }
+        }
+    }
+
+    // Lava damage and fire time.
+    if base.in_lava {
+        base.hurt.push(Hurt { damage: 4, origin_id: None });
+        base.fire_time = 600;
+    }
+
     // Decrease countdowns.
     living.hurt_time = living.hurt_time.saturating_sub(1);
 
     /// The hurt time when hit for the first time.
     /// PARITY: The Notchian impl doesn't actually use hurt time but another variable
-    ///  that have the exact same behavior, so we use hurt time here to be more,
+    ///  that have the exact same behavior, so we use hurt time here to be more
     ///  consistent. We also avoid the divide by two thing that is useless.
     const HURT_INITIAL_TIME: u16 = 10;
 

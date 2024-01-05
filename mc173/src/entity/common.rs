@@ -8,7 +8,7 @@ use glam::{DVec3, IVec3, Vec2, Vec3Swizzles};
 use crate::world::bound::RayTraceKind;
 use crate::block::material::Material;
 use crate::geom::{Face, BoundingBox};
-use crate::world::World;
+use crate::world::{World, Light};
 use crate::block;
 
 use super::{Entity, LivingKind, Base};
@@ -95,10 +95,11 @@ pub fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u
 
 }
 
-pub fn calc_entity_brightness(world: &World, base: &Base) -> f32 {
+/// Calculate the light levels for an entity given its base component.
+pub fn get_entity_light(world: &World, base: &Base) -> Light {
     let mut check_pos = base.pos;
     check_pos.y += (base.size.height * 0.66 - base.size.center) as f64;
-    world.get_light(check_pos.floor().as_ivec3()).brightness()
+    world.get_light(check_pos.floor().as_ivec3())
 }
 
 /// Find a the closest player entity (as defined in [`World`]) within the given radius.
