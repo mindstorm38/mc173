@@ -5,7 +5,7 @@ use std::mem;
 use glam::IVec3;
 
 use mc173::item::{self, ItemStack};
-use mc173::world::{World, Event};
+use mc173::world::{World, Event, Weather};
 use mc173::entity::{EntityKind, EntityCategory};
 use mc173::path::PathFinder;
 use mc173::block;
@@ -107,7 +107,7 @@ const COMMANDS: &'static [Command] = &[
     },
     Command {
         name: "weather",
-        usage: "",
+        usage: "[clear|rain|thunder]",
         description: "Display world weather",
         handler: cmd_weather
     },
@@ -157,7 +157,7 @@ const COMMANDS: &'static [Command] = &[
 
 fn cmd_help(ctx: CommandContext) -> CommandResult {
 
-    ctx.player.send_chat(format!("§8========================"));
+    ctx.player.send_chat(format!("§8====================================================="));
     
     for cmd in COMMANDS {
         if cmd.usage.is_empty() {
@@ -260,14 +260,33 @@ fn cmd_time(ctx: CommandContext) -> CommandResult {
 }
 
 fn cmd_weather(ctx: CommandContext) -> CommandResult { 
-    ctx.player.send_chat(format!("§aWeather:§r {:?}", ctx.world.get_weather()));
-    Ok(())
+
+    if ctx.parts.len() == 1 {
+        
+        let weather = match ctx.parts[0] {
+            "clear" => Weather::Clear,
+            "rain" => Weather::Rain,
+            "thunder" => Weather::Thunder,
+            _ => return Err(None)
+        };
+
+        ctx.world.set_weather(weather);
+        ctx.player.send_chat(format!("§aWeather set to:§r {:?}", weather));
+        Ok(())
+
+    } else if ctx.parts.is_empty() {
+        ctx.player.send_chat(format!("§aWeather:§r {:?}", ctx.world.get_weather()));
+        Ok(())
+    } else {
+        Err(None)
+    }
+
 }
 
 fn cmd_pos(ctx: CommandContext) -> CommandResult { 
     
-    ctx.player.send_chat(format!("§8========================"));
-    
+    ctx.player.send_chat(format!("§8====================================================="));
+
     let block_pos = ctx.player.pos.floor().as_ivec3();
     ctx.player.send_chat(format!("§aReal:§r {}", ctx.player.pos));
     ctx.player.send_chat(format!("§aBlock:§r {}", block_pos));
@@ -417,7 +436,7 @@ fn cmd_explode(ctx: CommandContext) -> CommandResult {
 
 fn cmd_perf(ctx: CommandContext) -> CommandResult { 
 
-    ctx.player.send_chat(format!("§8========================"));
+    ctx.player.send_chat(format!("§8====================================================="));
     ctx.player.send_chat(format!("§aTick duration:§r {:.1} ms", ctx.state.tick_duration.get() * 1000.0));
     ctx.player.send_chat(format!("§aTick interval:§r {:.1} ms", ctx.state.tick_interval.get() * 1000.0));
     ctx.player.send_chat(format!("§aEvents count:§r {:.1} ({:.1} B)", ctx.state.events_count.get(), ctx.state.events_count.get() * mem::size_of::<Event>() as f32));
