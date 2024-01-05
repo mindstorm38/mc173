@@ -1211,8 +1211,12 @@ impl World {
                         entity.0.persistent = true;
                         entity.0.look.x = self.rand.next_float() * std::f32::consts::TAU;
 
+                        // Important to init natural spawn before checking if it can spawn
+                        // because slime may be resized, so this can change the bb.
+                        entity.init_natural_spawn(self);
+
                         // Skip if the entity cannot be spawned.
-                        if !entity.can_naturally_spawn(self) {
+                        if !entity.can_natural_spawn(self) {
                             continue;
                         }
 

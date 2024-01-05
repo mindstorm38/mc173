@@ -640,7 +640,7 @@ impl Entity {
     /// Return true if the entity can naturally spawn at its current position (with
     /// synchronized bounding box) in the given world. The entity is mutated because its
     /// RNG may be used.
-    pub fn can_naturally_spawn(&mut self, world: &World) -> bool {
+    pub fn can_natural_spawn(&mut self, world: &World) -> bool {
 
         let Entity(base, BaseKind::Living(_, living_kind)) = self else {
             // Non-living entities cannot naturally spawn.
@@ -711,6 +711,36 @@ impl Entity {
         }
 
         true
+
+    }
+
+    /// Initialize this entity for natural spawn, for example this randomize the slime
+    /// size or sheep color or make a spider with jokey.
+    pub fn init_natural_spawn(&mut self, _world: &mut World) {
+
+        let Entity(base, BaseKind::Living(_, living_kind)) = self else {
+            // Non-living entities cannot naturally spawn.
+            return;
+        };
+
+        match living_kind {
+            LivingKind::Slime(slime) => {
+                slime.size = 1 << base.rand.next_int_bounded(3) as u8;
+                self.resize();
+            }
+            LivingKind::Sheep(sheep) => {
+                let rand = base.rand.next_int_bounded(100) as u8;
+                sheep.color = match rand {
+                    0..=4 => 15,
+                    5..=9 => 7,
+                    10..=14 => 8,
+                    15..=17 => 12,
+                    _ if base.rand.next_int_bounded(500) == 0 => 6,
+                    _ => 0,
+                };
+            }
+            _ => {}
+        }
 
     }
 

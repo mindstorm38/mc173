@@ -79,7 +79,7 @@ impl SpawnerBlockEntity {
             let mut entity = self.entity_kind.new_default(pos);
             entity.0.look.x = rand.next_float();
 
-            if entity.can_naturally_spawn(world) {
+            if entity.can_natural_spawn(world) {
                 world.spawn_entity(entity);
                 same_count += 1;
             }

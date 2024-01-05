@@ -244,6 +244,8 @@ fn cmd_spawn(ctx: CommandContext) -> CommandResult {
     let mut entity = entity_kind.new_default(ctx.player.pos);
     entity.0.persistent = true;
 
+    entity.init_natural_spawn(ctx.world);
+
     let entity_id = ctx.world.spawn_entity(entity);
     ctx.player.send_chat(format!("§aEntity spawned:§r {entity_id}"));
 
