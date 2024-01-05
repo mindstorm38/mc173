@@ -19,7 +19,7 @@ pub(super) fn tick_ai(world: &mut World, id: u32, entity: &mut Entity) {
     match entity {
         Entity(_, BaseKind::Living(_, LivingKind::Human(_))) => (),  // Fo
         Entity(_, BaseKind::Living(_, LivingKind::Ghast(_))) => tick_ghast_ai(world, id, entity),
-        Entity(_, BaseKind::Living(_, LivingKind::Squid(_))) => (),
+        Entity(_, BaseKind::Living(_, LivingKind::Squid(_))) => tick_squid_ai(world, id, entity),
         Entity(_, BaseKind::Living(_, LivingKind::Slime(_))) => tick_slime_ai(world, id, entity),
         Entity(_, BaseKind::Living(_, _)) => tick_ground_ai(world, id, entity),
         _ => unreachable!("invalid argument for this function")
@@ -505,5 +505,27 @@ fn tick_ghast_ai(world: &mut World, id: u32, entity: &mut Entity) {
     }
 
     living.attack_time = next_attack_time;
+
+}
+
+/// Tick a squid entity AI.
+/// 
+/// REF: EntitySquid::updatePlayerActionState
+fn tick_squid_ai(_world: &mut World, _id: u32, entity: &mut Entity) {
+
+    let_expect!(Entity(base, BaseKind::Living(_living, LivingKind::Squid(_squid))) = entity);
+
+    // TODO: despawn if too far
+
+    if base.rand.next_int_bounded(50) == 0 || !base.in_water || false /* not yet accelerated */ {
+        
+        // PARITY: The Notchian implementation uses other variables to control the 
+        // acceleration, but here we try to reuse the existing properties. We just pick a 
+        // random look, and we know that the acceleration is always 0.2 in the direction.
+
+        base.look.x = base.rand.next_float() * std::f32::consts::TAU;
+        base.look.y = base.rand.next_float() * 0.46365 * 2.0 - 0.46365;
+
+    }
 
 }

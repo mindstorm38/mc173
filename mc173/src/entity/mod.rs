@@ -433,7 +433,12 @@ pub struct Sheep {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Squid { }
+pub struct Squid {
+    /// Animation progress for the squid.
+    pub animation: f32,
+    /// Speed of the animation.
+    pub animation_speed: f32,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Wolf {

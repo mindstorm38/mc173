@@ -636,9 +636,55 @@ fn tick_living_push(world: &mut World, _id: u32, base: &mut Base) {
 fn tick_living_pos(world: &mut World, id: u32, base: &mut Base, living: &mut Living, living_kind: &mut LivingKind) {
 
     // Squid has no special rule for moving.
-    if let LivingKind::Squid(_) = living_kind {
+    if let LivingKind::Squid(squid) = living_kind {
+
+        // PARITY: The squid moving loving logic is handled in EntitySquid::onLivingEntity
+        // but we move it here in this implementation for simplicity of the squid impl.
+
+        // Initial random value for animation speed.
+        if squid.animation_speed == 0.0 {
+            squid.animation_speed = 1.0 / (base.rand.next_float() + 1.0) * 0.2;
+        }
+
+        // If the squid animation reaches a full circle, reset it and pick a new rando
+        squid.animation += squid.animation_speed;
+        if squid.animation > std::f32::consts::TAU {
+            squid.animation -= std::f32::consts::TAU;
+            if base.rand.next_int_bounded(10) == 0 {
+                squid.animation_speed = 1.0 / (base.rand.next_float() + 1.0) * 0.2;
+            }
+        }
+
+        if base.in_water {
+
+            // PARITY: We use our 'living.accel_forward' as the squid acceleration.
+            if squid.animation < std::f32::consts::PI {
+                let progress = squid.animation / std::f32::consts::PI;
+                if progress > 0.75 {
+                    living.accel_forward = 1.0;
+                }
+            } else {
+                living.accel_forward *= 0.9;
+            }
+
+            // PARITY: As defined in 'tick_squid_ai', we use the squid look instead of
+            // the Notchian impl acceleration vector, so we need to multiply the vector.
+            let (yaw_sin, yaw_cos) = base.look.x.sin_cos();
+            let pitch_sin = base.look.y.sin();
+            base.vel.x = (yaw_cos * 0.2 * living.accel_forward) as f64;
+            base.vel.z = (yaw_sin * 0.2 * living.accel_forward) as f64;
+            base.vel.y = (pitch_sin * 0.1 * living.accel_forward) as f64;
+
+        } else {
+            base.vel.x = 0.0;
+            base.vel.z = 0.0;
+            base.vel.y -= 0.08;
+            base.vel.y *= 0.98;
+        }
+
         apply_base_vel(world, id, base, base.vel, 0.5);
         return;
+
     }
 
     // All living entities have step height 0.5;
