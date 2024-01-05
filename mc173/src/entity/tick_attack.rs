@@ -122,7 +122,7 @@ fn tick_creeper_attack(world: &mut World, id: u32, entity: &mut Entity, _target_
         if ignited_time >= 30 {
 
             // Kill the creeper and return none in order to loose focus on the entity.
-            world.remove_entity(id);
+            world.remove_entity(id, "creeper explode");
             
             if creeper.powered {
                 world.explode(base.pos, 6.0, false, Some(id));

@@ -312,7 +312,7 @@ impl World {
         let mut ret = None;
 
         let entities = chunk_comp.entities.keys()
-            .filter_map(|&id| self.remove_entity_inner(id, false).unwrap().inner)
+            .filter_map(|&id| self.remove_entity_inner(id, false, "remove chunk snapshot").unwrap().inner)
             .collect();
         
         let block_entities = chunk_comp.block_entities.keys()
@@ -623,8 +623,8 @@ impl World {
     /// returns true if the entity has been successfully removed removal, the entity's
     /// storage is guaranteed to be freed after return, but the entity footprint in the
     /// world will be cleaned only after ticking.
-    pub fn remove_entity(&mut self, id: u32) -> bool {
-        self.remove_entity_inner(id, true).is_some()
+    pub fn remove_entity(&mut self, id: u32, reason: &str) -> bool {
+        self.remove_entity_inner(id, true, reason).is_some()
     }
 
     /// Internal version of [`remove_entity`] that returns the removed component.
@@ -632,7 +632,9 @@ impl World {
     /// The caller can specify if the entity is known to be in an existing chunk
     /// component, if the caller know that the chunk component is no longer existing,
     /// it avoids panicking.
-    fn remove_entity_inner(&mut self, id: u32, has_chunk: bool) -> Option<EntityComponent> {
+    /// 
+    /// The given reason is only used for log tracing.
+    fn remove_entity_inner(&mut self, id: u32, has_chunk: bool, reason: &str) -> Option<EntityComponent> {
 
         let index = self.entities_id_map.remove(&id)?;
 
@@ -643,7 +645,7 @@ impl World {
         let swapped_index = self.entities.len();
         debug_assert_eq!(comp.id, id, "entity incoherent id");
 
-        trace!("remove entity #{id} ({:?})", comp.kind);
+        trace!("remove entity #{id} ({:?}): {reason}", comp.kind);
         
         // Directly remove the entity from its chunk if needed.
         let (cx, cz) = (comp.cx, comp.cz);

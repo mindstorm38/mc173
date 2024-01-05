@@ -36,7 +36,7 @@ pub(super) fn tick(world: &mut World, id: u32, entity: &mut Entity) {
 
     // Just kill the entity if far in the void.
     if base.pos.y < -64.0 {
-        world.remove_entity(id);
+        world.remove_entity(id, "void");
         return;
     }
 
@@ -166,7 +166,7 @@ fn tick_item(world: &mut World, id: u32, entity: &mut Entity) {
 
     // Kill the item self after 5 minutes (5 * 60 * 20).
     if base.lifetime >= 6000 {
-        world.remove_entity(id);
+        world.remove_entity(id, "item too old");
     }
 
 }
@@ -192,7 +192,7 @@ fn tick_falling_block(world: &mut World, id: u32, entity: &mut Entity) {
     let_expect!(Entity(base, BaseKind::FallingBlock(falling_block)) = entity);
 
     if falling_block.block_id == 0 {
-        world.remove_entity(id);
+        world.remove_entity(id, "falling block has not block");
         return;
     }
 
@@ -203,7 +203,7 @@ fn tick_falling_block(world: &mut World, id: u32, entity: &mut Entity) {
     if base.on_ground {
 
         base.vel *= DVec3::new(0.7, -0.5, 0.7);
-        world.remove_entity(id);
+        world.remove_entity(id, "falling block on ground");
 
         let block_pos = base.pos.floor().as_ivec3();
         if world.can_place_block(block_pos, Face::PosY, falling_block.block_id) {
@@ -213,7 +213,7 @@ fn tick_falling_block(world: &mut World, id: u32, entity: &mut Entity) {
         }
 
     } else if base.lifetime > 100 {
-        world.remove_entity(id);
+        world.remove_entity(id, "falling block too old");
         world.spawn_loot(base.pos, ItemStack::new_block(falling_block.block_id, 0), 0.0);
     }
 
@@ -235,7 +235,7 @@ fn tick_tnt(world: &mut World, id: u32, entity: &mut Entity) {
 
     tnt.fuse_time = tnt.fuse_time.saturating_sub(1);
     if tnt.fuse_time == 0 {
-        world.remove_entity(id);
+        world.remove_entity(id, "tnt explode");
         world.explode(base.pos, 4.0, false, None);
     }
 
@@ -300,7 +300,7 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
         }
 
         if remove_bobber {
-            world.remove_entity(id);
+            world.remove_entity(id, "bobber has no owner");
             return;
         }
 
@@ -322,7 +322,7 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
     if let Some(hit) = projectile.state {
         if (hit.block, hit.metadata) == world.get_block(hit.pos).unwrap() {
             if projectile.state_time == 1200 {
-                world.remove_entity(id);
+                world.remove_entity(id, "projectile in block for too long");
             }
         } else {
             trace!("entity #{id}, no longer in block...");
@@ -431,7 +431,7 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
 
                 if hit_entity.is_some() || hit_block.is_some() {
                     
-                    world.remove_entity(id);
+                    world.remove_entity(id, "projectile hit");
 
                     // For egg we try to spawn a chicken.
                     if let ProjectileKind::Egg(_) = projectile_kind {
@@ -460,7 +460,7 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
             ProjectileKind::Fireball(_) => {
 
                 if hit_entity.is_some() || hit_block.is_some() {
-                    world.remove_entity(id);
+                    world.remove_entity(id, "fireball hit");
                     world.explode(base.pos, 1.0, true, projectile.owner_id);
                 }
 

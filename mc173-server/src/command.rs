@@ -395,7 +395,7 @@ fn cmd_clean(ctx: CommandContext) -> CommandResult {
     let mut removed_count = 0;
     for id in ids {
         if !ctx.world.is_entity_player(id) {
-            assert!(ctx.world.remove_entity(id));
+            assert!(ctx.world.remove_entity(id, "server clean command"));
             removed_count += 1;
         }
     }

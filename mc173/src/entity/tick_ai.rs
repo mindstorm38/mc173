@@ -582,14 +582,14 @@ fn tick_natural_despawn(world: &mut World, id: u32, entity: &mut Entity) -> bool
             false
         } else if living.wander_time > 600 && base.rand.next_int_bounded(800) == 0 {
             // The entity has not interacted with player in long time, randomly despawn.
-            world.remove_entity(id);
+            world.remove_entity(id, "random wandering despawn");
             true
         } else {
             false
         }
     } else {
         // No player in 128 range, despawn this natural entity entity.
-        world.remove_entity(id);
+        world.remove_entity(id, "no close player despawn");
         true
     }
 

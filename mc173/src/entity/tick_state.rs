@@ -248,7 +248,7 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
 
         living.death_time += 1;
         if living.death_time > 20 {
-            world.remove_entity(id);
+            world.remove_entity(id, "health dead");
         }
 
     }

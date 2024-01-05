@@ -329,7 +329,7 @@ impl ServerWorld {
         let mut player = self.players.swap_remove(player_index);
         
         // Kill the entity associated to the player.
-        self.world.remove_entity(player.entity_id);
+        self.world.remove_entity(player.entity_id, "server player leave");
 
         // If player has not lost connection but it's just leaving the world, we just
         // send it untrack packets.
@@ -464,7 +464,7 @@ impl ServerWorld {
 
         // If the item stack has been emptied, kill the entity.
         if stack.size == 0 {
-            self.world.remove_entity(target_id);
+            self.world.remove_entity(target_id, "picked up");
         }
 
         for player in &self.players {

@@ -481,7 +481,7 @@ impl World {
 
             }
 
-            self.remove_entity(bobber_id);
+            self.remove_entity(bobber_id, "bobber retracted");
             new_bobber_id = None;
 
         } else {
