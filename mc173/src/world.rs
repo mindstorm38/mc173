@@ -14,7 +14,7 @@ use std::mem;
 use glam::{IVec3, Vec2, DVec3};
 use indexmap::IndexMap;
 
-use tracing::{trace, instrument};
+use tracing::trace;
 
 use crate::entity::{Entity, EntityCategory, EntityKind};
 use crate::block_entity::BlockEntity;
@@ -994,7 +994,6 @@ impl World {
     
     /// Tick the world, this ticks all entities.
     /// TODO: Guard this from being called recursively from tick functions.
-    #[instrument(skip_all)]
     pub fn tick(&mut self) {
 
         if self.time % 20 == 0 {
@@ -1022,7 +1021,6 @@ impl World {
     }
 
     /// Update current weather in the world.
-    #[instrument(skip_all)]
     fn tick_weather(&mut self) {
 
         // No weather in the nether.
@@ -1051,7 +1049,6 @@ impl World {
     }
 
     /// Do natural animal and mob spawning in the world.
-    #[instrument(skip_all)]
     fn tick_natural_spawn(&mut self) {
 
         /// The maximum manhattan distance a chunk can be loaded.
@@ -1241,7 +1238,6 @@ impl World {
 
     /// Update the sky light value depending on the current time, it is then used to get
     /// the real light value of blocks.
-    #[instrument(skip_all)]
     fn tick_sky_light(&mut self) {
 
         let time_wrapped = self.time % 24000;
@@ -1271,7 +1267,6 @@ impl World {
     }
 
     /// Internal function to tick the internal scheduler.
-    #[instrument(skip_all)]
     fn tick_blocks(&mut self) {
 
         debug_assert_eq!(self.scheduled_ticks.len(), self.scheduled_ticks_states.len());
@@ -1334,7 +1329,6 @@ impl World {
     }
 
     /// Internal function to tick all entities.
-    #[instrument(skip_all)]
     fn tick_entities(&mut self) {
 
         self.entities.reset();
@@ -1398,7 +1392,6 @@ impl World {
 
     }
 
-    #[instrument(skip_all)]
     fn tick_block_entities(&mut self) {
 
         self.block_entities.reset();
@@ -1428,7 +1421,6 @@ impl World {
     }
 
     /// Tick pending light updates.
-    #[instrument(skip_all)]
     fn tick_light(&mut self) {
 
         // IMPORTANT NOTE: This algorithm is terrible but works, I've been trying to come

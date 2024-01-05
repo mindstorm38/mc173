@@ -2,8 +2,6 @@
 
 use glam::{DVec3, Vec2, IVec3};
 
-use tracing::instrument;
-
 use crate::block::material::Material;
 use crate::util::default as def;
 use crate::geom::BoundingBox;
@@ -568,7 +566,6 @@ impl Entity {
     /// 
     /// **This is really important to no change the entity kind when ticking the 
     /// function.**
-    #[instrument(level = "debug", skip_all)]
     pub fn tick(&mut self, world: &mut World, id: u32) {
         tick::tick(world, id, self);
     }

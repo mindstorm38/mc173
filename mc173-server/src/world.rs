@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use glam::{DVec3, IVec3, Vec2};
 
-use tracing::{debug, info, instrument};
+use tracing::{debug, info};
 
 use mc173::entity::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
@@ -136,7 +136,6 @@ impl ServerWorld {
     }
 
     /// Tick this world.
-    #[instrument(skip(self))]
     pub fn tick(&mut self) {
 
         let start = Instant::now();
@@ -300,7 +299,6 @@ impl ServerWorld {
     }
 
     /// Handle a player joining this world.
-    #[instrument(skip_all)]
     pub fn handle_player_join(&mut self, mut player: ServerPlayer) -> usize {
 
         // Initial tracked entities.
@@ -325,7 +323,6 @@ impl ServerWorld {
     /// world's list is moved to the given player index. So if it exists, you should 
     /// update all indices pointing to the swapped player. This method returns, if 
     /// existing, the player that was swapped.
-    #[instrument(skip_all)]
     pub fn handle_player_leave(&mut self, player_index: usize, lost: bool) -> Option<&ServerPlayer> {
 
         // Remove the player tracker.

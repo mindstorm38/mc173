@@ -2,8 +2,6 @@
 
 use glam::IVec3;
 
-use tracing::instrument;
-
 use crate::world::World;
 
 pub mod chest;
@@ -32,7 +30,6 @@ pub enum BlockEntity {
 impl BlockEntity {
 
     /// Tick the block entity at its position in the world.
-    #[instrument(level = "debug", skip_all)]
     pub fn tick(&mut self, world: &mut World, pos: IVec3) {
         match self {
             BlockEntity::Chest(_) => (),

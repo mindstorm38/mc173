@@ -5,8 +5,6 @@ use std::ops::Add;
 
 use glam::{IVec3, DVec3};
 
-use tracing::instrument;
-
 use crate::block_entity::BlockEntity;
 use crate::geom::{BoundingBox, Face};
 use crate::block;
@@ -232,7 +230,6 @@ impl World {
     /// entity or block. The fluid argument is used to hit the fluid **source** blocks or
     /// not. The overlay argument is used to select the block overlay box instead of the
     /// block bound box.
-    #[instrument(level = "debug", skip_all)]
     pub fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, kind: RayTraceKind) -> Option<RayTraceHit> {
         
         let ray_norm = ray.normalize();

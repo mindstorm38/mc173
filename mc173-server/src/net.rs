@@ -14,8 +14,6 @@ use mio::{Poll, Events, Interest, Token};
 use mio::net::{TcpListener, TcpStream};
 use mio::event::Event;
 
-use tracing::instrument;
-
 
 /// A server-bound packet (received and processed by the server).
 pub trait InPacket: Sized {
@@ -349,7 +347,6 @@ impl<I: InPacket, O: OutPacket> PollThread<I, O> {
     /// **If this internal function return an I/O error, it should be considered critical
     /// and the client should be closed. If no error, the returned boolean indicates if
     /// the thread should continue.**
-    #[instrument(level = "debug", skip_all)]
     fn handle_client_read(&mut self, token: Token) -> io::Result<bool> {
 
         // Just ignore no longer existing clients.
@@ -475,7 +472,6 @@ impl<O: OutPacket> CommandThread<O> {
 
     /// Internal function to send a packet to the given client. If an error is returned,
     /// it should be considered critical for the client, and the client should be closed.
-    #[instrument(level = "debug", skip_all)]
     fn handle_client_send(&mut self, token: Token, packet: O) {
         // Just ignore no longer existing clients.
         let Some(client) = self.clients.get(&token) else { return };
