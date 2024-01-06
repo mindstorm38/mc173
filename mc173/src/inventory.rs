@@ -117,6 +117,34 @@ impl<'a> InventoryHandle<'a> {
         
     }
 
+    /// Test if the given item can be pushed in this inventory. If true is returned, a
+    /// call to `push_*` function is guaranteed to fully consume the stack.
+    pub fn can_push(&self, mut stack: ItemStack) -> bool {
+
+        // Do nothing if stack size is 0 or the item is air.
+        if stack.is_empty() {
+            return true;
+        }
+
+        let item = item::from_id(stack.id);
+
+        for slot in &self.inv[..] {
+            if slot.is_empty() {
+                return true;
+            } else if slot.size != 0 && slot.id == stack.id && slot.damage == stack.damage && slot.size < item.max_stack_size {
+                let available = item.max_stack_size - slot.size;
+                let to_add = available.min(stack.size);
+                stack.size -= to_add;
+                if stack.size == 0 {
+                    return true;
+                }
+            }
+        }
+
+        false
+
+    }
+
     /// Consume the equivalent of the given item stack, returning true if successful.
     pub fn consume(&mut self, stack: ItemStack) -> bool {
         
