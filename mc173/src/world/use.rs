@@ -356,7 +356,7 @@ impl World {
         }
 
         if stack.size > 1 {
-            inv.add(&mut new_stack);
+            inv.push_front(&mut new_stack);
             // Only if there was space in the inventory we actually remove previous one.
             if new_stack.is_empty() {
                 inv.set(index, stack.with_size(stack.size - 1));

@@ -311,6 +311,7 @@ pub struct HandSlotPacket {
     pub slot: i16,
 }
 
+/// Packet 17
 #[derive(Debug, Clone)]
 pub struct PlayerSleepPacket {
     pub entity_id: u32,

@@ -424,9 +424,17 @@ impl ServerPlayer {
         // Holding the target slot's item stack.
         let mut cursor_stack = self.cursor_stack;
         let slot_stack;
+        let slot_notify;
+
+        // Check coherency of server/client windows.
+        if self.window.id != packet.window_id {
+            warn!("from {}, incoherent window id, expected {}, got {} from client", self.username, self.window.id, packet.window_id);
+            return;
+        }
 
         if packet.slot == -999 {
             slot_stack = ItemStack::EMPTY;
+            slot_notify = SlotNotify::None;
             if !cursor_stack.is_empty() {
 
                 let mut drop_stack = cursor_stack;
@@ -439,10 +447,280 @@ impl ServerPlayer {
 
             }
         } else if packet.shift_click {
-            todo!()
+            
+            if packet.slot < 0 {
+                return;
+            }
+
+            // TODO: This whole branch should be reworked to use a similar approach to
+            // regular clicks. One idea would be to have some kind of "SlotTransfer"
+            // structure that references targets for transfers, like current "SlotHandle".
+
+            let slot = packet.slot as usize;
+            
+            // Try to get the main slot, if any.
+            let main_slot = match self.window.kind {
+                WindowKind::Player => slot.checked_sub(9),
+                WindowKind::CraftingTable { .. } => slot.checked_sub(10),
+                WindowKind::Chest { ref pos } => slot.checked_sub(pos.len() * 27),
+                WindowKind::Furnace { .. } => slot.checked_sub(3),
+                WindowKind::Dispenser { .. } => slot.checked_sub(9),
+            };
+
+            // From the slot number, we get the index in the main inventory stacks.
+            // The the main slot is set by invalid, just abort.
+            let main_index = match main_slot {
+                Some(n @ 0..=26) => Some(n + 9),
+                Some(n @ 27..=35) => Some(n - 27),
+                Some(_) => return,
+                _ => None
+            };
+            
+            // Create a handle to the main inventory.
+            let mut main_inv = InventoryHandle::new(&mut self.main_inv[..]);
+
+            // Each window kind has a different handling of shift click...
+            match self.window.kind {
+                WindowKind::Player => {
+                    if let Some(main_index) = main_index {
+                        // Between hotbar and inventory...
+                        slot_stack = main_inv.get(main_index);
+                        let mut stack = slot_stack;
+                        main_inv.push_front_in(&mut stack, if main_index < 9 { 9..36 } else { 0..9 });
+                        main_inv.set(main_index, stack);
+                        slot_notify = SlotNotify::None;
+                    } else if slot == 0 {
+
+                        // Craft result
+                        if let Some(mut result_stack) = self.craft_tracker.recipe() {
+                            slot_stack = result_stack;
+                            if main_inv.can_push(result_stack) {
+
+                                self.craft_tracker.consume(&mut self.craft_inv);
+
+                                main_inv.push_back_in(&mut result_stack, 0..9);
+                                main_inv.push_back_in(&mut result_stack, 9..36);
+                                assert!(result_stack.is_empty());
+
+                                slot_notify = SlotNotify::Craft { 
+                                    mapping: Some(&[1, 2, -1, 3, 4, -1, -1, -1, -1]), 
+                                    modified: true,
+                                };
+
+                            } else {
+                                slot_notify = SlotNotify::None;
+                            }
+                        } else {
+                            slot_stack = ItemStack::EMPTY;
+                            slot_notify = SlotNotify::None;
+                        }
+
+                    } else if slot >= 1 && slot <= 4 {
+
+                        // Craft matrix
+                        let stack = match slot {
+                            1 | 2 => &mut self.craft_inv[slot - 1],
+                            3 | 4 => &mut self.craft_inv[slot],
+                            _ => unreachable!()
+                        };
+
+                        slot_stack = *stack;
+                        main_inv.push_front_in(stack, 9..36);
+                        main_inv.push_front_in(stack, 0..9);
+
+                        slot_notify = SlotNotify::Craft { 
+                            mapping: None, 
+                            modified: true,
+                        };
+
+                    } else {
+                        // Armor
+                        let stack = &mut self.armor_inv[slot - 5];
+                        slot_stack = *stack;
+                        main_inv.push_front_in(stack, 9..36);
+                        main_inv.push_front_in(stack, 0..9);
+                        slot_notify = SlotNotify::None;
+                    }
+                }
+                WindowKind::CraftingTable { .. } => {
+
+                    if let Some(main_index) = main_index {
+                        // Between hotbar and inventory...
+                        slot_stack = main_inv.get(main_index);
+                        let mut stack = slot_stack;
+                        main_inv.push_front_in(&mut stack, if main_index < 9 { 9..36 } else { 0..9 });
+                        main_inv.set(main_index, stack);
+                        slot_notify = SlotNotify::None;
+                    } else if slot == 0 {
+
+                        // Craft result
+                        if let Some(mut result_stack) = self.craft_tracker.recipe() {
+                            slot_stack = result_stack;
+                            if main_inv.can_push(result_stack) {
+
+                                self.craft_tracker.consume(&mut self.craft_inv);
+
+                                main_inv.push_back_in(&mut result_stack, 0..9);
+                                main_inv.push_back_in(&mut result_stack, 9..36);
+                                assert!(result_stack.is_empty());
+
+                                slot_notify = SlotNotify::Craft { 
+                                    mapping: Some(&[1, 2, 3, 4, 5, 6, 7, 8, 9]), 
+                                    modified: true,
+                                };
+
+                            } else {
+                                slot_notify = SlotNotify::None;
+                            }
+                        } else {
+                            slot_stack = ItemStack::EMPTY;
+                            slot_notify = SlotNotify::None;
+                        }
+
+                    } else {
+
+                        // Craft matrix
+                        let stack = &mut self.craft_inv[slot - 1];
+
+                        slot_stack = *stack;
+                        main_inv.push_front_in(stack, 9..36);
+                        main_inv.push_front_in(stack, 0..9);
+
+                        slot_notify = SlotNotify::Craft { 
+                            mapping: None, 
+                            modified: true,
+                        };
+
+                    }
+
+                }
+                WindowKind::Chest { ref pos } => {
+
+                    if let Some(main_index) = main_index {
+
+                        // From hotbar/inventory to chest.
+                        slot_stack = main_inv.get(main_index);
+                        let mut stack = slot_stack;
+
+                        // Temporarily swap events out to avoid borrowing issues.
+                        let mut events = world.swap_events(None);
+
+                        // We try to insert 
+                        for &pos in pos {
+                            if let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(pos) {
+
+                                let mut chest_inv = InventoryHandle::new(&mut chest.inv[..]);
+                                chest_inv.push_front(&mut stack);
+
+                                // Push all changes in the chest inventory as world event.
+                                if let Some(events) = &mut events {
+                                    for index in chest_inv.iter_changes() {
+                                        events.push(Event::BlockEntity { 
+                                            pos, 
+                                            inner: BlockEntityEvent::Storage { 
+                                                storage: BlockEntityStorage::Standard(index as u8), 
+                                                stack: chest_inv.get(index),
+                                            },
+                                        });
+                                    }
+                                }
+
+                                if stack.is_empty() {
+                                    break;
+                                }
+
+                            }
+                        }
+
+                        main_inv.set(main_index, stack);
+
+                        // Swap events back in.
+                        world.swap_events(events);
+                        // No notify because we handled the events for all chest entities.
+                        slot_notify = SlotNotify::None;
+
+                    } else {
+
+                        // From the chest to hotbar/inventory
+
+                        let pos = pos[slot / 27];
+                        let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(pos) else { 
+                            return;
+                        };
+
+                        let index = slot % 27;
+                        let stack = &mut chest.inv[index];
+                        slot_stack = *stack;
+                        if !stack.is_empty() {
+                            main_inv.push_back_in(stack, 0..9);
+                            main_inv.push_back_in(stack, 9..36);
+                        }
+
+                        slot_notify = SlotNotify::BlockEntityStorageEvent { 
+                            pos, 
+                            storage: BlockEntityStorage::Standard(index as u8), 
+                            stack: Some(*stack),
+                        };
+
+                    }
+                    
+                }
+                WindowKind::Furnace { pos } => {
+
+                    if let Some(main_index) = main_index {
+                        // Between hotbar and inventory...
+                        slot_stack = main_inv.get(main_index);
+                        let mut stack = slot_stack;
+                        main_inv.push_front_in(&mut stack, if main_index < 9 { 9..36 } else { 0..9 });
+                        main_inv.set(main_index, stack);
+                        slot_notify = SlotNotify::None;
+                    } else {
+
+                        // From furnace to inventory
+                        let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else { 
+                            return;
+                        };
+
+                        let (stack, storage) = match slot {
+                            0 => (&mut furnace.input_stack, BlockEntityStorage::FurnaceInput),
+                            1 => (&mut furnace.fuel_stack, BlockEntityStorage::FurnaceFuel),
+                            2 => (&mut furnace.output_stack, BlockEntityStorage::FurnaceOutput),
+                            _ => unreachable!()
+                        };
+
+                        slot_stack = *stack;
+                        main_inv.push_front_in(stack, 9..36);
+                        main_inv.push_front_in(stack, 0..9);
+
+                        slot_notify = SlotNotify::BlockEntityStorageEvent { 
+                            pos, 
+                            storage, 
+                            stack: Some(*stack),
+                        };
+
+                    }
+
+                }
+                WindowKind::Dispenser { pos } => {
+
+                    // No shift click possible with dispenser, but we check coherency.
+                    if let Some(main_index) = main_index {
+                        slot_stack = main_inv.get(main_index);
+                    } else if let Some(BlockEntity::Dispenser(dispenser)) = world.get_block_entity_mut(pos) {
+                        slot_stack = dispenser.inv[slot];
+                    } else {
+                        // No dispenser block entity??
+                        return;
+                    }
+                    
+                    slot_notify = SlotNotify::None;
+
+                }
+            }
+
         } else {
 
-            let slot_handle = self.make_window_slot_handle(world, packet.window_id, packet.slot);
+            let slot_handle = self.make_window_slot_handle(world, packet.slot);
             let Some(mut slot_handle) = slot_handle else {
                 warn!("from {}, cannot find a handle for slot {} in window {}", self.username, packet.slot, packet.window_id);
                 return;
@@ -530,72 +808,83 @@ impl ServerPlayer {
 
             }
 
-            // Handle notification if the slot has changed.
-            match slot_handle.notify {
-                SlotNotify::Craft { 
-                    mapping, 
-                    modified: true,
-                } => {
+            slot_notify = slot_handle.notify;
 
-                    self.craft_tracker.update(&self.craft_inv);
-                    
-                    self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-                        window_id: packet.window_id,
-                        slot: 0,
-                        stack: self.craft_tracker.recipe(),
-                    }));
+        }
 
-                    if let Some(mapping) = mapping {
-                        for (index, &slot) in mapping.iter().enumerate() {
-                            if slot >= 0 {
-                                self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket {
-                                    window_id: packet.window_id,
-                                    slot,
-                                    stack: self.craft_inv[index].to_non_empty(),
-                                }));
-                            }
+        // Handle notification if the slot has changed.
+        match slot_notify {
+            SlotNotify::Craft { 
+                mapping, 
+                modified: true,
+            } => {
+
+                self.craft_tracker.update(&self.craft_inv);
+                
+                self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                    window_id: packet.window_id,
+                    slot: 0,
+                    stack: self.craft_tracker.recipe(),
+                }));
+
+                if let Some(mapping) = mapping {
+                    for (index, &slot) in mapping.iter().enumerate() {
+                        if slot >= 0 {
+                            self.net.send(self.client, OutPacket::WindowSetItem(proto::WindowSetItemPacket {
+                                window_id: packet.window_id,
+                                slot,
+                                stack: self.craft_inv[index].to_non_empty(),
+                            }));
                         }
                     }
+                }
 
-                }
-                SlotNotify::BlockEntityStorageEvent { 
-                    pos,
-                    storage, 
-                    stack: Some(stack),
-                } => {
-                    world.push_event(Event::BlockEntity { 
-                        pos, 
-                        inner: BlockEntityEvent::Storage { 
-                            storage, 
-                            stack,
-                        },
-                    });
-                }
-                _ => {}
             }
-
+            SlotNotify::BlockEntityStorageEvent { 
+                pos,
+                storage, 
+                stack: Some(stack),
+            } => {
+                world.push_event(Event::BlockEntity { 
+                    pos, 
+                    inner: BlockEntityEvent::Storage { 
+                        storage, 
+                        stack,
+                    },
+                });
+            }
+            _ => {}
         }
             
         // Answer with a transaction packet that is accepted if the packet's stack is
         // the same as the server's slot stack.
+        let accepted = slot_stack.to_non_empty() == packet.stack;
         self.send(OutPacket::WindowTransaction(proto::WindowTransactionPacket {
             window_id: packet.window_id,
             transaction_id: packet.transaction_id,
-            accepted: slot_stack.to_non_empty() == packet.stack,
+            accepted,
         }));
 
-        // Send the new cursor item.
-        if cursor_stack.size == 0 {
-            cursor_stack = ItemStack::EMPTY;
+        if !accepted {
+            warn!("from {}, incoherent item at {} in window {}", self.username, packet.slot, packet.window_id);
         }
 
-        self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
-            window_id: 0xFF,
-            slot: -1,
-            stack: cursor_stack.to_non_empty(),
-        }));
+        if cursor_stack != self.cursor_stack || !accepted {
 
-        self.cursor_stack = cursor_stack;
+            // Send the new cursor item.
+            if cursor_stack.size == 0 {
+                cursor_stack = ItemStack::EMPTY;
+            }
+
+            self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket { 
+                window_id: 0xFF,
+                slot: -1,
+                stack: cursor_stack.to_non_empty(),
+            }));
+
+            self.cursor_stack = cursor_stack;
+
+        }
 
     }
 
@@ -847,17 +1136,10 @@ impl ServerPlayer {
     /// Internal function to create a window slot handle. This handle is temporary and
     /// own two mutable reference to the player itself and the world, it can only work
     /// on the given slot.
-    fn make_window_slot_handle<'a>(&'a mut self, world: &'a mut World, window_id: u8, slot: i16) -> Option<SlotHandle<'a>> {
-
-        // Check coherency of server/client windows.
-        if self.window.id != window_id {
-            warn!("from {}, incoherent window id, expected {}, got {} from client", self.username, self.window.id, window_id);
-            return None;
-        }
+    fn make_window_slot_handle<'a>(&'a mut self, world: &'a mut World, slot: i16) -> Option<SlotHandle<'a>> {
 
         // This avoid temporary cast issues afterward, even if we keep the signed type.
         if slot < 0 {
-            warn!("from {}, negative slot {slot} received for window {window_id}", self.username);
             return None;
         }
 
@@ -935,8 +1217,7 @@ impl ServerPlayer {
             }
             WindowKind::Chest { ref pos } => {
 
-                let block_entity_index = slot as usize / 27;
-                if let Some(&pos) = pos.get(block_entity_index) {
+                if let Some(&pos) = pos.get(slot as usize / 27) {
                     
                     // Get the chest tile entity corresponding to the clicked slot,
                     // if not found we just ignore.
@@ -1035,12 +1316,10 @@ impl ServerPlayer {
             _ => index,
         };
 
-        let stack = self.main_inv[index];
-
         self.send(OutPacket::WindowSetItem(proto::WindowSetItemPacket {
             window_id: 0,
             slot: slot as i16,
-            stack: stack.to_non_empty(),
+            stack: self.main_inv[index].to_non_empty(),
         }));
 
     }
@@ -1134,7 +1413,7 @@ impl ServerPlayer {
     pub fn pickup_stack(&mut self, stack: &mut ItemStack) {
         
         let mut inv = InventoryHandle::new(&mut self.main_inv[..]);
-        inv.add(stack);
+        inv.push_front(stack);
 
         // Update the associated slots in the player inventory.
         for index in inv.iter_changes() {
