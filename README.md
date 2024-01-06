@@ -61,14 +61,14 @@ on them. The priority of each feature is defined by its order in the list.
     - [ ] Worlds serialization
         - [ ] Non-persistent player entities
         - [ ] Player entities saved appart
-    - [ ] Player window
+    - [x] Player window
         - [x] Left and right click support
         - [x] Player inventory crafting grid
         - [x] Crafting table
         - [x] Chest
         - [x] Furnace
         - [x] Dispenser
-        - [ ] Shift-click on items
+        - [x] Shift-click on items
     - [x] Entity tracking
         - [x] Client-side spawn
 - [x] Lighting engine
