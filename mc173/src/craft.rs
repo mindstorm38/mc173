@@ -455,14 +455,14 @@ impl ShapedRecipe {
                                 let normal_stack = self.pattern[pattern_x + pattern_y * recipe_width];
                                 normal_valid = 
                                     (normal_stack.is_empty() && stack.is_empty()) ||
-                                    ((normal_stack.id, normal_stack.damage) == (stack.id, stack.damage));
+                                    (!stack.is_empty() && (normal_stack.id, normal_stack.damage) == (stack.id, stack.damage));
                             }
 
                             if flip_valid {
                                 let flip_stack = self.pattern[flip_pattern_x + pattern_y * recipe_width];
                                 flip_valid = 
                                     (flip_stack.is_empty() && stack.is_empty()) ||
-                                    ((flip_stack.id, flip_stack.damage) == (stack.id, stack.damage));
+                                    (!stack.is_empty() && (flip_stack.id, flip_stack.damage) == (stack.id, stack.damage));
                             }
 
                             if !normal_valid && !flip_valid {
@@ -501,7 +501,7 @@ impl ShapelessRecipe {
         'inv: for stack in inv.iter().copied() {
             if !stack.is_empty() {
                 for (i, pat_stack) in self.pattern.iter().copied().enumerate() {
-                    if pat_matched & (1 << i) ==  0 {
+                    if pat_matched & (1 << i) == 0 {
                         if (pat_stack.id, pat_stack.damage) == (stack.id, stack.damage) {
                             pat_matched |= 1 << i;
                             continue 'inv;
