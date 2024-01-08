@@ -87,7 +87,7 @@ impl World {
             self.set_block_notify(pos, block::REPEATER, metadata);
         } else if !lit {
             if !back_powered {
-                self.schedule_tick(pos, block::REPEATER_LIT, delay);
+                self.schedule_block_tick(pos, block::REPEATER_LIT, delay);
             }
             self.set_block_notify(pos, block::REPEATER_LIT, metadata);
         }
@@ -287,7 +287,7 @@ impl World {
                 self.set_block(pos, block::FIRE, new_metadata);
             }
 
-            self.schedule_tick(pos, block::FIRE, 40);
+            self.schedule_block_tick(pos, block::FIRE, 40);
 
             // Check if any block around can catch fire.
             let catch_fire = Face::ALL.into_iter()

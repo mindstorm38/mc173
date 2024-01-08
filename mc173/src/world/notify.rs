@@ -54,7 +54,7 @@ impl World {
             block::BROWN_MUSHROOM => self.notify_mushroom(pos),
             block::CACTUS => self.notify_cactus(pos),
             block::SAND |
-            block::GRAVEL => self.schedule_tick(pos, id, 3),
+            block::GRAVEL => self.schedule_block_tick(pos, id, 3),
             _ => {}
         }
     }
@@ -100,17 +100,17 @@ impl World {
         }
 
         match to_id {
-            block::WATER_MOVING => self.schedule_tick(pos, to_id, 5),
-            block::LAVA_MOVING => self.schedule_tick(pos, to_id, 30),
+            block::WATER_MOVING => self.schedule_block_tick(pos, to_id, 5),
+            block::LAVA_MOVING => self.schedule_block_tick(pos, to_id, 30),
             block::REDSTONE => self.notify_redstone(pos),
             block::REPEATER |
             block::REPEATER_LIT => self.notify_repeater(pos, to_id, from_metadata),
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => self.notify_redstone_torch(pos, to_id),
             block::SAND |
-            block::GRAVEL => self.schedule_tick(pos, to_id, 3),
+            block::GRAVEL => self.schedule_block_tick(pos, to_id, 3),
             block::CACTUS => self.notify_cactus(pos),
-            block::FIRE => self.schedule_tick(pos, to_id, 40),
+            block::FIRE => self.schedule_block_tick(pos, to_id, 40),
             _ => {}
         }
 
@@ -185,21 +185,21 @@ impl World {
         let back_powered = self.has_passive_power_from(pos - face.delta(), face);
 
         if lit != back_powered {
-            self.schedule_tick(pos, id, delay);
+            self.schedule_block_tick(pos, id, delay);
         }
 
     }
 
     /// Notification of a redstone repeater block.
     fn notify_redstone_torch(&mut self, pos: IVec3, id: u8) {
-        self.schedule_tick(pos, id, 2);
+        self.schedule_block_tick(pos, id, 2);
     }
 
     fn notify_dispenser(&mut self, pos: IVec3, origin_id: u8) {
         if is_redstone_block(origin_id) {
             // TODO: Also check above? See associated tick function.
             if self.has_passive_power(pos) {
-                self.schedule_tick(pos, block::DISPENSER, 4);
+                self.schedule_block_tick(pos, block::DISPENSER, 4);
             }
         }
     }

@@ -49,7 +49,7 @@ impl World {
         if !block::button::is_active(metadata) {
             block::button::set_active(&mut metadata, true);
             self.set_block_notify(pos, block::BUTTON, metadata);
-            self.schedule_tick(pos, block::BUTTON, 20);
+            self.schedule_block_tick(pos, block::BUTTON, 20);
         }
         true
     }

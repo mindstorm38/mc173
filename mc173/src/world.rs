@@ -150,12 +150,12 @@ pub struct World {
     /// Mapping of block entities to they block position.
     block_entities_pos_map: HashMap<IVec3, usize>,
     /// Total scheduled ticks count since the world is running.
-    scheduled_ticks_count: u64,
+    block_ticks_count: u64,
     /// Mapping of scheduled ticks in the future.
-    scheduled_ticks: BTreeSet<ScheduledTick>,
+    block_ticks: BTreeSet<BlockTick>,
     /// A set of all scheduled tick states, used to avoid ticking twice the same position
     /// and block id. 
-    scheduled_ticks_states: HashSet<ScheduledTickState>,
+    block_ticks_states: HashSet<BlockTickState>,
     /// Queue of pending light updates to be processed.
     light_updates: VecDeque<LightUpdate>,
     /// This is the wrapping seed used by random ticks to compute random block positions.
@@ -189,9 +189,9 @@ impl World {
             entities_player_map: IndexMap::new(),
             block_entities: TickVec::new(),
             block_entities_pos_map: HashMap::new(),
-            scheduled_ticks_count: 0,
-            scheduled_ticks: BTreeSet::new(),
-            scheduled_ticks_states: HashSet::new(),
+            block_ticks_count: 0,
+            block_ticks: BTreeSet::new(),
+            block_ticks_states: HashSet::new(),
             light_updates: VecDeque::new(),
             random_ticks_seed: JavaRandom::new_seeded().next_int(),
             weather: Weather::Clear,
@@ -452,24 +452,11 @@ impl World {
     /// 
     /// [`set_block`]: Self::set_block
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
-        
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
         self.notify_change_unchecked(pos, prev_id, prev_metadata, id, metadata);
-
-        self.light_updates.push_back(LightUpdate { 
-            kind: LightUpdateKind::Block,
-            pos,
-            credit: 15,
-        });
-
-        self.light_updates.push_back(LightUpdate { 
-            kind: LightUpdateKind::Sky,
-            pos,
-            credit: 15,
-        });
-
+        self.schedule_light_update(pos, LightKind::Block);
+        self.schedule_light_update(pos, LightKind::Sky);
         Some((prev_id, prev_metadata))
-
     }
 
     /// Same as the [`set_block_self_notify`] method, but additionally the blocks around 
@@ -528,6 +515,23 @@ impl World {
         light.sky_real = light.sky.saturating_sub(self.sky_light_subtracted);
         light
 
+    }
+
+    /// Schedule a light update to be processed in a future tick.
+    ///  
+    /// See [`tick_light`](Self::tick_light).
+    pub fn schedule_light_update(&mut self, pos: IVec3, kind: LightKind) {
+        self.light_updates.push_back(LightUpdate { 
+            kind,
+            pos,
+            credit: 15,
+        });
+    }
+
+    /// Get the number of light updates remaining to process.
+    #[inline]
+    pub fn get_light_update_count(&self) -> usize {
+        self.light_updates.len()
     }
 
     // =================== //
@@ -770,9 +774,15 @@ impl World {
         self.set_block_entity_inner(pos, block_entity.into());
     }
 
-    /// Return true if some block entity is present in the world.
+    /// Returns true if some block entity is present in the world.
     pub fn contains_block_entity(&self, pos: IVec3) -> bool {
         self.block_entities_pos_map.contains_key(&pos)
+    }
+
+    /// Return the number of block entities in the world, loaded or not.
+    #[inline]
+    pub fn get_block_entity_count(&self) -> usize {
+        self.block_entities.len()
     }
 
     /// Get a block entity from its position.
@@ -852,18 +862,25 @@ impl World {
     // =================== //
 
     /// Schedule a tick update to happen at the given position, for the given block id
-    /// and with a given delay in ticks.
-    pub fn schedule_tick(&mut self, pos: IVec3, id: u8, delay: u64) {
+    /// and with a given delay in ticks. The block tick is not scheduled if a tick was
+    /// already scheduled for that exact block id and position.
+    pub fn schedule_block_tick(&mut self, pos: IVec3, id: u8, delay: u64) {
 
-        let uid = self.scheduled_ticks_count;
-        self.scheduled_ticks_count = self.scheduled_ticks_count.checked_add(1)
+        let uid = self.block_ticks_count;
+        self.block_ticks_count = self.block_ticks_count.checked_add(1)
             .expect("scheduled ticks count overflow");
 
-        let state = ScheduledTickState { pos, id };
-        if self.scheduled_ticks_states.insert(state) {
-            self.scheduled_ticks.insert(ScheduledTick { time: self.time + delay, state, uid });
+        let state = BlockTickState { pos, id };
+        if self.block_ticks_states.insert(state) {
+            self.block_ticks.insert(BlockTick { time: self.time + delay, state, uid });
         }
 
+    }
+
+    /// Return the current number of scheduled block ticks waiting.
+    #[inline]
+    pub fn get_block_tick_count(&self) -> usize {
+        self.block_ticks.len()
     }
 
     // =================== //
@@ -1016,7 +1033,7 @@ impl World {
         self.tick_entities();
         self.tick_block_entities();
 
-        self.tick_light();
+        self.tick_light(1000);
         
     }
 
@@ -1273,14 +1290,14 @@ impl World {
     /// Internal function to tick the internal scheduler.
     fn tick_blocks(&mut self) {
 
-        debug_assert_eq!(self.scheduled_ticks.len(), self.scheduled_ticks_states.len());
+        debug_assert_eq!(self.block_ticks.len(), self.block_ticks_states.len());
 
         // Schedule ticks...
-        while let Some(tick) = self.scheduled_ticks.first() {
+        while let Some(tick) = self.block_ticks.first() {
             if self.time > tick.time {
                 // This tick should be activated.
-                let tick = self.scheduled_ticks.pop_first().unwrap();
-                assert!(self.scheduled_ticks_states.remove(&tick.state));
+                let tick = self.block_ticks.pop_first().unwrap();
+                assert!(self.block_ticks_states.remove(&tick.state));
                 // Check coherency of the scheduled tick and current block.
                 if let Some((id, metadata)) = self.get_block(tick.state.pos) {
                     if id == tick.state.id {
@@ -1424,13 +1441,14 @@ impl World {
 
     }
 
-    /// Tick pending light updates.
-    fn tick_light(&mut self) {
+    /// Tick pending light updates for a maximum number of light updates. This function
+    /// returns true only if all light updates have been processed.
+    pub fn tick_light(&mut self, limit: usize) {
 
         // IMPORTANT NOTE: This algorithm is terrible but works, I've been trying to come
         // with a better one but it has been too complicated so far.
-
-        for _ in 0..1000 {
+        
+        for _ in 0..limit {
 
             let Some(update) = self.light_updates.pop_front() else { break };
 
@@ -1443,11 +1461,14 @@ impl World {
                 let Some(chunk) = self.get_chunk_mut(cx, cz) else { continue };
 
                 let face_emission = match update.kind {
-                    LightUpdateKind::Block => chunk.get_block_light(face_pos),
-                    LightUpdateKind::Sky => chunk.get_sky_light(face_pos),
+                    LightKind::Block => chunk.get_block_light(face_pos),
+                    LightKind::Sky => chunk.get_sky_light(face_pos),
                 };
 
                 max_face_emission = max_face_emission.max(face_emission);
+                if max_face_emission == 15 {
+                    break;
+                }
 
             }
 
@@ -1458,8 +1479,8 @@ impl World {
             let opacity = block::material::get_light_opacity(id).max(1);
 
             let emission = match update.kind {
-                LightUpdateKind::Block => block::material::get_light_emission(id),
-                LightUpdateKind::Sky => {
+                LightKind::Block => block::material::get_light_emission(id),
+                LightKind::Sky => {
                     // If the block is above ground, then it has
                     let column_height = chunk.get_height(update.pos) as i32;
                     if update.pos.y >= column_height { 15 } else { 0 }
@@ -1471,13 +1492,13 @@ impl World {
             let mut sky_exposed = false;
 
             match update.kind {
-                LightUpdateKind::Block => {
+                LightKind::Block => {
                     if chunk.get_block_light(update.pos) != new_light {
                         chunk.set_block_light(update.pos, new_light);
                         changed = true;
                     }
                 }
-                LightUpdateKind::Sky => {
+                LightKind::Sky => {
                     if chunk.get_sky_light(update.pos) != new_light {
                         chunk.set_sky_light(update.pos, new_light);
                         changed = true;
@@ -1567,6 +1588,17 @@ impl Light {
         (1.0 - base) * (base * 3.0 + 1.0) * (1.0 - OFFSET) + OFFSET
     }
 
+}
+
+/// Different kind of lights in the word.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LightKind {
+    /// Block light level, the light spread in all directions and blocks have a minimum 
+    /// opacity of 1 in all directions, each block has its own light emission.
+    Block,
+    /// Sky light level, same as block light but light do not decrease when going down
+    /// and every block above height have is has an emission of 15.
+    Sky,
 }
 
 /// An event that happened in the world.
@@ -1840,7 +1872,7 @@ struct BlockEntityComponent {
 /// the tree map, this structure is also stored appart in order to check that two ticks
 /// are not scheduled for the same position and block id.
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct ScheduledTickState {
+struct BlockTickState {
     /// Position of the block to tick.
     pos: IVec3,
     /// The expected id of the block, if the block has no longer this id, this tick is
@@ -1852,28 +1884,28 @@ struct ScheduledTickState {
 /// This structure is ordered by time and then by position, this allows to have multiple
 /// block update at the same time but for different positions.
 #[derive(Clone, Eq)]
-struct ScheduledTick {
+struct BlockTick {
     /// This tick unique id within the world.
     uid: u64,
     /// The time to tick the block.
     time: u64,
     /// State of that scheduled tick.
-    state: ScheduledTickState,
+    state: BlockTickState,
 }
 
-impl PartialEq for ScheduledTick {
+impl PartialEq for BlockTick {
     fn eq(&self, other: &Self) -> bool {
         self.uid == other.uid && self.time == other.time
     }
 }
 
-impl PartialOrd for ScheduledTick {
+impl PartialOrd for BlockTick {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(Ord::cmp(self, other))
     }
 }
 
-impl Ord for ScheduledTick {
+impl Ord for BlockTick {
     fn cmp(&self, other: &Self) -> Ordering {
         self.time.cmp(&other.time)
             .then(self.uid.cmp(&other.uid))
@@ -1884,24 +1916,14 @@ impl Ord for ScheduledTick {
 #[derive(Clone)]
 struct LightUpdate {
     /// Light kind targeted by this update, the update only applies to one of the kind.
-    kind: LightUpdateKind,
+    kind: LightKind,
     /// The position of the light update.
     pos: IVec3,
     /// Credit remaining to update light, this is used to limit the number of updates
     /// produced by a block chance initial update. Initial value is something like 15
-    /// and decrease for each propagation, when it reaches 0 the light no longer 
-    /// propagates.
+    /// and decrease for each propagation, when it reaches 0 the light update stops 
+    /// propagating.
     credit: u8,
-}
-
-/// Different kind of light updates, this affect how the light spread.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LightUpdateKind {
-    /// Block light level, the light spread in all directions and blocks have a minimum 
-    /// opacity of 1 in all directions.
-    Block,
-    /// Sky light level, same as block light but light do not decrease when going down.
-    Sky,
 }
 
 /// A tick vector is an internal structure used for both entities and block entities,
