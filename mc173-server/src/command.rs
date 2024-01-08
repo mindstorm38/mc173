@@ -439,7 +439,7 @@ fn cmd_perf(ctx: CommandContext) -> CommandResult {
     ctx.player.send_chat(format!("§8====================================================="));
     ctx.player.send_chat(format!("§aTick duration:§r {:.1} ms", ctx.state.tick_duration.get() * 1000.0));
     ctx.player.send_chat(format!("§aTick interval:§r {:.1} ms", ctx.state.tick_interval.get() * 1000.0));
-    ctx.player.send_chat(format!("§aEvents:§r {:.1} ({:.1} B)", ctx.state.events_count.get(), ctx.state.events_count.get() * mem::size_of::<Event>() as f32));
+    ctx.player.send_chat(format!("§aEvents:§r {:.1} ({:.1} kB)", ctx.state.events_count.get(), ctx.state.events_count.get() * mem::size_of::<Event>() as f32 / 1000.0));
     
     ctx.player.send_chat(format!("§aEntities:§r {} ({} players)", ctx.world.get_entity_count(), ctx.world.get_entity_player_count()));
     
