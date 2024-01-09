@@ -38,12 +38,13 @@ pub trait ChunkGenerator {
     /// Type of the cache that is only owned by a single worker.
     type State: Default;
 
-    /// Generate the chunk biomes, this can be called for any chunk with or without 
-    /// terrain, mostly because chunk biomes is not saved in the region file format.
+    /// Generate only the chunk biomes, this may never be called and this is not called
+    /// before [`gen_terrain`](Self::gen_terrain).
     fn gen_biomes(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut Self::State);
 
-    /// Generate the chunk terrain without features, the biome should already have its
-    /// biome set by a previous call to `gen_biomes`.
+    /// Generate the given chunk's terrain, this should also generate the biomes 
+    /// associated to the terrain generation. The separate method 
+    /// [`gen_biomes`](Self::gen_biomes) is not called before that function.
     fn gen_terrain(&self, cx: i32, cz: i32, chunk: &mut Chunk, state: &mut Self::State);
 
     /// Populate a chunk that is present in a world, note that this world is internal

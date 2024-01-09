@@ -418,16 +418,21 @@ impl World {
     /// accordingly.
     pub fn set_block(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
 
-        // println!("set_block({pos}, {id} ({}), {metadata})", block::from_id(id).name);
-        
         let (cx, cz) = calc_chunk_pos(pos)?;
         let chunk = self.get_chunk_mut(cx, cz)?;
         let (prev_id, prev_metadata) = chunk.get_block(pos);
         
-        if prev_id != id || prev_metadata != metadata {
+        if id != prev_id || metadata != prev_metadata {
 
             chunk.set_block(pos, id, metadata);
             chunk.recompute_height(pos);
+
+            // Schedule light updates if the block light properties have changed.
+            if block::material::get_light_opacity(id) != block::material::get_light_opacity(prev_id)
+            || block::material::get_light_emission(id) != block::material::get_light_emission(prev_id) {
+                self.schedule_light_update(pos, LightKind::Block);
+                self.schedule_light_update(pos, LightKind::Sky);
+            }
 
             self.push_event(Event::Block { 
                 pos, 
@@ -454,8 +459,6 @@ impl World {
     pub fn set_block_self_notify(&mut self, pos: IVec3, id: u8, metadata: u8) -> Option<(u8, u8)> {
         let (prev_id, prev_metadata) = self.set_block(pos, id, metadata)?;
         self.notify_change_unchecked(pos, prev_id, prev_metadata, id, metadata);
-        self.schedule_light_update(pos, LightKind::Block);
-        self.schedule_light_update(pos, LightKind::Sky);
         Some((prev_id, prev_metadata))
     }
 

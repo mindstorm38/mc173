@@ -549,6 +549,7 @@ impl<G: ChunkGenerator> TerrainWorker<G> {
                     let chunk_access = Arc::get_mut(&mut chunk).unwrap();
                     
                     let start = Instant::now();
+                    self.generator.gen_biomes(cx, cz, chunk_access, &mut self.state);
                     self.generator.gen_terrain(cx, cz, chunk_access, &mut self.state);
                     let duration = start.elapsed();
                     self.stats.gen_terrain_duration.fetch_add(duration.as_micros() as u64, Ordering::Relaxed);

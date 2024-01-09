@@ -134,7 +134,7 @@ impl FeatureGenerator for SugarCanesGenerator {
 }
 
 
-/// A generator for sugar canes.
+/// A generator for pumpkin.
 pub struct PumpkinGenerator(());
 
 impl PumpkinGenerator {
@@ -170,7 +170,7 @@ impl FeatureGenerator for PumpkinGenerator {
 }
 
 
-/// A generator for sugar canes.
+/// A generator for cactus.
 pub struct CactusGenerator(());
 
 impl CactusGenerator {
