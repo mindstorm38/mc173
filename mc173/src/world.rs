@@ -1444,8 +1444,7 @@ impl World {
 
     }
 
-    /// Tick pending light updates for a maximum number of light updates. This function
-    /// returns true only if all light updates have been processed.
+    /// Tick pending light updates for a maximum number of light updates.
     pub fn tick_light(&mut self, limit: usize) {
 
         // IMPORTANT NOTE: This algorithm is terrible but works, I've been trying to come
