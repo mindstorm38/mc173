@@ -881,9 +881,7 @@ impl ChunkGenerator for OverworldGenerator {
         // TODO: This is temporary code to avoid light bugs at generation, but this
         // considerably slows down the feature generation (that is currently 
         // single-threaded).
-        while world.get_light_update_count() != 0 {
-            world.tick_light(5000);
-        }
+        world.tick_light(usize::MAX);
 
     }
 
