@@ -2,7 +2,12 @@
 A work-in-progress Minecraft beta 1.7.3 server made in Rust. This project split the server
 crate from data structure and logic crate, the latter is made to be used be developers.
 
-## Logic
+1. [Logic crate](#logic-crate)
+2. [Server crate](#server-crate)
+3. [Contributing](#contributing)
+4. [Roadmap](#roadmap)
+
+## Logic crate
 
 [![Crates.io Total Downloads](https://img.shields.io/crates/d/mc173?style=flat-square)](https://crates.io/crates/mc173)
 
@@ -10,13 +15,39 @@ The logic crate [mc173](/mc173/) provides the core data structures such as world
 and entities, but also the behaviors for blocks, items and entities. It also provides a
 lot of utilities related to Minecraft.
 
-## Server
+## Server crate
 
 [![Crates.io Total Downloads](https://img.shields.io/crates/d/mc173-server?style=flat-square)](https://crates.io/crates/mc173-server)
 
 The server crate [mc173-server](/mc173-server/) is an implementation of the *Notchian* 
 server protocol, it is built on top of the logic crate and has threaded networking, it 
 also defines protocol structures.
+
+## Contributing
+
+If you're willing to contribute or fork this code, this sections presents the different
+tools I'm using to understand the *Notchian* implementation of Minecraft beta 1.7.3 and
+how I'm implementing it into Rust.
+
+The most important tool I'm using is [RetroMCP], which is a modern remake of *MCP*, one
+of the most important software in Minecraft's modding history. I use it to automatically
+decompile and deobfuscate the original archive of Minecraft beta 1.7.3. It can also be
+used to recompile and reobfuscate the game and then run it, which can be useful to add
+debugging code, but fortunately it's rare to get to that point. You can read the project's
+README, it is really well designed and its CLI is intuitive, you just have to choose the
+b1.7.3 version for both client and server.
+
+Choosing both client and server is really important as these two have slightly different
+source codes. For example, you have to choose the client or server source code depending
+on which side of the protocol you want to understand.
+
+The next step is just to explore the source code, and try to understand how it works! This
+can be quite challenging sometimes due to the object oriented nature of it, so I'm also
+using the VSCode Java extension essentially for the goto definition, but you can also use
+it for showing class hierarchies.
+
+
+[RetroMCP]: https://github.com/MCPHackers/RetroMCP-Java
 
 ## Roadmap
 There is a lot of work to be done in order to provide a fully functional server on 
