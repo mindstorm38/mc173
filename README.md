@@ -39,13 +39,18 @@ b1.7.3 version for both client and server.
 
 Choosing both client and server is really important as these two have slightly different
 source codes. For example, you have to choose the client or server source code depending
-on which side of the protocol you want to understand.
+on which side of the network protocol you want to understand.
 
 The next step is just to explore the source code, and try to understand how it works! This
 can be quite challenging sometimes due to the object oriented nature of it, so I'm also
 using the VSCode Java extension essentially for the goto definition, but you can also use
-it for showing class hierarchies.
+it for showing class hierarchies. You should be able to use any Java IDE for that.
 
+Use the following [roadmap](#roadmap) either to understand how the completed components
+have been adapted from Java to Rust, or if you want to contribute and add a feature.
+The Rust code is also documented as most as possible, so please read the doc comments
+to really understand how to contribute to the documented code. The directory structure
+of the code base is described below.
 
 [RetroMCP]: https://github.com/MCPHackers/RetroMCP-Java
 
