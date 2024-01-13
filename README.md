@@ -26,11 +26,10 @@ also defines protocol structures.
 ## Contributing
 
 If you're willing to contribute or fork this code, this sections presents the different
-tools I'm using to understand the *Notchian* implementation of Minecraft beta 1.7.3 and
-how I'm implementing it into Rust.
+tools that can be used to understand the *Notchian* implementation of Minecraft beta 
+1.7.3 and how to implement it into Rust.
 
-The most important tool I'm using is [RetroMCP], which is a modern remake of *MCP*, one
-of the most important software in Minecraft's modding history. I use it to automatically
+The most important tool is [RetroMCP], which is a modern remake of *MCP* (one of the most important software in Minecraft's modding history). It can be used to automatically
 decompile and deobfuscate the original archive of Minecraft beta 1.7.3. It can also be
 used to recompile and reobfuscate the game and then run it, which can be useful to add
 debugging code, but fortunately it's rare to get to that point. You can read the project's
@@ -42,17 +41,23 @@ source codes. For example, you have to choose the client or server source code d
 on which side of the network protocol you want to understand.
 
 The next step is just to explore the source code, and try to understand how it works! This
-can be quite challenging sometimes due to the object oriented nature of it, so I'm also
-using the VSCode Java extension essentially for the goto definition, but you can also use
-it for showing class hierarchies. You should be able to use any Java IDE for that.
+can be quite challenging sometimes due to the object oriented nature of it, so you should
+also use a IDE or text editor that support the Java langage and a few important features
+such as *goto definition* and *class hierarchy* (VSCode, IDEA, Eclipse...).
 
 Use the following [roadmap](#roadmap) either to understand how the completed components
 have been adapted from Java to Rust, or if you want to contribute and add a feature.
 The Rust code is also documented as most as possible, so please read the doc comments
-to really understand how to contribute to the documented code. The directory structure
-of the code base is described below.
+to really understand how to contribute to the documented code. If you think that the
+roadmap is incomplete, you can add items as needed.
+
+A tool that can also be useful is a Minecraft CLI launcher that I *(Théo Rozier)* made,
+it's called [PortableMC] and it has really good support for b1.7.3 and the game starts
+really fast compared to the Mojang launcher. It also fixes in-game skin and some other
+legacy-related issues.
 
 [RetroMCP]: https://github.com/MCPHackers/RetroMCP-Java
+[PortableMC]: https://github.com/mindstorm38/portablemc
 
 ## Roadmap
 There is a lot of work to be done in order to provide a fully functional server on 
