@@ -45,10 +45,11 @@ impl World {
             block::FIRE => self.can_place_fire(pos),
             block::TORCH |
             block::REDSTONE_TORCH |
-            block::REDSTONE_TORCH_LIT => self.is_block_opaque_cube(pos + face.delta()),
+            block::REDSTONE_TORCH_LIT => self.is_block_normal_cube(pos + face.delta()),
             // Common blocks that needs opaque block below.
             block::RED_MUSHROOM |        // PARITY: Notchian impl checks block light >= 8 or see sky
-            block::BROWN_MUSHROOM |      // PARITY: Notchian impl checks block light >= 8 or see sky
+            block::BROWN_MUSHROOM => self.is_block_opaque_cube(pos - IVec3::Y),
+            block::SNOW => self.is_block_opaque_cube(pos - IVec3::Y),
             block::WOOD_PRESSURE_PLATE |
             block::STONE_PRESSURE_PLATE |
             block::PUMPKIN |
@@ -58,8 +59,7 @@ impl World {
             block::DETECTOR_RAIL |
             block::REPEATER |
             block::REPEATER_LIT |
-            block::REDSTONE |
-            block::SNOW => self.is_block_opaque_cube(pos - IVec3::Y),
+            block::REDSTONE => self.is_block_normal_cube(pos - IVec3::Y),
             _ => true,
         };
 
