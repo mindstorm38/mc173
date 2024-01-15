@@ -720,6 +720,8 @@ impl Entity {
             // Non-living entities cannot naturally spawn.
             return;
         };
+        
+        // TODO: Spawning spider has 1% chance of being spider jockey.
 
         match living_kind {
             LivingKind::Slime(slime) => {

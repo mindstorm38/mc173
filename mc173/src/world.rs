@@ -1275,9 +1275,6 @@ impl World {
                             continue;
                         }
 
-                        // TODO: Spawning spider has 1% chance of being spider jockey.
-                        // TODO: Random sheep wool color.
-
                         self.spawn_entity(entity);
                         spawn_count += 1;
                         if spawn_count >= max_chunk_count {
