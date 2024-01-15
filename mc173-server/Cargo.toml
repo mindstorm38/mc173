@@ -1,6 +1,6 @@
 [package]
 name = "mc173-server"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Minecraft beta 1.7.3 protocol and server implementation compatible with Notchian client"
 readme = "../README.md"
@@ -11,7 +11,7 @@ keywords = ["minecraft", "game", "server"]
 categories = ["games"]
 
 [dependencies]
-mc173 = { path = "../mc173", version = "0.1.0" }
+mc173 = { path = "../mc173", version = "0.2.0" }
 
 mio = { version = "0.8", features = ["os-poll", "net"] }
 crossbeam-channel = "0.5"

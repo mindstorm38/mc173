@@ -1,6 +1,6 @@
 [package]
 name = "mc173"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Minecraft beta 1.7.3 base data structures and logic for running a world"
 readme = "../README.md"
