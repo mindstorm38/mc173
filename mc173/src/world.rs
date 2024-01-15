@@ -246,20 +246,6 @@ impl World {
         &mut self.rand
     }
 
-    /// Get the current weather in the world.
-    pub fn get_weather(&self) -> Weather {
-        self.weather
-    }
-
-    /// Set the current weather in this world. If the weather has changed an event will
-    /// be pushed into the events queue.
-    pub fn set_weather(&mut self, weather: Weather) {
-        if self.weather != weather {
-            self.push_event(Event::Weather { prev: self.weather, new: weather });
-            self.weather = weather;
-        }
-    }
-
     // =================== //
     //   CHUNK SNAPSHOTS   //
     // =================== //
@@ -484,11 +470,13 @@ impl World {
     //        HEIGHT       //
     // =================== //
 
-    /// Get saved height of a chunk column, Y component is ignored in the position.
-    pub fn get_height(&self, pos: IVec3) -> Option<u8> {
+    /// Get saved height of a chunk column, Y component is ignored in the position. The
+    /// returned height is a signed 32 bit integer, but the possible value is only in 
+    /// range 0..=128, but it's easier to deal with `i32` because of vectors.
+    pub fn get_height(&self, pos: IVec3) -> Option<i32> {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
         let chunk = self.get_chunk(cx, cz)?;
-        Some(chunk.get_height(pos))
+        Some(chunk.get_height(pos) as i32)
     }
 
     // =================== //
@@ -546,6 +534,55 @@ impl World {
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
         let chunk = self.get_chunk(cx, cz)?;
         Some(chunk.get_biome(pos))
+    }
+
+    // =================== //
+    //       WEATHER       //
+    // =================== //
+
+    /// Get the current weather in the world.
+    pub fn get_weather(&self) -> Weather {
+        self.weather
+    }
+
+    /// Set the current weather in this world. If the weather has changed an event will
+    /// be pushed into the events queue.
+    pub fn set_weather(&mut self, weather: Weather) {
+        if self.weather != weather {
+            self.push_event(Event::Weather { prev: self.weather, new: weather });
+            self.weather = weather;
+        }
+    }
+
+    /// Return true if it's raining at the given position.
+    pub fn get_local_weather(&mut self, pos: IVec3) -> LocalWeather {
+
+        // Weather is clear, no rain anyway.
+        if self.weather == Weather::Clear {
+            return LocalWeather::Clear;
+        }
+
+        // Unchecked because we don't care of Y. Return false if chunk not found.
+        let (cx, cz) = calc_chunk_pos_unchecked(pos);
+        let Some(chunk) = self.get_chunk(cx, cz) else { 
+            return LocalWeather::Clear;
+        };
+
+        // If the given position is below height, no rain.
+        if pos.y < chunk.get_height(pos) as i32 {
+            return LocalWeather::Clear;
+        }
+
+        // Last check if that the biome can rain.
+        let biome = chunk.get_biome(pos);
+        if biome.has_snow() {
+            LocalWeather::Snow
+        } else if biome.has_rain() {
+            LocalWeather::Rain
+        } else {
+            LocalWeather::Clear
+        }
+
     }
 
     // =================== //
@@ -1554,6 +1591,17 @@ pub enum Weather {
     Rain,
     /// It is thundering.
     Thunder,
+}
+
+/// Type of weather at a specific position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalWeather {
+    /// The weather is clear at the position.
+    Clear,
+    /// It is raining at the position.
+    Rain,
+    /// It is snowing at the position.
+    Snow,
 }
 
 /// Light values of a position in the world.

@@ -55,6 +55,7 @@ impl World {
             block::CACTUS => self.notify_cactus(pos),
             block::SAND |
             block::GRAVEL => self.schedule_block_tick(pos, id, 3),
+            block::FIRE => self.notify_fire(pos),
             _ => {}
         }
     }
@@ -110,7 +111,7 @@ impl World {
             block::SAND |
             block::GRAVEL => self.schedule_block_tick(pos, to_id, 3),
             block::CACTUS => self.notify_cactus(pos),
-            block::FIRE => self.schedule_block_tick(pos, to_id, 40),
+            block::FIRE => self.notify_fire_place(pos),
             _ => {}
         }
 
@@ -174,6 +175,85 @@ impl World {
         if !matches!(self.get_block(pos - IVec3::Y), Some((block::CACTUS | block::SAND, _))) {
             self.break_block(pos);
         }
+    }
+
+    /// Notification of a fire block, the fire block is removed if the block below is no
+    /// longer a normal cube wall blocks cannot catch fire.
+    fn notify_fire(&mut self, pos: IVec3) {
+        if !self.can_fire_stay(pos) {
+            self.set_block_notify(pos, block::AIR, 0);
+        }
+    }
+
+    /// Notification of a fire block being placed.
+    fn notify_fire_place(&mut self, pos: IVec3) {
+        
+        if !self.can_fire_stay(pos) {
+            self.set_block_notify(pos, block::AIR, 0);
+            return;
+        }
+
+        // Check where there is obsidian around.
+        let obsidians = Face::HORIZONTAL.into_iter()
+            .filter(|face| self.is_block(pos + face.delta(), block::OBSIDIAN))
+            .collect::<FaceSet>();
+
+        // If only one side has obsidian, check to create a nether portal.
+        if obsidians.contains_x() != obsidians.contains_z() {
+            
+            // Portal origin to lower X/Z
+            let mut pos = pos;
+            if obsidians.contains(Face::PosX) {
+                pos.x -= 1;
+            } else if obsidians.contains(Face::PosZ) {
+                pos.z -= 1;
+            }
+
+            let factor = IVec3 {
+                x: obsidians.contains_x() as i32,
+                y: 1,
+                z: obsidians.contains_z() as i32,
+            };
+
+            let mut valid = true;
+            for dxz in -1..=2 {
+                for dy in -1..=3 {
+                    if (dxz != -1 && dxz != 2) || (dy != -1 && dy != 3) {
+                        
+                        let Some((id, _)) = self.get_block(pos + factor * IVec3::new(dxz, dy, dxz)) else {
+                            valid = false;
+                            break;
+                        };
+
+                        if dxz == -1 || dxz == 2 || dy == -1 || dy == 3 {
+                            if id != block::OBSIDIAN {
+                                valid = false;
+                                break;
+                            }
+                        } else if id != block::AIR && id != block::FIRE {
+                            valid = false;
+                            break;
+                        }
+
+                    }
+                }
+            }
+
+            // If portal layout is valid, create it.
+            if valid {
+                for dxz in 0..2 {
+                    for dy in 0..3 {
+                        self.set_block_notify(pos + factor * IVec3::new(dxz, dy, dxz), block::PORTAL, 0);
+                    }
+                }
+                return;
+            }
+
+        }
+
+        // Fallback to regular fire placing, just schedule a fire tick.
+        self.schedule_block_tick(pos, block::FIRE, 40)
+
     }
 
     /// Notification of a redstone repeater block.

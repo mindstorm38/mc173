@@ -155,7 +155,7 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
     // If the zombie/skeleton see the sky light, set it on fire.
     if matches!(living_kind, LivingKind::Zombie(_) | LivingKind::Skeleton(_)) {
         let block_pos = base.pos.floor().as_ivec3();
-        let height = world.get_height(block_pos).unwrap_or(0) as i32;
+        let height = world.get_height(block_pos).unwrap_or(0);
         if block_pos.y >= height {
             let light = common::get_entity_light(world, base);
             if light.sky_real >= 12 {

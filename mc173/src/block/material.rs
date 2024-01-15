@@ -175,6 +175,12 @@ pub fn is_opaque_cube(block: u8) -> bool {
     }
 }
 
+/// Return true if a block is a normal cube (Notchian implementation has this weird 
+/// differentiation with the opaque cube).
+pub fn is_normal_cube(block: u8) -> bool {
+    get_material(block).is_opaque() && is_cube(block)
+}
+
 /// Return true if the given block is a fluid.
 pub fn is_fluid(block: u8) -> bool {
     matches!(block, 
@@ -354,6 +360,7 @@ pub fn get_explosion_resistance(id: u8) -> f32 {
     }
 }
 
+#[doc(alias = "Notchian/chanceToEncourageFire")]
 pub fn get_fire_flammability(id: u8) -> u16 {
     match id {
         block::WOOD |
@@ -373,6 +380,7 @@ pub fn get_fire_flammability(id: u8) -> u16 {
 /// a block that was on fire and replace it with fire. Blocks that are horizontal to the
 /// fire have n/300 chance of being destroyed and vertical blocks have n/250 every 40 
 /// game ticks.
+#[doc(alias = "Notchian/abilityToCatchFire")]
 pub fn get_fire_burn(id: u8) -> u16 {
     match id {
         block::WOOD |

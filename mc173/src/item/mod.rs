@@ -32,7 +32,7 @@ items! {
     IRON_SHOVEL/0:          Item::new("iron_shovel").set_tool(IRON_MAX_USES),
     IRON_PICKAXE/1:         Item::new("iron_pickaxe").set_tool(IRON_MAX_USES),
     IRON_AXE/2:             Item::new("iron_axe").set_tool(IRON_MAX_USES),
-    FLINT_AND_STEEL/3:      Item::new("flint_and_steel"),
+    FLINT_AND_STEEL/3:      Item::new("flint_and_steel").set_tool(64),
     APPLE/4:                Item::new("apple"),
     BOW/5:                  Item::new("bow").set_max_stack_size(1),
     ARROW/6:                Item::new("arrow"),

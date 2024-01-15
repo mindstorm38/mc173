@@ -330,6 +330,12 @@ impl Face {
     pub const ALL: [Self; 6] = [Self::NegY, Self::PosY, Self::NegZ, Self::PosZ, Self::NegX, Self::PosX];
     /// Array containing all 4 horizontal faces.
     pub const HORIZONTAL: [Self; 4] = [Self::NegZ, Self::PosZ, Self::NegX, Self::PosX];
+    /// Array containing all X faces.
+    pub const X: [Self; 2] = [Self::NegX, Self::PosX];
+    /// Array containing all Y faces.
+    pub const Y: [Self; 2] = [Self::NegY, Self::PosY];
+    /// Array containing all Z faces.
+    pub const Z: [Self; 2] = [Self::NegZ, Self::PosZ];
 
     /// Get a face from the yaw component of a look only.
     #[inline]
@@ -463,7 +469,7 @@ impl Face {
 
 
 /// A set of unique faces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct FaceSet {
     /// Presence of face are encoded bit by bit, the index of each face is the value of 
     /// their enumeration discriminant.
@@ -538,4 +544,12 @@ impl FromIterator<Face> for FaceSet {
         set
     }
 
+}
+
+impl fmt::Debug for FaceSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set()
+            .entries(Face::ALL.into_iter().filter(|&face| self.contains(face)))
+            .finish()
+    }
 }

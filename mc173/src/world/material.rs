@@ -4,6 +4,7 @@ use glam::IVec3;
 
 use crate::block::material::Material;
 use crate::block;
+use crate::geom::Face;
 
 use super::World;
 
@@ -25,13 +26,22 @@ impl World {
         }
     }
 
-    /// Return true if the block at position is opaque.
+    /// Return true if the block at position is an opaque cube.
     /// 
     /// FIXME: A lot of calls to this function should instead be for "normal_cube". This
     /// is not exactly the same properties in the Notchian implementation.
     pub fn is_block_opaque_cube(&self, pos: IVec3) -> bool {
         if let Some((id, _)) = self.get_block(pos) {
             block::material::is_opaque_cube(id)
+        } else {
+            false
+        }
+    }
+
+    /// Return true if the block at position is a normal cube.
+    pub fn is_block_normal_cube(&self, pos: IVec3) -> bool {
+        if let Some((id, _)) = self.get_block(pos) {
+            block::material::is_normal_cube(id)
         } else {
             false
         }
@@ -64,6 +74,24 @@ impl World {
         } else {
             false  // TODO: id == block::AIR ? because non existing position are air
         }
+    }
+
+    /// Test if a fire block can stay at a given position.
+    #[inline]
+    pub fn can_fire_stay(&self, pos: IVec3) -> bool {
+        
+        for face in Face::ALL {
+            if let Some((id, _)) = self.get_block(pos + face.delta()) {
+                if face == Face::NegY && block::material::is_normal_cube(id) {
+                    return true;
+                } else if block::material::get_fire_flammability(id) != 0 {
+                    return true;
+                }
+            }
+        }
+
+        false
+
     }
 
 }

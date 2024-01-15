@@ -690,7 +690,7 @@ impl ChunkGenerator for OverworldGenerator {
                     z: rand.next_int_bounded(16) + 8,
                 };
 
-                pos.y = world.get_height(pos).unwrap() as i32;
+                pos.y = world.get_height(pos).unwrap();
 
                 let mut gen = match biome {
                     Biome::Taiga => {
