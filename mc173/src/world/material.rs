@@ -4,7 +4,6 @@ use glam::IVec3;
 
 use crate::block::material::Material;
 use crate::block;
-use crate::geom::Face;
 
 use super::World;
 
@@ -74,24 +73,6 @@ impl World {
         } else {
             false  // TODO: id == block::AIR ? because non existing position are air
         }
-    }
-
-    /// Test if a fire block can stay at a given position.
-    #[inline]
-    pub fn can_fire_stay(&self, pos: IVec3) -> bool {
-        
-        for face in Face::ALL {
-            if let Some((id, _)) = self.get_block(pos + face.delta()) {
-                if face == Face::NegY && block::material::is_normal_cube(id) {
-                    return true;
-                } else if block::material::get_fire_flammability(id) != 0 {
-                    return true;
-                }
-            }
-        }
-
-        false
-
     }
 
 }

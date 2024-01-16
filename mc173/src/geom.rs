@@ -1,5 +1,6 @@
 //! Various geometry utilities that completes the [`glam`] math crate.
 
+use std::mem::{self, MaybeUninit};
 use std::ops::{Add, AddAssign, Sub, SubAssign, BitOr, BitOrAssign};
 use std::fmt;
 
@@ -550,6 +551,145 @@ impl fmt::Debug for FaceSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set()
             .entries(Face::ALL.into_iter().filter(|&face| self.contains(face)))
+            .finish()
+    }
+}
+
+
+/// A map from face to values, it doesn't use heap and is really simple.
+pub struct FaceMap<V> {
+    /// Inner set to know which faces are set.
+    set: FaceSet,
+    /// Inner storage for values in the map.
+    inner: [MaybeUninit<V>; 6],
+}
+
+impl<V> FaceMap<V> {
+
+    /// Create a new empty set.
+    #[inline]
+    pub const fn new() -> Self {
+        Self { 
+            set: FaceSet::new(), 
+            // SAFETY: Our array is made of uninit V, so it's safe to assume it's init.
+            inner: unsafe { MaybeUninit::uninit().assume_init() }
+        }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        if mem::needs_drop::<V>() {
+            // We just use the fact that remove returns previous value if existing.
+            for face in Face::ALL {
+                let _ = self.remove(face);
+            }
+        } else {
+            // If the value type don't need drop, just clear the set.
+            self.set.clear();
+        }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, face: Face, val: V) -> Option<V> {
+
+        // Replace the previous value (init or not) with an init one.
+        let prev_val = mem::replace(&mut self.inner[face as usize], MaybeUninit::new(val));
+
+        // If set contained the value, return the old value.
+        if self.set.insert(face) {
+            // SAFETY: The underlying set tracks which values are present (and so init)
+            // or not, if the set returns true, it means that a value was present.
+            Some(unsafe { prev_val.assume_init() })
+        } else {
+            None
+        }
+
+    }
+
+    #[inline]
+    pub fn remove(&mut self, face: Face) -> Option<V> {
+        if self.set.remove(face) {
+            let val = mem::replace(&mut self.inner[face as usize], MaybeUninit::uninit());
+            // SAFETY: The underlying set tracks which value are init.
+            Some(unsafe { val.assume_init() })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, face: Face) -> Option<&V> {
+        if self.set.contains(face) {
+            // SAFETY: The underlying set guarantees that the value is present.
+            Some(unsafe { &*self.inner[face as usize].as_ptr() })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, face: Face) -> Option<&mut V> {
+        if self.set.contains(face) {
+            // SAFETY: The underlying set guarantees that the value is present.
+            Some(unsafe { &mut *self.inner[face as usize].as_mut_ptr() })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn contains(&self, face: Face) -> bool {
+        self.set.contains(face)
+    }
+
+    #[inline]
+    pub fn contains_x(&self) -> bool {
+        self.set.contains_x()
+    }
+
+    #[inline]
+    pub fn contains_y(&self) -> bool {
+        self.set.contains_y()
+    }
+
+    #[inline]
+    pub fn contains_z(&self) -> bool {
+        self.set.contains_z()
+    }
+
+}
+
+impl<V> Drop for FaceMap<V> {
+
+    fn drop(&mut self) {
+        // Just clear the map before dropping.
+        self.clear();
+    }
+
+}
+
+impl<V> FromIterator<(Face, V)> for FaceMap<V> {
+
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (Face, V)>>(iter: T) -> Self {
+        let mut map = FaceMap::new();
+        for (face, value) in iter {
+            map.insert(face, value);
+        }
+        map
+    }
+
+}
+
+impl<V: fmt::Debug> fmt::Debug for FaceMap<V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map()
+            .entries(Face::ALL.into_iter().filter_map(|face| self.get(face).map(|v| (face, v))))
             .finish()
     }
 }

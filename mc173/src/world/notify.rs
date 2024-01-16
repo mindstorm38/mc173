@@ -55,7 +55,7 @@ impl World {
             block::CACTUS => self.notify_cactus(pos),
             block::SAND |
             block::GRAVEL => self.schedule_block_tick(pos, id, 3),
-            block::FIRE => self.notify_fire(pos),
+            block::FIRE => { self.notify_fire(pos); },
             _ => {}
         }
     }
@@ -179,17 +179,29 @@ impl World {
 
     /// Notification of a fire block, the fire block is removed if the block below is no
     /// longer a normal cube wall blocks cannot catch fire.
-    fn notify_fire(&mut self, pos: IVec3) {
-        if !self.can_fire_stay(pos) {
-            self.set_block_notify(pos, block::AIR, 0);
+    /// 
+    /// This function returns true if the fire has been removed (internally used).
+    fn notify_fire(&mut self, pos: IVec3) -> bool {
+
+        for face in Face::ALL {
+            if let Some((id, _)) = self.get_block(pos + face.delta()) {
+                if face == Face::NegY && block::material::is_normal_cube(id) {
+                    return false;
+                } else if block::material::get_fire_flammability(id) != 0 {
+                    return false;
+                }
+            }
         }
+
+        self.set_block_notify(pos, block::AIR, 0);
+        true
+
     }
 
     /// Notification of a fire block being placed.
     fn notify_fire_place(&mut self, pos: IVec3) {
         
-        if !self.can_fire_stay(pos) {
-            self.set_block_notify(pos, block::AIR, 0);
+        if self.notify_fire(pos) {
             return;
         }
 

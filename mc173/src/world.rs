@@ -576,7 +576,7 @@ impl World {
         // Last check if that the biome can rain.
         let biome = chunk.get_biome(pos);
         if biome.has_snow() {
-            LocalWeather::Snow
+            LocalWeather::Snow // FIXME: has_snow only applies to snow ground?
         } else if biome.has_rain() {
             LocalWeather::Rain
         } else {
@@ -2585,7 +2585,7 @@ impl<'a> Iterator for EntitiesCollidingIter<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        // LOOP SAFETY: This loop should not cause infinite iterator because self.indices
+        // LOOP  This loop should not cause infinite iterator because self.indices
         // will eventually be none because it is set to none when it is exhausted. 
         loop {
 

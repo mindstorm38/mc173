@@ -383,6 +383,7 @@ pub fn get_fire_flammability(id: u8) -> u16 {
 #[doc(alias = "Notchian/abilityToCatchFire")]
 pub fn get_fire_burn(id: u8) -> u16 {
     match id {
+        block::LOG => 5,
         block::WOOD |
         block::FENCE |
         block::WOOD_STAIR |
