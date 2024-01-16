@@ -16,7 +16,7 @@ use indexmap::IndexMap;
 
 use tracing::trace;
 
-use crate::entity::{Entity, EntityCategory, EntityKind};
+use crate::entity::{Entity, EntityCategory, EntityKind, LightningBolt};
 use crate::block_entity::BlockEntity;
 use crate::biome::Biome;
 use crate::chunk::{Chunk,
@@ -1351,14 +1351,32 @@ impl World {
         let mut pending_random_ticks = RANDOM_TICKS_PENDING.take();
         debug_assert!(pending_random_ticks.is_empty());
 
+        // Lightning bolts are rare enough to just use a non cached vector.
+        let mut lightning_bolt = Vec::new();
+
         // Random tick only on loaded chunks.
         for (&(cx, cz), chunk) in &mut self.chunks {
             if let Some(chunk_data) = &chunk.data {
 
-                // TODO: Lightning strikes.
+                let chunk_pos = IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32);
+
+                // Try to spawn lightning bolt.
+                if self.weather == Weather::Thunder && self.rand.next_int_bounded(100000) == 0 {
+
+                    self.random_ticks_seed = self.random_ticks_seed
+                        .wrapping_mul(3)
+                        .wrapping_add(1013904223);
+
+                    let rand = self.random_ticks_seed >> 2;
+                    let mut pos = IVec3::new((rand >> 0) & 15, 0, (rand >> 8) & 15);
+                    pos.y = chunk_data.get_height(pos) as i32;
+
+                    lightning_bolt.push(chunk_pos + pos);
+
+                }
+
                 // TODO: Random snowing.
 
-                let chunk_pos = IVec3::new(cx * CHUNK_WIDTH as i32, 0, cz * CHUNK_WIDTH as i32);
                 
                 // Minecraft run 80 random ticks per tick per chunk.
                 for _ in 0..80 {
@@ -1380,6 +1398,12 @@ impl World {
 
         for (pos, id, metadata) in pending_random_ticks.drain(..) {
             self.tick_block_unchecked(pos, id, metadata, true);
+        }
+
+        for pos in lightning_bolt.drain(..) {
+            if self.get_local_weather(pos) == LocalWeather::Rain {
+                self.spawn_entity(LightningBolt::new_default(pos.as_dvec3()));
+            }
         }
 
         RANDOM_TICKS_PENDING.set(pending_random_ticks);

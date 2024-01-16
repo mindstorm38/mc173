@@ -278,7 +278,7 @@ impl World {
         let can_stay = 
             below_netherrack ||
             Face::HORIZONTAL.into_iter()
-                .all(|face| self.get_local_weather(pos + face.delta()) == LocalWeather::Clear);
+                .all(|face| self.get_local_weather(pos + face.delta()) != LocalWeather::Rain);
         
         if !can_stay {
             self.set_block_notify(pos, block::AIR, 0);
@@ -326,7 +326,7 @@ impl World {
                 let face_pos = pos + face.delta();
 
                 if self.rand.next_int_bounded(face_bound) < face_burn as i32 {
-                    if self.rand.next_int_bounded(metadata as i32 + 10) < 5 && self.get_local_weather(face_pos) == LocalWeather::Clear {
+                    if self.rand.next_int_bounded(metadata as i32 + 10) < 5 && self.get_local_weather(face_pos) != LocalWeather::Rain {
                         let new_metadata = (metadata + self.rand.next_int_bounded(5) as u8 / 4).min(15);
                         self.set_block_notify(face_pos, block::FIRE, new_metadata);
                     } else {
@@ -365,7 +365,7 @@ impl World {
                                 && self.rand.next_int_bounded(bound) <= catch {
 
                                     let can_propagate = Face::HORIZONTAL.into_iter()
-                                        .all(|face| self.get_local_weather(check_pos + face.delta()) == LocalWeather::Clear);
+                                        .all(|face| self.get_local_weather(check_pos + face.delta()) != LocalWeather::Rain);
 
                                     if can_propagate {
                                         let new_metadata = (metadata + self.rand.next_int_bounded(5) as u8 / 4).min(15);
