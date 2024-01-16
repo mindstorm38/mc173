@@ -1202,6 +1202,7 @@ impl net::OutPacket for OutPacket {
             }
             OutPacket::LightningBolt(packet) => {
                 write.write_u8(71)?;
+                write.write_java_int(packet.entity_id as i32)?;
                 write.write_java_boolean(true)?;
                 write.write_java_int(packet.x)?;
                 write.write_java_int(packet.y)?;
