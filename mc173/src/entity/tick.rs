@@ -54,6 +54,7 @@ pub(super) fn tick(world: &mut World, id: u32, entity: &mut Entity) {
         Entity(_, BaseKind::Tnt(_)) => tick_tnt(world, id, entity),
         Entity(_, BaseKind::Living(_, _)) => tick_living(world, id, entity),
         Entity(_, BaseKind::Projectile(_, _)) => tick_projectile(world, id, entity),
+        Entity(_, BaseKind::LightningBolt(_)) => tick_lightning_bolt(world, id, entity),
         Entity(_, _) => tick_base(world, id, entity),
     }
 
@@ -586,6 +587,45 @@ fn tick_projectile(world: &mut World, id: u32, entity: &mut Entity) {
 
     }
     
+}
+
+/// REF:
+/// - EntityLightningBolt::onUpdate
+fn tick_lightning_bolt(world: &mut World, id: u32, entity: &mut Entity) {
+
+    let_expect!(Entity(base, _) = entity);
+
+    if base.lifetime == 1 {
+
+        // FIXME: Set fire only if difficulty >= 2
+
+        // PARITY: We don't check if fire can be placed.
+
+        let fire_pos = base.pos.floor().as_ivec3();
+        if world.is_block_air(fire_pos) {
+            world.set_block_notify(fire_pos, block::FIRE, 0);
+        }
+
+        for _ in 0..4 {
+
+            let fire_pos = fire_pos + IVec3 {
+                x: base.rand.next_int_bounded(3) - 1,
+                y: base.rand.next_int_bounded(3) - 1,
+                z: base.rand.next_int_bounded(3) - 1,
+            };
+
+            if world.is_block_air(fire_pos) {
+                world.set_block_notify(fire_pos, block::FIRE, 0);
+            }
+
+        }
+
+        // TODO: Strike entities.
+
+    } else {
+        world.remove_entity(id, "lightning bolt");
+    }
+
 }
 
 /// Tick a living entity to push/being pushed an entity.

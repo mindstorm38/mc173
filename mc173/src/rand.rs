@@ -159,7 +159,7 @@ impl JavaRandom {
             }
         }
     }
-    
+
     /// Get the next pseudo-random single-precision float vector, x, y and z.
     /// **This is not part of the standard Java class.**
     pub fn next_float_vec(&mut self) -> Vec3 {

@@ -238,6 +238,7 @@ fn cmd_spawn(ctx: CommandContext) -> CommandResult {
         "slime" => EntityKind::Slime,
         "creeper" => EntityKind::Creeper,
         "squid" => EntityKind::Squid,
+        "lightning_bolt" => EntityKind::LightningBolt,
         _ => return Err(Some(format!("§cError: invalid or unsupported entity kind:§r {entity_kind_raw}")))
     };
 

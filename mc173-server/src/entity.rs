@@ -66,6 +66,7 @@ impl EntityTracker {
             EntityKind::Tnt => (160, 10, true),
             EntityKind::FallingBlock => (160, 20, true),
             EntityKind::Painting => (160, 0, false),
+            EntityKind::LightningBolt => (512, 0, false), // Specific to this impl
             // All remaining animals and mobs.
             _ => (160, 3, true)
         };
@@ -307,7 +308,7 @@ impl EntityTracker {
             BaseKind::Minecart(e::Minecart::Normal) => self.spawn_entity_object(player, 10, false),
             BaseKind::Minecart(e::Minecart::Chest { .. }) => self.spawn_entity_object(player, 11, false),
             BaseKind::Minecart(e::Minecart::Furnace { .. }) => self.spawn_entity_object(player, 12, false),
-            BaseKind::LightningBolt(_) => (),
+            BaseKind::LightningBolt(_) => self.spawn_entity_lightning_bolt(player),
             BaseKind::FallingBlock(falling_block) => {
                 // NOTE: We use sand for any block id that is unsupported.
                 match falling_block.block_id {
@@ -379,6 +380,15 @@ impl EntityTracker {
             vx: vel.x as i8,
             vy: vel.y as i8,
             vz: vel.z as i8,
+        }));
+    }
+
+    fn spawn_entity_lightning_bolt(&self, player: &ServerPlayer) {
+        player.send(OutPacket::LightningBolt(proto::LightningBoltPacket {
+            entity_id: self.id,
+            x: self.sent_pos.0, 
+            y: self.sent_pos.1, 
+            z: self.sent_pos.2, 
         }));
     }
 
