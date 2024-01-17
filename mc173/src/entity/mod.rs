@@ -4,7 +4,7 @@ use glam::{DVec3, Vec2, IVec3};
 
 use crate::block::material::Material;
 use crate::util::default as def;
-use crate::geom::BoundingBox;
+use crate::geom::{BoundingBox, Face};
 use crate::rand::JavaRandom;
 use crate::item::ItemStack;
 use crate::world::World;
@@ -271,55 +271,27 @@ pub struct Item {
     pub frozen_time: u32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Painting {
     /// Block position of this painting.
     pub block_pos: IVec3,
-    /// Orientation of this painting at block position.
-    pub orientation: PaintingOrientation,
+    /// The face of the block position the painting is on.
+    pub face: Face,
     /// The art of the painting, which define its size.
     pub art: PaintingArt,
     /// This timer is used to repeatedly check if the painting is at a valid position.
     pub check_valid_time: u8,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PaintingOrientation {
-    #[default]
-    NegX,
-    PosX,
-    NegZ,
-    PosZ,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PaintingArt {
-    #[default]
-    Kebab,
-    Aztec,
-    Alban,
-    Aztec2,
-    Bomb,
-    Plant,
-    Wasteland,
-    Pool,
-    Courbet,
-    Sea,
-    Sunset,
-    Creebet,
-    Wanderer,
-    Graham,
-    Match,
-    Bust,
-    Stage,
-    Void,
-    SkullAndRoses,
-    Fighters,
-    Pointer,
-    Pigscene,
-    BurningSkull,
-    Skeleton,
-    DonkeyKong,
+impl Default for Painting {
+    fn default() -> Self {
+        Self { 
+            block_pos: Default::default(),
+            face: Face::NegX, 
+            art: Default::default(), 
+            check_valid_time: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -505,6 +477,99 @@ impl Size {
 
 }
 
+/// Represent the orientation of a painting, this defines the face onto the painting is
+/// placed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PaintingOrientation {
+    #[default]
+    NegX,
+    PosX,
+    NegZ,
+    PosZ,
+}
+
+impl PaintingOrientation {
+
+    /// Get the painting orientation as a block face.
+    #[inline]
+    pub fn to_face(self) -> Face {
+        match self {
+            PaintingOrientation::NegX => Face::NegX,
+            PaintingOrientation::PosX => Face::PosX,
+            PaintingOrientation::NegZ => Face::NegZ,
+            PaintingOrientation::PosZ => Face::PosZ,
+        }
+    }
+    
+}
+
+/// Represent the art type for a painting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PaintingArt {
+    #[default]
+    Kebab,
+    Aztec,
+    Alban,
+    Aztec2,
+    Bomb,
+    Plant,
+    Wasteland,
+    Pool,
+    Courbet,
+    Sea,
+    Sunset,
+    Creebet,
+    Wanderer,
+    Graham,
+    Match,
+    Bust,
+    Stage,
+    Void,
+    SkullAndRoses,
+    Fighters,
+    Pointer,
+    Pigscene,
+    BurningSkull,
+    Skeleton,
+    DonkeyKong,
+}
+
+impl PaintingArt {
+
+    /// Return the size of the painting, in blocks (width, height).
+    pub fn size(self) -> (u8, u8) {
+        match self {
+            PaintingArt::Kebab => (1, 1),
+            PaintingArt::Aztec => (1, 1),
+            PaintingArt::Alban => (1, 1),
+            PaintingArt::Aztec2 => (1, 1),
+            PaintingArt::Bomb => (1, 1),
+            PaintingArt::Plant => (1, 1),
+            PaintingArt::Wasteland => (1, 1),
+            PaintingArt::Pool => (2, 1),
+            PaintingArt::Courbet => (2, 1),
+            PaintingArt::Sea => (2, 1),
+            PaintingArt::Sunset => (2, 1),
+            PaintingArt::Creebet => (2, 1),
+            PaintingArt::Wanderer => (1, 2),
+            PaintingArt::Graham => (1, 2),
+            PaintingArt::Match => (2, 2),
+            PaintingArt::Bust => (2, 2),
+            PaintingArt::Stage => (2, 2),
+            PaintingArt::Void => (2, 2),
+            PaintingArt::SkullAndRoses => (2, 2),
+            PaintingArt::Fighters => (4, 2),
+            PaintingArt::Pointer => (4, 4),
+            PaintingArt::Pigscene => (4, 4),
+            PaintingArt::BurningSkull => (4, 4),
+            PaintingArt::Skeleton => (4, 3),
+            PaintingArt::DonkeyKong => (4, 3),
+        }
+    }
+
+}
+
+
 /// Define a target for an entity to look at.
 #[derive(Debug, Clone, Default)]
 pub struct LookTarget {
@@ -513,6 +578,7 @@ pub struct LookTarget {
     /// Ticks remaining before stop looking at it.
     pub remaining_time: u32,
 }
+
 
 /// A result of the path finder.
 #[derive(Debug, Clone)]
@@ -577,7 +643,7 @@ impl Entity {
         // Calculate the new size from the entity properties.
         base.size = match base_kind {
             BaseKind::Item(_) => Size::new_centered(0.25, 0.25),
-            BaseKind::Painting(_) => Size::new(0.5, 0.5),
+            BaseKind::Painting(_) => Size::new_centered(0.5, 0.5),
             BaseKind::Boat(_) => Size::new_centered(1.5, 0.6),
             BaseKind::Minecart(_) => Size::new_centered(0.98, 0.7),
             BaseKind::LightningBolt(_) => Size::new(0.0, 0.0),
@@ -727,6 +793,7 @@ impl Entity {
             LivingKind::Slime(slime) => {
                 slime.size = 1 << base.rand.next_int_bounded(3) as u8;
                 self.resize();
+                // TODO: Set health depending on size
             }
             LivingKind::Sheep(sheep) => {
                 let rand = base.rand.next_int_bounded(100) as u8;

@@ -4,13 +4,14 @@ use glam::IVec3;
 
 use crate::entity::{self as e, 
     Entity, 
-    Base, BaseKind, Projectile, ProjectileKind, Living, LivingKind,
-    PaintingOrientation, PaintingArt};
+    Base, BaseKind, Projectile, ProjectileKind, Living, LivingKind};
 
 use crate::serde::nbt::{NbtCompoundParse, NbtCompound, NbtParseError};
 use crate::item::ItemStack;
+use crate::geom::Face;
 
 use super::item_stack_nbt;
+use super::painting_art_nbt;
 use super::slot_nbt;
 
 
@@ -57,13 +58,13 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
                 y: comp.get_int("TileY")?,
                 z: comp.get_int("TileZ")?,
             },
-            orientation: match comp.get_byte("Dir")? {
-                0 => PaintingOrientation::NegZ,
-                1 => PaintingOrientation::NegX,
-                2 => PaintingOrientation::PosZ,
-                _ => PaintingOrientation::PosX,
+            face: match comp.get_byte("Dir")? {
+                0 => Face::NegZ,
+                1 => Face::NegX,
+                2 => Face::PosZ,
+                _ => Face::PosX,
             },
-            art: PaintingArt::Kebab, // FIXME:
+            art: painting_art_nbt::from_nbt(comp.get_string("Motive")?).unwrap_or_default(),
             ..Default::default()
         }),
         "PrimedTnt" => BaseKind::Tnt(e::Tnt {
@@ -217,13 +218,13 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, entity: &Entity) -> Option<&'a mut 
             comp.insert("TileX", painting.block_pos.x);
             comp.insert("TileY", painting.block_pos.y);
             comp.insert("TileZ", painting.block_pos.z);
-            comp.insert("Dir", match painting.orientation {
-                PaintingOrientation::NegZ => 0i8,
-                PaintingOrientation::NegX => 1,
-                PaintingOrientation::PosZ => 2,
-                PaintingOrientation::PosX => 3,
+            comp.insert("Dir", match painting.face {
+                Face::NegZ => 0i8,
+                Face::NegX => 1,
+                Face::PosZ => 2,
+                _ => 3,
             });
-            comp.insert("Motive", "Kebab");
+            comp.insert("Motive", painting_art_nbt::to_nbt(painting.art));
         }
         BaseKind::Boat(_) => {
             comp.insert("id", "Boat");

@@ -2,7 +2,7 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
-use crate::entity::{Arrow, Entity, Snowball, Tnt, Bobber, BaseKind, ProjectileKind, Item};
+use crate::entity::{Arrow, Entity, Snowball, Tnt, Bobber, BaseKind, ProjectileKind, Item, PaintingOrientation, Painting};
 use crate::inventory::InventoryHandle;
 use crate::gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
@@ -45,6 +45,7 @@ impl World {
             item::WHEAT_SEEDS => self.use_wheat_seeds_stack(pos, face),
             item::DYE if stack.damage == 15 => self.use_bone_meal_stack(pos),
             item::FLINT_AND_STEEL => self.use_flint_and_steel(pos, face),
+            item::PAINTING => self.use_painting(pos, face),
             _ => false
         };
 
@@ -284,6 +285,23 @@ impl World {
                 self.set_block_notify(fire_pos, block::FIRE, 0);
             }
         }
+
+        true
+
+    }
+
+    fn use_painting(&mut self, pos: IVec3, face: Face) -> bool {
+
+        if face.is_y() {
+            return false;
+        }
+
+        let painting = Painting::new_with(|base, painting| {
+
+            painting.block_pos = pos;
+            painting.face = face;
+
+        });
 
         true
 

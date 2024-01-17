@@ -30,7 +30,7 @@ pub fn from_nbt(id: &str) -> Option<EntityKind> {
     })
 }
 
-pub fn to_nbt(kind: EntityKind) -> Option<String> {
+pub fn to_nbt(kind: EntityKind) -> Option<&'static str> {
     Some(match kind {
         EntityKind::Item => "Item",
         EntityKind::Painting => "Painting",
@@ -54,6 +54,6 @@ pub fn to_nbt(kind: EntityKind) -> Option<String> {
         EntityKind::Skeleton => "Skeleton",
         EntityKind::Spider => "Spider",
         EntityKind::Zombie => "Zombie",
-        _ => return None
-    }.to_string())
+        _ => return None // Not serializable
+    })
 }

@@ -119,7 +119,7 @@ pub fn to_nbt<'a>(comp: &'a mut NbtCompound, pos: IVec3, block_entity: &BlockEnt
         }
         BlockEntity::Spawner(spawner) => {
             comp.insert("id", "MobSpawner");
-            comp.insert("EntityId", entity_kind_nbt::to_nbt(spawner.entity_kind).unwrap_or(format!("Pig")));
+            comp.insert("EntityId", entity_kind_nbt::to_nbt(spawner.entity_kind).unwrap_or("Pig"));
             comp.insert("Delay", spawner.remaining_time.min(i16::MAX as _) as i16);
         }
         BlockEntity::NoteBlock(note_block) => {

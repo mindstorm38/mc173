@@ -5,6 +5,8 @@ use std::ops::{Mul, Div};
 use glam::{DVec3, Vec2, IVec3};
 
 use mc173::entity::{self as e, Entity, EntityKind, BaseKind, ProjectileKind, LivingKind};
+use mc173::geom::Face;
+use mc173::serde::chunk::painting_art_nbt;
 use mc173::world::World;
 use mc173::block;
 
@@ -303,7 +305,7 @@ impl EntityTracker {
 
         match base_kind {
             BaseKind::Item(item) => self.spawn_entity_item(player, base, item),
-            BaseKind::Painting(_) => todo!(),  // TODO:
+            BaseKind::Painting(painting) => self.spawn_entity_painting(player, painting),
             BaseKind::Boat(_) => self.spawn_entity_object(player, 1, false),
             BaseKind::Minecart(e::Minecart::Normal) => self.spawn_entity_object(player, 10, false),
             BaseKind::Minecart(e::Minecart::Chest { .. }) => self.spawn_entity_object(player, 11, false),
@@ -389,6 +391,22 @@ impl EntityTracker {
             x: self.sent_pos.0, 
             y: self.sent_pos.1, 
             z: self.sent_pos.2, 
+        }));
+    }
+
+    fn spawn_entity_painting(&self, player: &ServerPlayer, painting: &e::Painting) {
+        player.send(OutPacket::PaintingSpawn(proto::PaintingSpawnPacket {
+            entity_id: self.id,
+            title: painting_art_nbt::to_nbt(painting.art).to_string(),
+            x: painting.block_pos.x,
+            y: painting.block_pos.y,
+            z: painting.block_pos.z,
+            direction: match painting.face {
+                Face::NegZ => 0,
+                Face::NegX => 1,
+                Face::PosZ => 2,
+                _ => 3,
+            },
         }));
     }
 
