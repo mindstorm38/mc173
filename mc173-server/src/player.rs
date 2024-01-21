@@ -151,6 +151,8 @@ impl ServerPlayer {
     /// Send a chat message to this player.
     pub fn send_chat(&self, mut message: String) {
 
+        // FIXME: Not correctly split.
+        
         let mut slice = &message[..];
         while slice.len() > 199 {
             println!("slice: {slice:?}");
