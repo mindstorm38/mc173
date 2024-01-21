@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use glam::{DVec3, Vec2, IVec3};
 
+use mc173::util::split_at_utf8_boundary;
 use tracing::warn;
 
 use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress, EntityEvent};
@@ -148,8 +149,19 @@ impl ServerPlayer {
     }
 
     /// Send a chat message to this player.
-    pub fn send_chat(&self, message: String) {
+    pub fn send_chat(&self, mut message: String) {
+
+        let mut slice = &message[..];
+        while slice.len() > 199 {
+            println!("slice: {slice:?}");
+            let split = split_at_utf8_boundary(slice, 199);
+            self.send(OutPacket::Chat(proto::ChatPacket { message: split.0.to_string() }));
+            slice = split.1;
+        }
+
+        message.replace_range(0..(message.len() - slice.len()), "");
         self.send(OutPacket::Chat(proto::ChatPacket { message }));
+
     }
 
     /// Handle an incoming packet from this player.

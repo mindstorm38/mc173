@@ -9,6 +9,7 @@ use glam::{DVec3, Vec2, IVec3};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
 use mc173::io::{ReadJavaExt, WriteJavaExt};
+use mc173::util::split_at_utf8_boundary;
 use mc173::item::ItemStack;
 
 use crate::net;
@@ -928,7 +929,8 @@ impl net::OutPacket for OutPacket {
             }
             OutPacket::Chat(packet) => {
                 write.write_u8(3)?;
-                write.write_java_string16(&packet.message[..packet.message.len().min(199)])?;
+                let (s, _) = split_at_utf8_boundary(&packet.message, packet.message.len().min(119));
+                write.write_java_string16(s)?;
             }
             OutPacket::UpdateTime(packet) => {
                 write.write_u8(4)?;

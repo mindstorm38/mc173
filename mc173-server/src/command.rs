@@ -4,9 +4,9 @@ use std::mem;
 
 use glam::IVec3;
 
-use mc173::item::{self, ItemStack};
-use mc173::world::{World, Event, Weather};
 use mc173::entity::{EntityKind, EntityCategory};
+use mc173::world::{World, Event, Weather};
+use mc173::item::{self, ItemStack};
 use mc173::path::PathFinder;
 use mc173::block;
 
@@ -152,6 +152,12 @@ const COMMANDS: &'static [Command] = &[
         usage: "",
         description: "Display performance indicators for the current world",
         handler: cmd_perf,
+    },
+    Command {
+        name: "entity",
+        usage: "<id>",
+        description: "Display debug information of an entity",
+        handler: cmd_entity,
     }
 ];
 
@@ -456,6 +462,26 @@ fn cmd_perf(ctx: CommandContext) -> CommandResult {
     ctx.player.send_chat(format!("§aBlock ticks:§r {}", ctx.world.get_block_tick_count()));
     ctx.player.send_chat(format!("§aLight updates:§r {}", ctx.world.get_light_update_count()));
 
+    Ok(())
+
+}
+
+fn cmd_entity(ctx: CommandContext) -> CommandResult {
+
+    if ctx.parts.len() != 1 {
+        return Err(None);
+    }
+
+    let id_raw = ctx.parts[0];
+    let id = id_raw.parse::<u32>()
+        .map_err(|_| format!("§cError: invalid entity id:§r {id_raw}"))?;
+
+    let Some(entity) = ctx.world.get_entity(id) else {
+        return Err(Some(format!("§cError: unknown entity")));
+    };
+   
+    ctx.player.send_chat(format!("§8====================================================="));
+    ctx.player.send_chat(format!("{entity:?}"));
     Ok(())
 
 }
