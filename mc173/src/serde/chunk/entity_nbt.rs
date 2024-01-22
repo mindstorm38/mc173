@@ -191,7 +191,7 @@ pub fn from_nbt(comp: NbtCompoundParse) -> Result<Box<Entity>, NbtParseError> {
     };
 
     let mut entity = Box::new(Entity(base, base_kind));
-    entity.resize(); // Set the initial size/bounding box.
+    entity.sync(); // Set the initial size/bounding box.
 
     Ok(entity)
 

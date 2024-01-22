@@ -131,11 +131,6 @@ pub struct Base {
     /// are typically non-persistent because these are not real entities. Some entities
     /// cannot be persistent as they are not supported by the Notchian serialization.
     pub persistent: bool,
-    /// The last size that was used when recomputing the bounding box based on the 
-    /// position, we keep it in order to check that the bounding box don't shift too far
-    /// from it because of rounding errors, and also to keep the height center. This is
-    /// updated with the bounding box by `tick_base` method when entity isn't coherent.
-    pub size: Size,
     /// The bounding box is defining the actual position from the size of the entity, the 
     /// actual position of the entity is derived from it. This is recomputed with the size
     /// by `tick_base` method when entity isn't coherent.
@@ -275,7 +270,7 @@ pub struct Item {
 pub struct Painting {
     /// Block position of this painting.
     pub block_pos: IVec3,
-    /// The face of the block position the painting is on.
+    /// The face of the block position the painting is on. Should not be on Y axis.
     pub face: Face,
     /// The art of the painting, which define its size.
     pub art: PaintingArt,
@@ -451,58 +446,6 @@ pub struct Spider { }
 pub struct Zombie { }
 
 
-/// Size of an entity, used to update each entity bounding box prior to ticking if 
-/// relevant.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct Size {
-    /// Width of the bounding box, centered on the X/Z coordinates.
-    pub width: f32,
-    /// Height of the bounding box.
-    pub height: f32,
-    /// Define the center of the bounding box on Y axis.
-    pub center: f32,
-}
-
-impl Size {
-
-    /// New size with the Y position at the bottom center of the bounding box.
-    pub fn new(width: f32, height: f32) -> Self {
-        Self { width, height, center: 0.0 }
-    }
-
-    /// New size with the Y position at the center of the bounding box.
-    pub fn new_centered(width: f32, height: f32) -> Self {
-        Self { width, height, center: height / 2.0 }
-    }
-
-}
-
-/// Represent the orientation of a painting, this defines the face onto the painting is
-/// placed.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PaintingOrientation {
-    #[default]
-    NegX,
-    PosX,
-    NegZ,
-    PosZ,
-}
-
-impl PaintingOrientation {
-
-    /// Get the painting orientation as a block face.
-    #[inline]
-    pub fn to_face(self) -> Face {
-        match self {
-            PaintingOrientation::NegX => Face::NegX,
-            PaintingOrientation::PosX => Face::PosX,
-            PaintingOrientation::NegZ => Face::NegZ,
-            PaintingOrientation::PosZ => Face::PosZ,
-        }
-    }
-    
-}
-
 /// Represent the art type for a painting.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaintingArt {
@@ -536,34 +479,62 @@ pub enum PaintingArt {
 
 impl PaintingArt {
 
+    pub const ALL: [PaintingArt; 25] = [
+        Self::Kebab,
+        Self::Aztec,
+        Self::Alban,
+        Self::Aztec2,
+        Self::Bomb,
+        Self::Plant,
+        Self::Wasteland,
+        Self::Pool,
+        Self::Courbet,
+        Self::Sea,
+        Self::Sunset,
+        Self::Creebet,
+        Self::Wanderer,
+        Self::Graham,
+        Self::Match,
+        Self::Bust,
+        Self::Stage,
+        Self::Void,
+        Self::SkullAndRoses,
+        Self::Fighters,
+        Self::Pointer,
+        Self::Pigscene,
+        Self::BurningSkull,
+        Self::Skeleton,
+        Self::DonkeyKong,
+    ];
+
     /// Return the size of the painting, in blocks (width, height).
-    pub fn size(self) -> (u8, u8) {
+    pub const fn size(self) -> (u8, u8) {
         match self {
-            PaintingArt::Kebab => (1, 1),
-            PaintingArt::Aztec => (1, 1),
-            PaintingArt::Alban => (1, 1),
-            PaintingArt::Aztec2 => (1, 1),
-            PaintingArt::Bomb => (1, 1),
-            PaintingArt::Plant => (1, 1),
-            PaintingArt::Wasteland => (1, 1),
-            PaintingArt::Pool => (2, 1),
-            PaintingArt::Courbet => (2, 1),
-            PaintingArt::Sea => (2, 1),
-            PaintingArt::Sunset => (2, 1),
-            PaintingArt::Creebet => (2, 1),
-            PaintingArt::Wanderer => (1, 2),
-            PaintingArt::Graham => (1, 2),
-            PaintingArt::Match => (2, 2),
-            PaintingArt::Bust => (2, 2),
-            PaintingArt::Stage => (2, 2),
-            PaintingArt::Void => (2, 2),
-            PaintingArt::SkullAndRoses => (2, 2),
-            PaintingArt::Fighters => (4, 2),
-            PaintingArt::Pointer => (4, 4),
-            PaintingArt::Pigscene => (4, 4),
-            PaintingArt::BurningSkull => (4, 4),
-            PaintingArt::Skeleton => (4, 3),
-            PaintingArt::DonkeyKong => (4, 3),
+            Self::Kebab => (1, 1),
+            Self::Aztec => (1, 1),
+            Self::Alban => (1, 1),
+            Self::Aztec2 => (1, 1),
+            Self::Bomb => (1, 1),
+            Self::Plant => (1, 1),
+            Self::Wasteland => (1, 1),
+            Self::Pool => (2, 1),
+            Self::Courbet => (2, 1),
+            Self::Sea => (2, 1),
+            Self::Sunset => (2, 1),
+            Self::Creebet => (2, 1),
+            Self::Wanderer => (1, 2),
+            Self::Graham => (1, 2),
+            Self::Match => (2, 2),
+            Self::Bust => (2, 2),
+            Self::Stage => (2, 2),
+            Self::Void => (2, 2),
+            Self::SkullAndRoses => (2, 2),
+            Self::Fighters => (4, 2),
+            Self::Pointer => (4, 4),
+            Self::Pigscene => (4, 4),
+            Self::BurningSkull => (4, 4),
+            Self::Skeleton => (4, 3),
+            Self::DonkeyKong => (4, 3),
         }
     }
 
@@ -635,61 +606,104 @@ impl Entity {
         tick::tick(world, id, self);
     }
 
-    /// Recompute this entity's size and recompute the bounding box from its position.
-    pub fn resize(&mut self) {
+    /// Synchronize this entity with its own data and ensures that the data are coherent.
+    /// 
+    /// This has different effect depending on the entity type, but in general the entity
+    /// bounding box is resized around the entity position. But for example with paintings
+    /// only its block position will be used. 
+    /// 
+    /// This is typically called after instantiation or after deserialization.
+    pub fn sync(&mut self) {
+        self.sync_inline()
+    }
+
+    /// Same as [sync](`Self::sync`) but for places where the entity type may already be
+    /// known so the synchronization can be inlined and internal branches optimized.
+    #[inline(always)]
+    pub fn sync_inline(&mut self) {
 
         let Entity(base, base_kind) = self;
 
         // Calculate the new size from the entity properties.
-        base.size = match base_kind {
-            BaseKind::Item(_) => Size::new_centered(0.25, 0.25),
-            BaseKind::Painting(_) => Size::new_centered(0.5, 0.5),
-            BaseKind::Boat(_) => Size::new_centered(1.5, 0.6),
-            BaseKind::Minecart(_) => Size::new_centered(0.98, 0.7),
-            BaseKind::LightningBolt(_) => Size::new(0.0, 0.0),
-            BaseKind::FallingBlock(_) => Size::new_centered(0.98, 0.98),
-            BaseKind::Tnt(_) => Size::new_centered(0.98, 0.98),
-            BaseKind::Projectile(_, ProjectileKind::Arrow(_)) => Size::new(0.5, 0.5),
-            BaseKind::Projectile(_, ProjectileKind::Egg(_)) => Size::new(0.5, 0.5),
-            BaseKind::Projectile(_, ProjectileKind::Fireball(_)) => Size::new(1.0, 1.0),
-            BaseKind::Projectile(_, ProjectileKind::Snowball(_)) => Size::new(0.5, 0.5),
-            BaseKind::Projectile(_, ProjectileKind::Bobber(_)) => Size::new(0.25, 0.25),
+        let size = match base_kind {
+            BaseKind::Item(_) => DVec3::splat(0.25),
+            BaseKind::Painting(painting) => {
+
+                // Initial position is within the block the painting is placed on.
+                base.pos = painting.block_pos.as_dvec3() + 0.5;
+                // Move its position on the face of the block (1.0 / 16.0 from face).
+                base.pos += painting.face.delta().as_dvec3() * 0.5625;
+
+                let (width, height) = painting.art.size();
+
+                // If width is even, the painting cannot be centered on a block, so we move it
+                // to center it between two blocks.
+                if width % 2 == 0 {
+                    base.pos += painting.face.rotate_left().delta().as_dvec3() * 0.5;
+                }
+
+                // If height is even, same as above.
+                if height % 2 == 0 {
+                    base.pos.y += 0.5;
+                }
+
+                let mut size = DVec3::new(width as f64, height as f64, width as f64);
+                size[painting.face.axis_index()] = 0.03125;
+                size -= 0.0125;
+                size
+
+            }
+            BaseKind::Boat(_) => DVec3::new(1.5, 0.6, 1.5),
+            BaseKind::Minecart(_) => DVec3::new(0.98, 0.7, 0.98),
+            BaseKind::LightningBolt(_) => DVec3::ZERO,
+            BaseKind::FallingBlock(_) => DVec3::splat(0.98),
+            BaseKind::Tnt(_) => DVec3::splat(0.98),
+            BaseKind::Projectile(_, ProjectileKind::Arrow(_)) => DVec3::splat(0.5),
+            BaseKind::Projectile(_, ProjectileKind::Egg(_)) => DVec3::splat(0.5),
+            BaseKind::Projectile(_, ProjectileKind::Fireball(_)) => DVec3::splat(1.0),
+            BaseKind::Projectile(_, ProjectileKind::Snowball(_)) => DVec3::splat(0.5),
+            BaseKind::Projectile(_, ProjectileKind::Bobber(_)) => DVec3::splat(0.25),
             BaseKind::Living(_, LivingKind::Human(player)) => {
                 if player.sleeping {
-                    Size::new(0.2, 0.2)
+                    DVec3::splat(0.2)
                 } else {
-                    Size::new(0.6, 1.8)
+                    DVec3::new(0.6, 1.8, 0.6)
                 }
             }
-            BaseKind::Living(_, LivingKind::Ghast(_)) => Size::new(4.0, 4.0),
+            BaseKind::Living(_, LivingKind::Ghast(_)) => DVec3::splat(4.0),
             BaseKind::Living(_, LivingKind::Slime(slime)) => {
-                let factor = slime.size as f32 + 1.0;
-                Size::new(0.6 * factor, 0.6 * factor)
+                let factor = slime.size as f64 + 1.0;
+                DVec3::splat(0.6 * factor)
             }
-            BaseKind::Living(_, LivingKind::Pig(_)) => Size::new(0.9, 0.9),
-            BaseKind::Living(_, LivingKind::Chicken(_)) => Size::new(0.3, 0.4),
-            BaseKind::Living(_, LivingKind::Cow(_)) => Size::new(0.9, 1.3),
-            BaseKind::Living(_, LivingKind::Sheep(_)) =>Size::new(0.9, 1.3),
-            BaseKind::Living(_, LivingKind::Squid(_)) => Size::new(0.95, 0.95),
-            BaseKind::Living(_, LivingKind::Wolf(_)) => Size::new(0.8, 0.8),
-            BaseKind::Living(_, LivingKind::Creeper(_)) => Size::new(0.6, 1.8),
-            BaseKind::Living(_, LivingKind::Giant(_)) => Size::new(3.6, 10.8),
-            BaseKind::Living(_, LivingKind::PigZombie(_)) => Size::new(0.6, 1.8),
-            BaseKind::Living(_, LivingKind::Skeleton(_)) => Size::new(0.6, 1.8),
-            BaseKind::Living(_, LivingKind::Spider(_)) => Size::new(1.4, 0.9),
-            BaseKind::Living(_, LivingKind::Zombie(_)) => Size::new(0.6, 1.8),
+            BaseKind::Living(_, LivingKind::Pig(_)) => DVec3::splat(0.9),
+            BaseKind::Living(_, LivingKind::Chicken(_)) => DVec3::new(0.3, 0.4, 0.3),
+            BaseKind::Living(_, LivingKind::Cow(_)) => DVec3::new(0.9, 1.3, 0.9),
+            BaseKind::Living(_, LivingKind::Sheep(_)) => DVec3::new(0.9, 1.3, 0.9),
+            BaseKind::Living(_, LivingKind::Squid(_)) => DVec3::splat(0.95),
+            BaseKind::Living(_, LivingKind::Wolf(_)) => DVec3::splat(0.8),
+            BaseKind::Living(_, LivingKind::Creeper(_)) => DVec3::new(0.6, 1.8, 0.6),
+            BaseKind::Living(_, LivingKind::Giant(_)) => DVec3::new(3.6, 10.8, 3.6),
+            BaseKind::Living(_, LivingKind::PigZombie(_)) => DVec3::new(0.6, 1.8, 0.6),
+            BaseKind::Living(_, LivingKind::Skeleton(_)) => DVec3::new(0.6, 1.8, 0.6),
+            BaseKind::Living(_, LivingKind::Spider(_)) => DVec3::new(1.4, 0.9, 1.4),
+            BaseKind::Living(_, LivingKind::Zombie(_)) => DVec3::new(0.6, 1.8, 0.6),
         };
 
-        // Calculate new eyes height.
+        let half_size = size / 2.0;
+        base.bb = BoundingBox { min: base.pos - half_size, max: base.pos + half_size };
+
+        // The bounding box of all projectile and living entities is not Y-centered.
+        if let BaseKind::Projectile(_, _) | BaseKind::Living(_, _) = base_kind {
+            base.bb.min.y = base.pos.y;
+            base.bb.max.y = base.pos.y + size.y;
+        }
+
         base.eye_height = match base_kind {
             BaseKind::Living(_, LivingKind::Human(_)) => 1.62,
-            BaseKind::Living(_, LivingKind::Wolf(_)) => base.size.height * 0.8,
-            BaseKind::Living(_, _) => base.size.height * 0.85,
+            BaseKind::Living(_, LivingKind::Wolf(_)) => size.y as f32 * 0.8,
+            BaseKind::Living(_, _) => size.y as f32 * 0.85,
             _ => 0.0,
         };
-
-        // Finally update the bounding box.
-        common::update_bounding_box_from_pos(base);
 
     }
 
@@ -698,7 +712,7 @@ impl Entity {
     pub fn teleport(&mut self, pos: DVec3) {
         let Entity(base, _) = self;
         base.pos = pos;
-        common::update_bounding_box_from_pos(base);
+        self.sync()
     }
 
     /// Return true if the entity can naturally spawn at its current position (with
@@ -792,7 +806,7 @@ impl Entity {
         match living_kind {
             LivingKind::Slime(slime) => {
                 slime.size = 1 << base.rand.next_int_bounded(3) as u8;
-                self.resize();
+                self.sync();
                 // TODO: Set health depending on size
             }
             LivingKind::Sheep(sheep) => {
@@ -991,14 +1005,22 @@ macro_rules! impl_new_with {
         $(impl $kind {
 
             /// Create a new instance of this entity type and initialize the entity with
-            /// a closure, the entity is then resized to initialize its bounding box.
+            /// a closure.
             #[inline]
-            pub fn new_with(func: impl FnOnce(&mut Base, &mut $kind)) -> Box<Entity> {
+            pub fn new_raw_with(func: impl FnOnce(&mut Base, &mut $kind)) -> Box<Entity> {
                 let mut entity = Box::new(Entity(def(), BaseKind::$kind(def())));
                 let Entity(base, BaseKind::$kind(this)) = &mut *entity else { unreachable!() };
                 $( ($def)(base, this); )?
                 func(base, this);
-                entity.resize();
+                entity
+            }
+
+            /// Create a new instance of this entity type and initialize the entity with
+            /// a closure, the entity is then resized to initialize its bounding box.
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut $kind)) -> Box<Entity> {
+                let mut entity = Self::new_raw_with(func);
+                entity.sync();
                 entity
             }
 
@@ -1016,15 +1038,23 @@ macro_rules! impl_new_with {
         $(impl $kind {
             
             /// Create a new instance of this entity type and initialize the entity with
-            /// a closure, the entity is then resized to initialize its bounding box.
+            /// a closure.
             #[inline]
-            pub fn new_with(func: impl FnOnce(&mut Base, &mut Living, &mut $kind)) -> Box<Entity> {
+            pub fn new_raw_with(func: impl FnOnce(&mut Base, &mut Living, &mut $kind)) -> Box<Entity> {
                 let mut entity = Box::new(Entity(def(), BaseKind::Living(def(), LivingKind::$kind(def()))));
                 let Entity(base, BaseKind::Living(living, LivingKind::$kind(this))) = &mut *entity else { unreachable!() };
                 living.health = $def_health;
                 $( ($def)(base, living, this); )?
                 func(base, living, this);
-                entity.resize();
+                entity
+            }
+
+            /// Create a new instance of this entity type and initialize the entity with
+            /// a closure, the entity is then resized to initialize its bounding box.
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut Living, &mut $kind)) -> Box<Entity> {
+                let mut entity = Self::new_raw_with(func);
+                entity.sync();
                 entity
             }
 
@@ -1044,11 +1074,19 @@ macro_rules! impl_new_with {
             /// Create a new instance of this entity type and initialize the entity with
             /// a closure, the entity is then resized to initialize its bounding box.
             #[inline]
-            pub fn new_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
+            pub fn new_raw_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
                 let mut entity = Box::new(Entity(def(), BaseKind::Projectile(def(), ProjectileKind::$kind(def()))));
                 let Entity(base, BaseKind::Projectile(projectile, ProjectileKind::$kind(this))) = &mut *entity else { unreachable!() };
                 func(base, projectile, this);
-                entity.resize();
+                entity
+            }
+
+            /// Create a new instance of this entity type and initialize the entity with
+            /// a closure, the entity is then resized to initialize its bounding box.
+            #[inline]
+            pub fn new_with(func: impl FnOnce(&mut Base, &mut Projectile, &mut $kind)) -> Box<Entity> {
+                let mut entity = Self::new_raw_with(func);
+                entity.sync();
                 entity
             }
 

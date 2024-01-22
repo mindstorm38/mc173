@@ -2,7 +2,7 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
-use crate::entity::{Arrow, Entity, Snowball, Tnt, Bobber, BaseKind, ProjectileKind, Item, PaintingOrientation, Painting};
+use crate::entity::{Arrow, BaseKind, Bobber, Entity, EntityKind, Item, Painting, PaintingArt, ProjectileKind, Snowball, Tnt};
 use crate::inventory::InventoryHandle;
 use crate::gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
@@ -296,12 +296,52 @@ impl World {
             return false;
         }
 
-        let painting = Painting::new_with(|base, painting| {
-
+        let mut entity = Painting::new_raw_with(|_, painting| {
             painting.block_pos = pos;
             painting.face = face;
-
         });
+
+        let mut candidate_arts = Vec::new();
+
+        // Check every art for potential placement.
+        for art in PaintingArt::ALL {
+
+            let Entity(_, BaseKind::Painting(painting)) = &mut *entity else { unreachable!() };
+
+            // Set the art and synchronize the painting to check if it can be placed.
+            painting.art = art;
+            entity.sync_inline();
+
+            // Now we check if it can be placed.
+            let Entity(base, _) = &*entity;
+
+            // If any block is colliding, cannot place.
+            if self.iter_blocks_boxes_colliding(base.bb).next().is_some() {
+                continue;
+            }
+
+            // TODO: Check if the wall is full solid behind
+
+            // If any other painting is colliding.
+            if self.iter_entities_colliding(base.bb).any(|(_, entity)| entity.kind() == EntityKind::Painting) {
+                continue;
+            }
+
+            candidate_arts.push(art);
+
+        }
+
+        // No art can be placed, do not place the painting.
+        if candidate_arts.is_empty() {
+            return false;
+        }
+
+        let Entity(base, BaseKind::Painting(painting)) = &mut *entity else { unreachable!() };
+        painting.art = base.rand.next_choice(&candidate_arts);
+
+        // Finally sync the painting before adding it to the world.
+        entity.sync_inline();
+        self.spawn_entity(entity);
 
         true
 

@@ -97,8 +97,8 @@ pub fn calc_fluid_vel(world: &World, pos: IVec3, material: Material, metadata: u
 
 /// Calculate the light levels for an entity given its base component.
 pub fn get_entity_light(world: &World, base: &Base) -> Light {
-    let mut check_pos = base.pos;
-    check_pos.y += (base.size.height * 0.66 - base.size.center) as f64;
+    let mut check_pos = base.bb.min;
+    check_pos.y += base.bb.size_y() * 0.66;
     world.get_light(check_pos.floor().as_ivec3())
 }
 
@@ -110,29 +110,6 @@ pub fn find_closest_player_entity(world: &World, center: DVec3, max_dist: f64) -
         .filter(|&(_, _, dist_sq)| dist_sq <= max_dist_sq)
         .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
         .map(|(entity_id, entity, dist_sq)| (entity_id, entity, dist_sq.sqrt()))
-}
-
-/// This function recompute the current bounding box from the position and the last
-/// size that was used to create it.
-pub fn update_bounding_box_from_pos(base: &mut Base) {
-    let half_width = (base.size.width / 2.0) as f64;
-    let height = base.size.height as f64;
-    let center = base.size.center as f64;
-    base.bb = BoundingBox {
-        min: base.pos - DVec3::new(half_width, center, half_width),
-        max: base.pos + DVec3::new(half_width, height - center, half_width),
-    };
-}
-
-/// This position recompute the current position based on the bounding box' position
-/// the size that was used to create it.
-pub fn update_pos_from_bounding_box(base: &mut Base) {
-    let center = base.size.center as f64;
-    base.pos = DVec3 {
-        x: (base.bb.min.x + base.bb.max.x) / 2.0,
-        y: base.bb.min.y + center,
-        z: (base.bb.min.z + base.bb.max.z) / 2.0,
-    };
 }
 
 /// Modify the look angles of this entity, limited to the given step. 

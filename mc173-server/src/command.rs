@@ -4,7 +4,7 @@ use std::mem;
 
 use glam::IVec3;
 
-use mc173::entity::{Entity, EntityCategory, EntityKind};
+use mc173::entity::{BaseKind, Entity, EntityCategory, EntityKind};
 use mc173::world::{World, Event, Weather};
 use mc173::item::{self, ItemStack};
 use mc173::path::PathFinder;
@@ -484,11 +484,11 @@ fn cmd_entity(ctx: CommandContext) -> CommandResult {
 
     ctx.player.send_chat(format!("§aKind:§r {:?} §8| §aPersistent:§r {} §8| §aLifetime:§r {}", 
         base_kind.entity_kind(), base.persistent, base.lifetime));
-    ctx.player.send_chat(format!("§aSize:§r {:.2}/{:.2} §8| §aCenter:§r {:.2} §8| §aEye Height:§r {:.2}", 
-        base.size.width, base.size.height, base.size.center, base.eye_height));
-    ctx.player.send_chat(format!("§aBound:§r {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2}", 
+    let bb_size = base.bb.size();
+    ctx.player.send_chat(format!("§aBound:§r {:.2}/{:.2}/{:.2}:{:.2}/{:.2}/{:.2} ({:.2}/{:.2}/{:.2})", 
         base.bb.min.x, base.bb.min.y, base.bb.min.z,
-        base.bb.max.x, base.bb.max.y, base.bb.max.z));
+        base.bb.max.x, base.bb.max.y, base.bb.max.z,
+        bb_size.x, bb_size.y, bb_size.z));
     ctx.player.send_chat(format!("§aPos:§r {:.2}/{:.2}/{:.2} §8| §aVel:§r {:.2}/{:.2}/{:.2}", 
         base.pos.x, base.pos.y, base.pos.z, 
         base.vel.x, base.vel.y, base.vel.z));
@@ -501,6 +501,27 @@ fn cmd_entity(ctx: CommandContext) -> CommandResult {
         base.fall_distance, base.fire_time, base.air_time));
     ctx.player.send_chat(format!("§aRider Id:§r {:?} §8| §aBobber Id:§r {:?}", 
         base.rider_id, base.bobber_id));
+
+    match base_kind {
+        BaseKind::Item(item) => {
+            ctx.player.send_chat(format!("§aItem:§r {} §8| §aDamage:§r {} §8| §aSize:§r {}", 
+                item::from_id(item.stack.id).name, item.stack.damage, item.stack.size));
+            ctx.player.send_chat(format!("§aHealth:§r {} §8| §aFrozen Time:§r {}", 
+                item.health, item.frozen_time));
+        }
+        BaseKind::Painting(painting) => {
+            ctx.player.send_chat(format!("§aBlock Pos:§r {}/{}/{} §8| §aFace:§r {:?} §8| §aArt:§r {:?}", 
+                painting.block_pos.x, painting.block_pos.y, painting.block_pos.z,
+                painting.face, painting.art));
+        }
+        BaseKind::Boat(_) => todo!(),
+        BaseKind::Minecart(_) => todo!(),
+        BaseKind::LightningBolt(_) => todo!(),
+        BaseKind::FallingBlock(_) => todo!(),
+        BaseKind::Tnt(_) => todo!(),
+        BaseKind::Projectile(_, _) => todo!(),
+        BaseKind::Living(_, _) => todo!(),
+    }
 
     Ok(())
 

@@ -129,12 +129,14 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
     }
 
     if check_suffocate {
+        let size_x = base.bb.size_x();
+        let size_z = base.bb.size_z();
         for i in 0u8..8 {
             
             let delta = DVec3 {
-                x: (((i >> 0) & 1) as f64 - 0.5) * base.size.width as f64 * 0.9,
+                x: (((i >> 0) & 1) as f64 - 0.5) * size_x * 0.9,
                 y: (((i >> 1) & 1) as f64 - 0.5) * 0.1 + base.eye_height as f64,
-                z: (((i >> 2) & 1) as f64 - 0.5) * base.size.width as f64 * 0.9,
+                z: (((i >> 2) & 1) as f64 - 0.5) * size_z * 0.9,
             };
 
             if world.is_block_opaque_cube(base.pos.add(delta).floor().as_ivec3()) {

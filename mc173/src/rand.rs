@@ -195,6 +195,7 @@ impl JavaRandom {
     /// **This is not part of the standard Java class.**
     #[inline]
     pub fn next_choice<T: Copy>(&mut self, items: &[T]) -> T {
+        assert!(!items.is_empty());
         items[self.next_int_bounded(items.len() as i32) as usize]
     }
 
@@ -202,6 +203,7 @@ impl JavaRandom {
     /// **This is not part of the standard Java class.**
     #[inline]
     pub fn next_choice_ref<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+        assert!(!items.is_empty());
         &items[self.next_int_bounded(items.len() as i32) as usize]
     }
 
@@ -209,6 +211,7 @@ impl JavaRandom {
     /// **This is not part of the standard Java class.**
     #[inline]
     pub fn next_choice_mut<'a, T>(&mut self, items: &'a mut [T]) -> &'a mut T {
+        assert!(!items.is_empty());
         &mut items[self.next_int_bounded(items.len() as i32) as usize]
     }
 
