@@ -148,15 +148,13 @@ impl ServerPlayer {
         self.net.send(self.client, packet);
     }
 
-    /// Send a chat message to this player.
+    /// Send a chat message to this player. This function will split the message in 
+    /// multiple chat packets if needed.
     pub fn send_chat(&self, mut message: String) {
 
-        // FIXME: Not correctly split.
-        
         let mut slice = &message[..];
         while slice.len() > 199 {
-            println!("slice: {slice:?}");
-            let split = split_at_utf8_boundary(slice, 199);
+            let split = split_at_utf8_boundary(slice, 119);
             self.send(OutPacket::Chat(proto::ChatPacket { message: split.0.to_string() }));
             slice = split.1;
         }

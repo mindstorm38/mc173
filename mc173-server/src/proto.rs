@@ -211,6 +211,7 @@ pub struct OutHandshakePacket {
 /// Packet 3
 #[derive(Debug, Clone)]
 pub struct ChatPacket {
+    /// Maximum length for a chat packet message is 119.
     pub message: String,
 }
 

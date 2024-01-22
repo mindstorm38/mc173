@@ -4,7 +4,7 @@ use std::mem;
 
 use glam::IVec3;
 
-use mc173::entity::{EntityKind, EntityCategory};
+use mc173::entity::{Entity, EntityCategory, EntityKind};
 use mc173::world::{World, Event, Weather};
 use mc173::item::{self, ItemStack};
 use mc173::path::PathFinder;
@@ -476,12 +476,32 @@ fn cmd_entity(ctx: CommandContext) -> CommandResult {
     let id = id_raw.parse::<u32>()
         .map_err(|_| format!("§cError: invalid entity id:§r {id_raw}"))?;
 
-    let Some(entity) = ctx.world.get_entity(id) else {
+    let Some(Entity(base, base_kind)) = ctx.world.get_entity(id) else {
         return Err(Some(format!("§cError: unknown entity")));
     };
-   
+
     ctx.player.send_chat(format!("§8====================================================="));
-    ctx.player.send_chat(format!("{entity:?}"));
+
+    ctx.player.send_chat(format!("§aKind:§r {:?} §8| §aPersistent:§r {} §8| §aLifetime:§r {}", 
+        base_kind.entity_kind(), base.persistent, base.lifetime));
+    ctx.player.send_chat(format!("§aSize:§r {:.2}/{:.2} §8| §aCenter:§r {:.2} §8| §aEye Height:§r {:.2}", 
+        base.size.width, base.size.height, base.size.center, base.eye_height));
+    ctx.player.send_chat(format!("§aBound:§r {:.2}/{:.2}/{:.2} -> {:.2}/{:.2}/{:.2}", 
+        base.bb.min.x, base.bb.min.y, base.bb.min.z,
+        base.bb.max.x, base.bb.max.y, base.bb.max.z));
+    ctx.player.send_chat(format!("§aPos:§r {:.2}/{:.2}/{:.2} §8| §aVel:§r {:.2}/{:.2}/{:.2}", 
+        base.pos.x, base.pos.y, base.pos.z, 
+        base.vel.x, base.vel.y, base.vel.z));
+    ctx.player.send_chat(format!("§aLook:§r {:.2}/{:.2} §8| §aCan Pickup:§r {} §8| §aNo Clip:§r {}", 
+        base.look.x, base.look.y,
+        base.can_pickup, base.no_clip));
+    ctx.player.send_chat(format!("§aOn Ground:§r {} §aIn Water:§r {} §8| §aIn Lava:§r {}", 
+        base.on_ground, base.in_water, base.in_lava));
+    ctx.player.send_chat(format!("§aFall Distance:§r {} §8| §aFire Time:§r {} §8| §aAir Time:§r {}", 
+        base.fall_distance, base.fire_time, base.air_time));
+    ctx.player.send_chat(format!("§aRider Id:§r {:?} §8| §aBobber Id:§r {:?}", 
+        base.rider_id, base.bobber_id));
+
     Ok(())
 
 }
