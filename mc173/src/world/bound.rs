@@ -147,7 +147,7 @@ impl World {
             }
             block::PISTON |
             block::STICKY_PISTON => {
-                if block::piston::is_extended(metadata) {
+                if block::piston::is_base_extended(metadata) {
                     block::piston::get_face(metadata)?.extrude(0.0, 12.0 / 16.0)
                 } else {
                     BoundingBox::CUBE

@@ -400,6 +400,25 @@ pub fn get_fire_burn(id: u8) -> u16 {
     }
 }
 
+/// Get piston policy of a given block.
+pub fn get_piston_policy(id: u8, metadata: u8) -> PistonPolicy {
+    match id {
+        block::AIR |
+        block::BED |
+        block::WOOD_DOOR |
+        block::IRON_DOOR |
+        block::WOOD_PRESSURE_PLATE |
+        block::STONE_PRESSURE_PLATE => PistonPolicy::Break,
+        block::BEDROCK |
+        block::OBSIDIAN |
+        block::PORTAL => PistonPolicy::Stop,
+        block::PISTON |
+        block::STICKY_PISTON if block::piston::is_base_extended(metadata) => PistonPolicy::Stop,
+        _ => PistonPolicy::Push,
+    }
+}
+
+
 /// Common block properties of blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Material {
@@ -485,4 +504,16 @@ impl Material {
         )
     }
 
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PistonPolicy {
+    /// A piston can push the last push-able block into this block, the block will be
+    /// naturally broken. Sticky pistons cannot retract such blocks.
+    Break,
+    /// A piston can push the block.
+    Push,
+    /// A piston cannot push this block.
+    Stop,
 }

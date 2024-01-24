@@ -5,6 +5,9 @@ use std::collections::hash_map::Entry;
 
 use glam::IVec3;
 
+use crate::block::material::PistonPolicy;
+use crate::block_entity::piston::PistonBlockEntity;
+use crate::block_entity::BlockEntity;
 use crate::geom::{Face, FaceSet};
 use crate::block;
 
@@ -56,6 +59,8 @@ impl World {
             block::SAND |
             block::GRAVEL => self.schedule_block_tick(pos, id, 3),
             block::FIRE => { self.notify_fire(pos); },
+            block::PISTON |
+            block::STICKY_PISTON => self.notify_piston(pos, id, metadata),
             _ => {}
         }
     }
@@ -112,6 +117,8 @@ impl World {
             block::GRAVEL => self.schedule_block_tick(pos, to_id, 3),
             block::CACTUS => self.notify_cactus(pos),
             block::FIRE => self.notify_fire_place(pos),
+            block::PISTON |
+            block::STICKY_PISTON => self.notify_piston(pos, to_id, to_metadata),
             _ => {}
         }
 
@@ -396,6 +403,99 @@ impl World {
                 
             }
 
+        }
+
+    }
+
+    /// Notify a piston (sticky or not).
+    fn notify_piston(&mut self, pos: IVec3, id: u8, metadata: u8) {
+
+        let Some(face) = block::piston::get_face(metadata) else { return };
+        let extended = block::piston::is_base_extended(metadata);
+        let sticky = id == block::STICKY_PISTON;
+
+        let powered = Face::ALL.into_iter()
+            .filter(|&check_face| check_face != face)
+            .any(|face| self.has_passive_power_from(pos + face.delta(), face.opposite()));
+
+        if powered != extended {
+
+            let delta = face.delta();
+
+            // If powering the piston, check that this is possible.
+            if powered {
+
+                /// Push limit in block for a piston.
+                const PUSH_LIMIT: usize = 12;
+
+                // We add one (..=) in order to check that the blocks are not blocked.
+                let mut check_pos = pos + delta;
+                let mut push_count = 0;
+                loop {
+
+                    // PARITY: Notchian impl cannot push Y=0
+                    let Some((check_id, check_metadata)) = self.get_block(check_pos) else {
+                        // Abort if we are not in loaded chunk.
+                        return;
+                    };
+
+                    // Abort if the block cannot be pushed.
+                    match block::material::get_piston_policy(check_id, check_metadata) {
+                        PistonPolicy::Break => break,
+                        PistonPolicy::Stop => return,
+                        PistonPolicy::Push => {}
+                    }
+
+                    // We the block can be pushed but we reached push limit, abort.
+                    if push_count == PUSH_LIMIT {
+                        return;
+                    }
+
+                    check_pos += delta;
+                    push_count += 1;
+
+                }
+
+                // Break the last position (do not use self.break_block to avoid recurse).
+                if let Some((prev_id, prev_metadata)) = self.set_block(check_pos, block::AIR, 0) {
+                    self.spawn_block_loot(pos, prev_id, prev_metadata, 1.0);
+                }
+
+                // Now we initialize the block entities.
+                let mut move_pos = pos + delta;
+                // Follow the previous block to initialize block entities.
+                let mut next_id = block::PISTON_EXT;
+                let mut next_metadata = 0;
+                block::piston::set_face(&mut next_metadata, face);
+                block::piston::set_ext_sticky(&mut next_metadata, sticky);
+
+                for _ in 0..=push_count {
+
+                    let (prev_id, prev_metadata) = 
+                    self.set_block(move_pos, block::PISTON_MOVING, next_metadata).unwrap();
+                    self.set_block_entity(move_pos, BlockEntity::Piston(PistonBlockEntity {
+                        block: next_id,
+                        metadata: next_metadata,
+                        face,
+                        progress: 0.0,
+                        extending: true,
+                    }));
+
+                    move_pos += delta;
+                    next_id = prev_id;
+                    next_metadata = prev_metadata;
+
+                }
+
+            } else if sticky {
+                // TODO:
+            }
+
+            // Set the block metadata (no notification).
+            let mut metadata = metadata;
+            block::piston::set_base_extended(&mut metadata, powered);
+            self.set_block(pos, id, metadata);
+            
         }
 
     }

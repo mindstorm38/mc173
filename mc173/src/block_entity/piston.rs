@@ -2,6 +2,7 @@
 
 use glam::IVec3;
 
+use crate::block;
 use crate::world::World;
 use crate::geom::Face;
 
@@ -35,8 +36,20 @@ impl Default for PistonBlockEntity {
 impl PistonBlockEntity {
 
     pub fn tick(&mut self, world: &mut World, pos: IVec3) {
-        let _ = (world, pos);
-        // TODO:
+
+        if self.progress >= 1.0 {
+            // TODO: Handle entity push
+            world.remove_block_entity(pos);
+            if let (block::PISTON_MOVING, _) = world.get_block(pos).unwrap() {
+                world.set_block_notify(pos, self.block, self.metadata);
+            }
+        } else {
+            self.progress += 0.5;
+            if self.extending {
+                // TODO: Handle entity push
+            }
+        }
+
     }
 
 }

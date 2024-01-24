@@ -26,13 +26,25 @@ pub fn set_face(metadata: &mut u8, face: Face) {
 
 /// Get if a piston base has extended or not.
 #[inline]
-pub fn is_extended(metadata: u8) -> bool {
+pub fn is_base_extended(metadata: u8) -> bool {
     metadata & 8 != 0
 }
 
 /// Set if a piston base has extended or not.
 #[inline]
-pub fn set_extended(metadata: &mut u8, extended: bool) {
+pub fn set_base_extended(metadata: &mut u8, extended: bool) {
     *metadata &= !8;
     *metadata |= (extended as u8) << 3;
+}
+
+/// Get if a piston extension is sticky or not.
+#[inline]
+pub fn is_ext_sticky(metadata: u8) -> bool {
+    is_base_extended(metadata)  // Same bit so we use same function
+}
+
+/// Set a piston extension to be sticky or not.
+#[inline]
+pub fn set_ext_sticky(metadata: &mut u8, sticky: bool) {
+    set_base_extended(metadata, sticky)
 }

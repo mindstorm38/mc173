@@ -149,7 +149,8 @@ impl World {
         match id {
             block::BUTTON => self.place_faced(pos, face, id, metadata, block::button::set_face),
             block::TRAPDOOR => self.place_faced(pos, face, id, metadata, block::trapdoor::set_face),
-            block::PISTON => self.place_faced(pos, face, id, metadata, block::piston::set_face),
+            block::PISTON |
+            block::STICKY_PISTON => self.place_faced(pos, face, id, metadata, block::piston::set_face),
             block::WOOD_STAIR | 
             block::COBBLESTONE_STAIR => self.place_faced(pos, face, id, metadata, block::stair::set_face),
             block::REPEATER | 

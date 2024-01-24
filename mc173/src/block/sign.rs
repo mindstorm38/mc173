@@ -5,13 +5,14 @@ use crate::geom::Face;
 
 /// Get the face where the stair leads to.
 #[inline]
-pub fn get_wall_face(metadata: u8) -> Face {
-    match metadata {
+pub fn get_wall_face(metadata: u8) -> Option<Face> {
+    Some(match metadata {
         5 => Face::PosX,
         4 => Face::NegX,
         3 => Face::PosZ,
-        _ => Face::NegZ,
-    }
+        2 => Face::NegZ,
+        _ => return None
+    })
 }
 
 #[inline]

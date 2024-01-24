@@ -106,7 +106,8 @@ impl World {
             block::PUMPKIN | block::PUMPKIN_LIT => {
                 face = Face::from_yaw(look.x).opposite();
             }
-            block::PISTON => {
+            block::PISTON |
+            block::STICKY_PISTON => {
                 face = Face::from_look(look.x, look.y).opposite();
             }
             _ => {}
