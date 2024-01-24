@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use glam::{DVec3, IVec3, Vec2};
 
+use mc173::block_entity::BlockEntity;
 use tracing::{debug, info};
 
 use mc173::entity::{Entity, BaseKind, ProjectileKind};
@@ -220,6 +221,8 @@ impl ServerWorld {
                         self.handle_block_entity_storage(pos, storage, stack),
                     BlockEntityEvent::Progress { progress, value } =>
                         self.handle_block_entity_progress(pos, progress, value),
+                    BlockEntityEvent::Sign =>
+                        self.handle_block_entity_sign(pos),
                 }
                 Event::Chunk { cx, cz, inner } => match inner {
                     ChunkEvent::Set => {}
@@ -548,11 +551,33 @@ impl ServerWorld {
 
     }
 
+    /// Handle a progress event for a block entity.
     fn handle_block_entity_progress(&mut self, pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
         // Update any player that have a window opened on that block entity.
         for player in &mut self.players {
             player.update_block_window_progress(pos, progress, value);
+        }
+
+    }
+
+    /// Handle a sign edit event for a sign block entity.
+    fn handle_block_entity_sign(&mut self, pos: IVec3) {
+
+        let Some(BlockEntity::Sign(sign)) = self.world.get_block_entity_mut(pos) else {
+            return;
+        };
+
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::UpdateSign(proto::UpdateSignPacket {
+                    x: pos.x,
+                    y: pos.y as i16,
+                    z: pos.z,
+                    lines: sign.lines.clone(),
+                }));
+            }
         }
 
     }

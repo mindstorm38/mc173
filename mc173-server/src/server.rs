@@ -216,7 +216,7 @@ impl Server {
         });
 
         let entity_id = world.world.spawn_entity(entity);
-        world.world.set_entity_player(entity_id, true);
+        world.world.set_player_entity(entity_id, true);
 
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {

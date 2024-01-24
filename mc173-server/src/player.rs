@@ -1437,6 +1437,18 @@ impl ServerPlayer {
                     }
                 }
 
+                // Search signs block entities in chunk.
+                for (pos, block_entity) in world.iter_block_entities_in_chunk(cx, cz) {
+                    if let BlockEntity::Sign(sign) = block_entity {
+                        self.send(OutPacket::UpdateSign(proto::UpdateSignPacket {
+                            x: pos.x,
+                            y: pos.y as i16,
+                            z: pos.z,
+                            lines: sign.lines.clone(),
+                        }));
+                    }
+                }
+
             }
         }
 

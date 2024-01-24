@@ -428,7 +428,7 @@ fn cmd_clean(ctx: CommandContext) -> CommandResult {
     let ids = ctx.world.iter_entities().map(|(id, _)| id).collect::<Vec<_>>();
     let mut removed_count = 0;
     for id in ids {
-        if !ctx.world.is_entity_player(id) {
+        if !ctx.world.is_player_entity(id) {
             assert!(ctx.world.remove_entity(id, "server clean command"));
             removed_count += 1;
         }
@@ -454,7 +454,7 @@ fn cmd_perf(ctx: CommandContext) -> CommandResult {
     ctx.player.send_chat(format!("§aTick interval:§r {:.1} ms", ctx.state.tick_interval.get() * 1000.0));
     ctx.player.send_chat(format!("§aEvents:§r {:.1} ({:.1} kB)", ctx.state.events_count.get(), ctx.state.events_count.get() * mem::size_of::<Event>() as f32 / 1000.0));
     
-    ctx.player.send_chat(format!("§aEntities:§r {} ({} players)", ctx.world.get_entity_count(), ctx.world.get_entity_player_count()));
+    ctx.player.send_chat(format!("§aEntities:§r {} ({} players)", ctx.world.get_entity_count(), ctx.world.get_player_entity_count()));
     
     let mut categories_count = [0usize; EntityCategory::ALL.len()];
     for (_, entity) in ctx.world.iter_entities() {

@@ -1,7 +1,8 @@
 //! Data structure for storing a world (overworld or nether) at runtime.
 
 use std::collections::{HashMap, BTreeSet, HashSet, VecDeque};
-use std::collections::hash_map::Entry;
+use std::collections::hash_map;
+
 use std::ops::{Deref, DerefMut};
 use std::iter::FusedIterator;
 use std::cmp::Ordering;
@@ -144,7 +145,7 @@ pub struct World {
     /// Entities' index mapping from their unique id.
     entities_id_map: HashMap<u32, usize>,
     /// This index map contains a mapping for every player entity.
-    entities_player_map: IndexMap<u32, usize>,
+    player_entities_map: IndexMap<u32, usize>,
     /// Same as entities but for block entities.
     block_entities: TickVec<BlockEntityComponent>,
     /// Mapping of block entities to they block position.
@@ -186,7 +187,7 @@ impl World {
             entities_count: 0,
             entities: TickVec::new(),
             entities_id_map: HashMap::new(),
-            entities_player_map: IndexMap::new(),
+            player_entities_map: IndexMap::new(),
             block_entities: TickVec::new(),
             block_entities_pos_map: HashMap::new(),
             block_ticks_count: 0,
@@ -681,7 +682,7 @@ impl World {
         let index = self.entities_id_map.remove(&id)?;
 
         // Also remove the entity from the player map, if it was.
-        self.entities_player_map.remove(&id);
+        self.player_entities_map.remove(&id);
         
         let comp = self.entities.remove(index);
         let swapped_index = self.entities.len();
@@ -707,7 +708,7 @@ impl World {
             debug_assert_eq!(prev_index, Some(swapped_index), "swapped entity is incoherent");
 
             // Update the index of the entity within the player map, if it is a player.
-            self.entities_player_map.entry(swapped_comp.id).and_modify(|i| *i = index);
+            self.player_entities_map.entry(swapped_comp.id).and_modify(|i| *i = index);
             
             let (swapped_cx, swapped_cz) = (swapped_comp.cx, swapped_comp.cz);
             if has_chunk || (swapped_cx, swapped_cz) != (cx, cz) {
@@ -740,26 +741,26 @@ impl World {
     /// despawning when players are too far away, or for looking at players.
     /// 
     /// This methods returns true if the property has been successfully set.
-    pub fn set_entity_player(&mut self, id: u32, player: bool) -> bool {
+    pub fn set_player_entity(&mut self, id: u32, player: bool) -> bool {
         let Some(&index) = self.entities_id_map.get(&id) else { return false };
         if player {
-            self.entities_player_map.insert(id, index);
+            self.player_entities_map.insert(id, index);
         } else {
-            self.entities_player_map.remove(&id);
+            self.player_entities_map.remove(&id);
         }
         true
     }
 
     /// Returns true if the given entity by its id is a player entity. This also returns
     /// false if the entity isn't existing.
-    pub fn is_entity_player(&mut self, id: u32) -> bool {
-        self.entities_player_map.contains_key(&id)
+    pub fn is_player_entity(&mut self, id: u32) -> bool {
+        self.player_entities_map.contains_key(&id)
     }
 
     /// Returns the number of player entities in the world, loaded or not.
     #[inline]
-    pub fn get_entity_player_count(&self) -> usize {
-        self.entities_player_map.len()
+    pub fn get_player_entity_count(&self) -> usize {
+        self.player_entities_map.len()
     }
 
     // =================== //
@@ -774,7 +775,7 @@ impl World {
 
         let (cx, cz) = calc_chunk_pos_unchecked(pos);
         match self.block_entities_pos_map.entry(pos) {
-            Entry::Occupied(o) => {
+            hash_map::Entry::Occupied(o) => {
 
                 // If there is current a block entity at this exact position, we'll just
                 // replace it in-place, this avoid all the insertion of cache coherency.
@@ -787,7 +788,7 @@ impl World {
                 self.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Remove });
 
             }
-            Entry::Vacant(v) => {
+            hash_map::Entry::Vacant(v) => {
 
                 let chunk_comp = self.chunks.entry((cx, cz)).or_default();
                 let block_entity_index = self.block_entities.push(BlockEntityComponent {
@@ -940,6 +941,17 @@ impl World {
         BlocksInChunkIter::new(self, cx, cz)
     }
 
+    /// Iterate over all block entities in a chunk.
+    #[inline]
+    pub fn iter_block_entities_in_chunk(&self, cx: i32, cz: i32) -> BlockEntitiesInChunkIter<'_> {
+        BlockEntitiesInChunkIter {
+            indices: self.chunks.get(&(cx, cz)).map(|comp| comp.block_entities.values()),
+            block_entities: &self.block_entities
+        }
+    }
+
+    // TODO: iter_block_entities_in_chunk_mut
+
     /// Iterate over all entities in the world.
     /// *This function can't return the current updated entity.*
     #[inline]
@@ -959,7 +971,7 @@ impl World {
     #[inline]
     pub fn iter_player_entities(&self) -> PlayerEntitiesIter<'_> {
         PlayerEntitiesIter {
-            indices: Some(self.entities_player_map.values()),
+            indices: Some(self.player_entities_map.values()),
             entities: &self.entities,
         }
     }
@@ -969,7 +981,7 @@ impl World {
     #[inline]
     pub fn iter_player_entities_mut(&mut self) -> PlayerEntitiesIterMut<'_> {
         PlayerEntitiesIterMut {
-            indices: Some(self.entities_player_map.values()),
+            indices: Some(self.player_entities_map.values()),
             entities: &mut self.entities,
             #[cfg(debug_assertions)]
             returned_pointers: HashSet::new(),
@@ -1134,7 +1146,7 @@ impl World {
         loaded_chunks.extend(self.chunks.iter()
             .filter_map(|(&pos, comp)| comp.data.is_some().then_some(pos)));
         loaded_chunks.retain(|&(cx, cz)| {
-            self.entities_player_map.values()
+            self.player_entities_map.values()
                 .map(|&index| self.entities.get(index).unwrap())
                 .any(|comp| comp.cx.abs_diff(cx) <= CHUNK_MAX_DIST && comp.cz.abs_diff(cz) <= CHUNK_MAX_DIST)
         });
@@ -1807,6 +1819,8 @@ pub enum BlockEntityEvent {
         /// Progress value.
         value: u16,
     },
+    /// A sign block entity has been modified.
+    Sign,
 }
 
 /// Represent the storage slot for a block entity.
@@ -2435,6 +2449,31 @@ impl Iterator for BlocksInChunkIter<'_> {
 
         Some(ret)
 
+    }
+
+}
+
+/// An iterator of block entities within a chunk.
+pub struct BlockEntitiesInChunkIter<'a> {
+    /// The entities indices, returned indices are unique within the iterator.
+    indices: Option<hash_map::Values<'a, IVec3, usize>>,
+    /// The block entities.
+    block_entities: &'a TickSlice<BlockEntityComponent>,
+}
+
+impl<'a> Iterator for BlockEntitiesInChunkIter<'a> {
+
+    type Item = (IVec3, &'a BlockEntity);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(&index) = self.indices.as_mut()?.next() {
+            let comp = self.block_entities.get(index).unwrap();
+            if let Some(block_entity) = comp.inner.as_deref() {
+                return Some((comp.pos, block_entity));
+            }
+        }
+        None
     }
 
 }

@@ -572,7 +572,7 @@ fn tick_natural_despawn(world: &mut World, id: u32, entity: &mut Entity) -> bool
     }
 
     // We only despawn if there are player in the server, but the entity is not in range.
-    if world.get_entity_player_count() == 0 {
+    if world.get_player_entity_count() == 0 {
         return false;
     }
 
