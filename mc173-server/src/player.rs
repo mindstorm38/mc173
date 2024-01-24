@@ -167,6 +167,11 @@ impl ServerPlayer {
 
     }
 
+    pub fn send_disconnect(&self, reason: String) {
+        self.send(OutPacket::Disconnect(proto::DisconnectPacket { reason }));
+        self.net.disconnect(self.client);
+    }
+
     /// Handle an incoming packet from this player.
     pub fn handle(&mut self, world: &mut World, state: &mut ServerWorldState, packet: InPacket) {
         
@@ -987,6 +992,7 @@ impl ServerPlayer {
         };
 
         sign.lines = packet.lines;
+        world.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Sign });
 
     }
 

@@ -109,9 +109,13 @@ impl ServerWorld {
     }
 
     /// Save this world's resources and block until all resources has been saved.
-    pub fn save(&mut self) {
+    pub fn stop(&mut self) {
 
         info!("saving {}...", self.state.name);
+
+        for player in &self.players {
+            player.send_disconnect(format!("Server stopping..."));
+        }
 
         for (cx, cz) in self.state.chunk_trackers.drain_save() {
             if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {

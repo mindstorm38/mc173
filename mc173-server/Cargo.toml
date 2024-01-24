@@ -25,5 +25,4 @@ once_cell = "1.19"
 ctrlc = "3.4.1"
 
 tracing = "0.1"
-tracing-flame = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

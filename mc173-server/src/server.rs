@@ -55,10 +55,10 @@ impl Server {
     }
 
     /// Force save this server and block waiting for all resources to be saved.
-    pub fn save(&mut self) {
+    pub fn stop(&mut self) {
 
         for world in &mut self.worlds {
-            world.save();
+            world.stop();
         }
 
     }
@@ -75,7 +75,7 @@ impl Server {
         if let Some(missing) = TICK_DURATION.checked_sub(elapsed) {
             std::thread::sleep(missing);
         } else {
-            warn!("tick take too long {:?}, expected {:?}", elapsed, TICK_DURATION);
+            warn!("tick too long {:?}, expected {:?}", elapsed, TICK_DURATION);
         }
 
         Ok(())

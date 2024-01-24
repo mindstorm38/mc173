@@ -38,7 +38,7 @@ pub fn main() {
         server.tick_padded().unwrap();
     }
 
-    server.save();
+    server.stop();
     
 }
 
@@ -48,7 +48,6 @@ fn init_tracing() {
     use tracing_subscriber::util::SubscriberInitExt;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::EnvFilter;
-    use tracing_flame::FlameLayer;
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("debug"))
@@ -56,14 +55,10 @@ fn init_tracing() {
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_target(false);
-
-    let (flame_layer, _) = FlameLayer::with_file("./tracing.folded").unwrap();
-    let flame_layer = flame_layer.with_file_and_line(false);
     
     tracing_subscriber::registry()
         .with(filter_layer)
         .with(fmt_layer)
-        .with(flame_layer)
         .init();
 
 }
