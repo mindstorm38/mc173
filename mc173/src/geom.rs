@@ -491,6 +491,11 @@ impl FaceSet {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.count_ones() as _
+    }
+
+    #[inline]
     pub fn clear(&mut self) {
         self.inner = 0;
     }
@@ -579,6 +584,11 @@ impl<V> FaceMap<V> {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.set.is_empty()
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.set.len()
     }
 
     #[inline]
