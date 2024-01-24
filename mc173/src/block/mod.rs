@@ -19,6 +19,7 @@ pub mod stair;
 pub mod torch;
 pub mod fluid;
 pub mod door;
+pub mod sign;
 pub mod bed;
 
 

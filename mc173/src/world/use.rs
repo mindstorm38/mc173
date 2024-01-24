@@ -2,11 +2,13 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
+use crate::block_entity::BlockEntity;
 use crate::entity::{Arrow, BaseKind, Bobber, Entity, EntityKind, Item, Painting, PaintingArt, ProjectileKind, Snowball, Tnt};
 use crate::inventory::InventoryHandle;
 use crate::gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
 use crate::item::{ItemStack, self};
+use crate::util::default as def;
 use crate::geom::Face;
 use crate::block;
 
@@ -37,6 +39,7 @@ impl World {
             item::WOOD_DOOR => self.use_door_stack(block::WOOD_DOOR, pos, face, entity_id),
             item::IRON_DOOR => self.use_door_stack(block::IRON_DOOR, pos, face, entity_id),
             item::BED => self.use_bed_stack(pos, face, entity_id),
+            item::SIGN => self.use_sign_stack(pos, face, entity_id),
             item::DIAMOND_HOE |
             item::IRON_HOE |
             item::STONE_HOE |
@@ -215,6 +218,36 @@ impl World {
         block::bed::set_head(&mut metadata, true);
         self.set_block_notify(head_pos, block::BED, metadata);
 
+        true
+
+    }
+
+    fn use_sign_stack(&mut self, mut pos: IVec3, face: Face, entity_id: u32) -> bool {
+
+        if face == Face::NegY {
+            return false;
+        } else if !self.get_block_material(pos).is_solid() {
+            return false;
+        } else {
+            pos += face.delta();
+        }
+
+        if !self.is_block_replaceable(pos) {
+            return false;
+        }
+
+        if face == Face::PosY {
+            let look = self.get_entity(entity_id).unwrap().0.look;
+            let mut metadata = 0;
+            block::sign::set_post_yaw(&mut metadata, look.x + std::f32::consts::PI);
+            self.set_block(pos, block::SIGN, metadata);
+        } else {
+            let mut metadata = 0;
+            block::sign::set_wall_face(&mut metadata, face);
+            self.set_block(pos, block::WALL_SIGN, metadata);
+        }
+
+        self.set_block_entity(pos, BlockEntity::Sign(def()));
         true
 
     }

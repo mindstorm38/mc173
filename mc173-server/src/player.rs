@@ -40,6 +40,8 @@ pub struct ServerPlayer {
     pub pos: DVec3,
     /// Last look sent by the client.
     pub look: Vec2,
+    /// Set to true in order to enable instant breaking for this player.
+    pub instant_break: bool,
     /// Set of chunks that are already sent to the player.
     pub tracked_chunks: HashSet<(i32, i32)>,
     /// Set of tracked entities by this player, all entity ids in this set are considered
@@ -128,6 +130,7 @@ impl ServerPlayer {
             username,
             pos: offline.pos,
             look: offline.look,
+            instant_break: false,
             tracked_chunks: HashSet::new(),
             tracked_entities: HashSet::new(),
             main_inv: Box::new([ItemStack::EMPTY; 36]),
@@ -196,6 +199,8 @@ impl ServerPlayer {
                 self.handle_interact(world, packet),
             InPacket::Action(packet) =>
                 self.handle_action(world, packet),
+            InPacket::UpdateSign(packet) =>
+                self.handle_update_sign(world, packet),
             _ => warn!("unhandled packet from #{}: {packet:?}", self.client.id())
         }
 
@@ -276,7 +281,6 @@ impl ServerPlayer {
         let Some(entity) = world.get_entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
-        tracing::trace!("packet: {packet:?}");
         // TODO: Use server time for breaking blocks.
 
         let in_water = entity.0.in_water;
@@ -298,7 +302,12 @@ impl ServerPlayer {
             // Start breaking a block, ignore if the position is invalid.
             if let Some((id, _)) = world.get_block(pos) {
                 
-                let break_duration = world.get_break_duration(stack.id, id, in_water, on_ground);
+                let break_duration = if self.instant_break {
+                    0.0 
+                } else { 
+                    world.get_break_duration(stack.id, id, in_water, on_ground)
+                };
+
                 if break_duration.is_infinite() {
                     // Do nothing, the block is unbreakable.
                 } else if break_duration == 0.0 {
@@ -965,6 +974,19 @@ impl ServerPlayer {
             3 => todo!("wake up..."),
             _ => warn!("from {}, invalid action state: {}", self.username, packet.state)
         }
+
+    }
+
+    /// Handle an update sign packet from the player.
+    fn handle_update_sign(&mut self, world: &mut World, packet: proto::UpdateSignPacket) {
+
+        let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
+        let Some(BlockEntity::Sign(sign)) = world.get_block_entity_mut(pos) else {
+            warn!("from {}, incoherent update sign, block entity not found at: {pos}", self.username);
+            return;
+        };
+
+        sign.lines = packet.lines;
 
     }
 

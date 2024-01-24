@@ -279,6 +279,10 @@ pub fn get_break_hardness(id: u8) -> f32 {
         block::SANDSTONE |
         block::NOTE_BLOCK |
         block::WOOL => 0.8,
+        block::SIGN |
+        block::WALL_SIGN |
+        block::PUMPKIN |
+        block::PUMPKIN_LIT => 1.0,
         block::STONE |
         block::BOOKSHELF => 1.5,
         block::COBBLESTONE |

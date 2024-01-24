@@ -158,6 +158,12 @@ const COMMANDS: &'static [Command] = &[
         usage: "<id>",
         description: "Display debug information of an entity",
         handler: cmd_entity,
+    },
+    Command {
+        name: "ib",
+        usage: "",
+        description: "Enable or disable instant breaking",
+        handler: cmd_ib,
     }
 ];
 
@@ -523,6 +529,21 @@ fn cmd_entity(ctx: CommandContext) -> CommandResult {
         BaseKind::Living(_, _) => todo!(),
     }
 
+    Ok(())
+
+}
+
+fn cmd_ib(ctx: CommandContext) -> CommandResult {
+
+    if ctx.parts.len() != 0 {
+        return Err(None);
+    }
+
+    ctx.player.instant_break ^= true;
+
+    ctx.player.send_chat(format!("§aInstant breaking:§r {}", 
+        if ctx.player.instant_break {"enabled"} else {"disabled"}));
+        
     Ok(())
 
 }
