@@ -927,7 +927,8 @@ impl World {
     //      ITERATORS      //
     // =================== //
 
-    /// Iterate over all blocks in the given area where max is excluded.
+    /// Iterate over all blocks in the given area where max is excluded. Unloaded chunks
+    /// are not yielded, so the iterator size cannot be known only from min and max.
     #[inline]
     pub fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> BlocksInIter<'_> {
         BlocksInIter::new(self, min, max)
@@ -2340,45 +2341,43 @@ impl Iterator for BlocksInIter<'_> {
     type Item = (IVec3, u8, u8);
 
     fn next(&mut self) -> Option<Self::Item> {
-        
-        // X is the last updated component, so when it reaches max it's done.
-        if self.cursor.x == self.end.x {
-            return None;
-        }
-
-        // We are at the start of a new column, update the chunk.
-        if self.cursor.y == self.start.y {
-            // NOTE: Unchecked because the Y value is clamped in the constructor.
-            let (cx, cz) = calc_chunk_pos_unchecked(self.cursor);
-            if !matches!(self.chunk, Some((ccx, ccz, _)) if (ccx, ccz) == (cx, cz)) {
-                self.chunk = Some((cx, cz, self.world.get_chunk(cx, cz)));
+        loop {
+            
+            // X is the last updated component, so when it reaches max it's done.
+            if self.cursor.x == self.end.x {
+                break None;
             }
-        }
 
-        // If there is no chunk at the position, defaults to (id = 0, metadata = 0).
-        let mut ret = (self.cursor, 0, 0);
-
-        // If a chunk exists for the current column.
-        if let Some((_, _, Some(chunk))) = self.chunk {
-            let (block, metadata) = chunk.get_block(self.cursor);
-            ret.1 = block;
-            ret.2 = metadata;
-        }
-
-        // This component order is important because it matches the internal layout of
-        // chunks, and therefore improve cache efficiency.
-        self.cursor.y += 1;
-        if self.cursor.y == self.end.y {
-            self.cursor.y = self.start.y;
-            self.cursor.z += 1;
-            if self.cursor.z == self.end.z {
-                self.cursor.z = self.start.z;
-                self.cursor.x += 1;
+            // We are at the start of a new column, update the chunk.
+            if self.cursor.y == self.start.y {
+                // NOTE: Unchecked because the Y value is clamped in the constructor.
+                let (cx, cz) = calc_chunk_pos_unchecked(self.cursor);
+                if !matches!(self.chunk, Some((ccx, ccz, _)) if (ccx, ccz) == (cx, cz)) {
+                    self.chunk = Some((cx, cz, self.world.get_chunk(cx, cz)));
+                }
             }
+
+            let prev_cursor = self.cursor;
+
+            // This component order is important because it matches the internal layout of
+            // chunks, and therefore improve cache efficiency.
+            self.cursor.y += 1;
+            if self.cursor.y == self.end.y {
+                self.cursor.y = self.start.y;
+                self.cursor.z += 1;
+                if self.cursor.z == self.end.z {
+                    self.cursor.z = self.start.z;
+                    self.cursor.x += 1;
+                }
+            }
+
+            // If a chunk exists for the current column.
+            if let Some((_, _, Some(chunk))) = self.chunk {
+                let (id, metadata) = chunk.get_block(prev_cursor);
+                break Some((prev_cursor, id, metadata));
+            }
+
         }
-
-        Some(ret)
-
     }
 
 }

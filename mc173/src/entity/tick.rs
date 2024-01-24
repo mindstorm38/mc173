@@ -178,16 +178,40 @@ fn tick_painting(world: &mut World, id: u32, entity: &mut Entity) {
     // NOTE: Not calling tick_base
     let_expect!(Entity(base, BaseKind::Painting(painting)) = entity);
 
+    let mut drop_reason = None;
+
     painting.check_valid_time += 1;
     if painting.check_valid_time >= 100 {
+
         painting.check_valid_time = 0;
-        // TODO: check painting validity and destroy it if not valid
+
+        // If any block is colliding, cannot place.
+        if world.iter_blocks_boxes_colliding(base.bb).next().is_some() {
+            drop_reason = Some("colliding");
+        }
+
+        // Check if the wall is fully solid.
+        if drop_reason.is_none() {
+            let min = base.bb.min.floor().as_ivec3() - painting.face.delta();
+            let max = base.bb.max.floor().as_ivec3() - painting.face.delta() + IVec3::ONE;
+            for (_, id, _) in world.iter_blocks_in(min, max) {
+                if !block::material::get_material(id).is_solid() {
+                    drop_reason = Some("hanging");
+                    break;
+                }
+            }
+        }
+
     }
 
     if !base.hurt.is_empty() {
+        drop_reason = Some("hurt");
+    }
+
+    if let Some(drop_reason) = drop_reason {
         // PARITY: The loot spawned have a frozen time of 10 ticks, Notchian has 0.
         world.spawn_loot(base.pos, ItemStack::new_single(item::PAINTING, 0), 0.0);
-        world.remove_entity(id, "painting destroy");
+        world.remove_entity(id, drop_reason);
     }
 
 }

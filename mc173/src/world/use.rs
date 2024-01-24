@@ -304,7 +304,7 @@ impl World {
         let mut candidate_arts = Vec::new();
 
         // Check every art for potential placement.
-        for art in PaintingArt::ALL {
+        'art: for art in PaintingArt::ALL {
 
             let Entity(_, BaseKind::Painting(painting)) = &mut *entity else { unreachable!() };
 
@@ -317,14 +317,21 @@ impl World {
 
             // If any block is colliding, cannot place.
             if self.iter_blocks_boxes_colliding(base.bb).next().is_some() {
-                continue;
+                continue 'art;
             }
 
-            // TODO: Check if the wall is full solid behind
+            // Check if the wall is full.
+            let min = base.bb.min.floor().as_ivec3() - face.delta();
+            let max = base.bb.max.floor().as_ivec3() - face.delta() + IVec3::ONE;
+            for (_, id, _) in self.iter_blocks_in(min, max) {
+                if !block::material::get_material(id).is_solid() {
+                    continue 'art;
+                }
+            }
 
             // If any other painting is colliding.
             if self.iter_entities_colliding(base.bb).any(|(_, entity)| entity.kind() == EntityKind::Painting) {
-                continue;
+                continue 'art;
             }
 
             candidate_arts.push(art);
