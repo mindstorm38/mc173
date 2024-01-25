@@ -77,8 +77,8 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Tick scheduling
     - [x] Placing
     - [x] Breaking
+    - [x] Piston
     - [ ] Rail
-    - [ ] Piston
     - [ ] Redstone (partial)
     - [ ] Clicking (partial)
 - [ ] Items
@@ -91,7 +91,7 @@ on them. The priority of each feature is defined by its order in the list.
     - [x] Break behaviors
 - [ ] Entities
     - [x] Entity data structures
-    - [ ] Entity behaviors (80%)
+    - [ ] Entity behaviors (95%)
 - [ ] Server
     - [x] Protocol
     - [x] Network threading
@@ -100,7 +100,7 @@ on them. The priority of each feature is defined by its order in the list.
         - [x] Instant block breaking
         - [x] Block breaking duration check
     - [x] Players inventory is stored server-side
-    - [ ] Players can be linked to any entity type
+    - [x] Players can be linked to any entity type
     - [ ] Worlds serialization
         - [ ] Non-persistent player entities
         - [ ] Player entities saved appart
