@@ -62,6 +62,7 @@ impl World {
             block::PISTON |
             block::STICKY_PISTON => self.notify_piston(pos, id, metadata),
             block::PISTON_EXT => self.notify_piston_ext(pos, metadata, origin_id),
+            block::NOTE_BLOCK => self.notify_note_block(pos, origin_id),
             _ => {}
         }
     }
@@ -597,6 +598,29 @@ impl World {
         }
 
         self.set_block_notify(pos, block::AIR, 0);
+
+    }
+
+    /// Notify a note block, playing a sound if powered by redstone.
+    fn notify_note_block(&mut self, pos: IVec3, origin_id: u8) {
+
+        if !is_redstone_block(origin_id) {
+            return;
+        }
+
+        let powered = self.has_passive_power(pos);
+        let Some(BlockEntity::NoteBlock(note_block)) = self.get_block_entity_mut(pos) else {
+            // Abort if no block entity.
+            return;
+        };
+
+        if note_block.powered != powered {
+            note_block.powered = powered;
+            if powered {
+                // Forward to block interaction.
+                self.interact_block_unchecked(pos, block::NOTE_BLOCK, 0, true);
+            }
+        }
 
     }
 

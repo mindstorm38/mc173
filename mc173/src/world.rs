@@ -1769,6 +1769,13 @@ pub enum BlockEvent {
         /// True if the piston is extending.
         extending: bool,
     },
+    /// A note block is playing its note.
+    NoteBlock {
+        /// The instrument to play.
+        instrument: u8,
+        /// The note to play.
+        note: u8,
+    },
 }
 
 /// An event with an entity.

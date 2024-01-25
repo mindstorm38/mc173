@@ -302,7 +302,7 @@ impl ServerPlayer {
             // We ignore any interaction result for the left click (break block) to
             // avoid opening an inventory when breaking a container.
             // NOTE: Interact before 'get_block': relevant for redstone_ore lit.
-            world.interact_block(pos);
+            world.interact_block(pos, true);
 
             // Start breaking a block, ignore if the position is invalid.
             if let Some((id, _)) = world.get_block(pos) {
@@ -391,7 +391,7 @@ impl ServerPlayer {
         if face.is_none() || self.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
             // The real action depends on 
             if let Some(face) = face {
-                match world.interact_block(pos) {
+                match world.interact_block(pos, false) {
                     Interaction::None => {
                         // No interaction, use the item at that block.
                         world.use_stack(&mut inv, inv_index, pos, face, self.entity_id);

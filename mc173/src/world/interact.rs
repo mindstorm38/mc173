@@ -2,30 +2,33 @@
 
 use glam::IVec3;
 
+use crate::block::material::Material;
 use crate::block_entity::BlockEntity;
 use crate::geom::Face;
 use crate::block;
 
-use super::World;
+use super::{Event, World};
 
 
 /// Methods related to block interactions when client clicks on a block.
 impl World {
 
-    /// Interact with a block at given position. This function returns true if an 
-    /// interaction has been handled and some action happened to the world, which should
-    /// typically prevent usage of the player's hand item.
-    pub fn interact_block(&mut self, pos: IVec3) -> Interaction {
+    /// Interact with a block at given position. This function returns the interaction
+    /// result to indicate if the interaction was handled, or if it was 
+    /// 
+    /// The second argument `breaking` indicates if the interaction originate from a 
+    /// player breaking the block.
+    pub fn interact_block(&mut self, pos: IVec3, breaking: bool) -> Interaction {
         if let Some((id, metadata)) = self.get_block(pos) {
-            self.interact_block_unchecked(pos, id, metadata)
+            self.interact_block_unchecked(pos, id, metadata, breaking)
         } else {
             Interaction::None
         }
     }
 
     /// Internal function to handle block interaction at given position and with known
-    /// block and metadata. The function returns true if an interaction has been handled.
-    pub(super) fn interact_block_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8) -> Interaction {
+    /// block and metadata.
+    pub(super) fn interact_block_unchecked(&mut self, pos: IVec3, id: u8, metadata: u8, breaking: bool) -> Interaction {
         match id {
             block::BUTTON => self.interact_button(pos, metadata),
             block::LEVER => self.interact_lever(pos, metadata),
@@ -40,6 +43,7 @@ impl World {
             block::FURNACE |
             block::FURNACE_LIT => return self.interact_furnace(pos),
             block::DISPENSER => return self.interact_dispenser(pos),
+            block::NOTE_BLOCK => self.interact_note_block(pos, breaking),
             _ => return Interaction::None
         }.into()
     }
@@ -154,6 +158,42 @@ impl World {
         } else {
             Interaction::None
         }
+    }
+
+    fn interact_note_block(&mut self, pos: IVec3, breaking: bool) -> bool {
+
+        let Some(BlockEntity::NoteBlock(note_block)) = self.get_block_entity_mut(pos) else {
+            return true;
+        };
+
+        if !breaking {
+            note_block.note = (note_block.note + 1) % 25;
+        }
+
+        let note = note_block.note;
+
+        if !self.is_block_air(pos + IVec3::Y) {
+            return true;
+        }
+
+        let instrument = match self.get_block_material(pos - IVec3::Y) {
+            Material::Rock => 1,
+            Material::Sand => 2,
+            Material::Glass => 3,
+            Material::Wood => 4,
+            _ => 0,
+        };
+
+        self.push_event(Event::Block { 
+            pos, 
+            inner: super::BlockEvent::NoteBlock { 
+                instrument, 
+                note,
+            },
+        });
+        
+        true
+
     }
 
 }

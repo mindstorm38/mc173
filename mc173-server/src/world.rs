@@ -200,6 +200,8 @@ impl ServerWorld {
                             self.handle_block_action(pos, (!extending) as i8, face as i8);
                         }
                     }
+                    BlockEvent::NoteBlock { instrument, note } =>
+                        self.handle_block_action(pos, instrument as i8, note as i8),
                 }
                 Event::Entity { id, inner } => match inner {
                     EntityEvent::Spawn => 
