@@ -414,7 +414,13 @@ pub fn get_piston_policy(id: u8, metadata: u8) -> PistonPolicy {
         block::PISTON_EXT |
         block::PISTON_MOVING => PistonPolicy::Stop,
         block::PISTON |
-        block::STICKY_PISTON if block::piston::is_base_extended(metadata) => PistonPolicy::Stop,
+        block::STICKY_PISTON => {
+            if block::piston::is_base_extended(metadata) {
+                PistonPolicy::Stop
+            } else {
+                PistonPolicy::PushPull
+            }
+        }
         _ => match get_material(id) {
             Material::Air |
             Material::Water |
