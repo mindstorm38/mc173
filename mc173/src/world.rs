@@ -1762,6 +1762,13 @@ pub enum BlockEvent {
         /// Current metadata of the block.
         metadata: u8,
     },
+    /// A piston has been extended or retracted at the given position.
+    Piston {
+        /// Face of this piston.
+        face: Face,
+        /// True if the piston is extending.
+        extending: bool,
+    },
 }
 
 /// An event with an entity.

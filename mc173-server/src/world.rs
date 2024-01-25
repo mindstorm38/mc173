@@ -195,6 +195,8 @@ impl ServerWorld {
                         self.handle_block_set(pos, id, metadata, prev_id, prev_metadata),
                     BlockEvent::Sound { id, metadata } =>
                         self.handle_block_sound(pos, id, metadata),
+                    BlockEvent::Piston { face, extending } => 
+                        self.handle_block_action(pos, (!extending) as i8, face as i8),
                 }
                 Event::Entity { id, inner } => match inner {
                     EntityEvent::Spawn => 
@@ -384,6 +386,21 @@ impl ServerWorld {
                     y: pos.y as i8,
                     z: pos.z,
                     effect_data: 0,
+                }));
+            }
+        }
+    }
+
+    fn handle_block_action(&mut self, pos: IVec3, data0: i8, data1: i8) {
+        let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
+        for player in &self.players {
+            if player.tracked_chunks.contains(&(cx, cz)) {
+                player.send(OutPacket::BlockAction(proto::BlockActionPacket {
+                    x: pos.x,
+                    y: pos.y as i16,
+                    z: pos.z,
+                    data0,
+                    data1,
                 }));
             }
         }

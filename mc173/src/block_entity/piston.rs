@@ -40,7 +40,7 @@ impl PistonBlockEntity {
         if self.progress >= 1.0 {
             // TODO: Handle entity push
             world.remove_block_entity(pos);
-            if let (block::PISTON_MOVING, _) = world.get_block(pos).unwrap() {
+            if world.is_block(pos, block::PISTON_MOVING) {
                 world.set_block_notify(pos, self.block, self.metadata);
             }
         } else {

@@ -403,7 +403,6 @@ pub fn get_fire_burn(id: u8) -> u16 {
 /// Get piston policy of a given block.
 pub fn get_piston_policy(id: u8, metadata: u8) -> PistonPolicy {
     match id {
-        block::AIR |
         block::BED |
         block::WOOD_DOOR |
         block::IRON_DOOR |
@@ -411,10 +410,29 @@ pub fn get_piston_policy(id: u8, metadata: u8) -> PistonPolicy {
         block::STONE_PRESSURE_PLATE => PistonPolicy::Break,
         block::BEDROCK |
         block::OBSIDIAN |
-        block::PORTAL => PistonPolicy::Stop,
+        block::PORTAL |
+        block::PISTON_EXT |
+        block::PISTON_MOVING => PistonPolicy::Stop,
         block::PISTON |
         block::STICKY_PISTON if block::piston::is_base_extended(metadata) => PistonPolicy::Stop,
-        _ => PistonPolicy::Push,
+        _ => match get_material(id) {
+            Material::Air |
+            Material::Water |
+            Material::Lava |
+            Material::Leaves |
+            Material::Plant |
+            Material::Fire |
+            Material::Circuit |
+            Material::Wug |
+            Material::Snow |
+            Material::Cactus |
+            Material::Pumpkin |
+            Material::Cake |
+            Material::Cobweb => PistonPolicy::Break,
+            Material::Portal |
+            Material::Piston => unreachable!(),
+            _ => PistonPolicy::PushPull,
+        },
     }
 }
 
@@ -512,8 +530,8 @@ pub enum PistonPolicy {
     /// A piston can push the last push-able block into this block, the block will be
     /// naturally broken. Sticky pistons cannot retract such blocks.
     Break,
-    /// A piston can push the block.
-    Push,
+    /// A piston can push the block, a sticky piston can pull the block.
+    PushPull,
     /// A piston cannot push this block.
     Stop,
 }

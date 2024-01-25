@@ -61,6 +61,7 @@ impl World {
             block::FIRE => { self.notify_fire(pos); },
             block::PISTON |
             block::STICKY_PISTON => self.notify_piston(pos, id, metadata),
+            block::PISTON_EXT => self.notify_piston_ext(pos, metadata, origin_id),
             _ => {}
         }
     }
@@ -72,12 +73,12 @@ impl World {
 
         match from_id {
             block::BUTTON => {
-                if let Some(face) = block::button::get_face(to_metadata) {
+                if let Some(face) = block::button::get_face(from_metadata) {
                     self.notify_blocks_around(pos + face.delta(), block::BUTTON);
                 }
             }
             block::LEVER => {
-                if let Some((face, _)) = block::lever::get_face(to_metadata) {
+                if let Some((face, _)) = block::lever::get_face(from_metadata) {
                     self.notify_blocks_around(pos + face.delta(), block::LEVER);
                 }
             }
@@ -418,9 +419,9 @@ impl World {
             .filter(|&check_face| check_face != face)
             .any(|face| self.has_passive_power_from(pos + face.delta(), face.opposite()));
 
-        if powered != extended {
+        let delta = face.delta();
 
-            let delta = face.delta();
+        if powered != extended {
 
             // If powering the piston, check that this is possible.
             if powered {
@@ -443,7 +444,7 @@ impl World {
                     match block::material::get_piston_policy(check_id, check_metadata) {
                         PistonPolicy::Break => break,
                         PistonPolicy::Stop => return,
-                        PistonPolicy::Push => {}
+                        PistonPolicy::PushPull => {}
                     }
 
                     // We the block can be pushed but we reached push limit, abort.
@@ -487,16 +488,115 @@ impl World {
 
                 }
 
-            } else if sticky {
-                // TODO:
+            } else {
+
+                // Check if a piston block entity is still present on the head, we need
+                // to remove it instantly and replace with its block.
+                let head_pos = pos + delta;
+                if let Some(BlockEntity::Piston(piston)) = self.get_block_entity_mut(head_pos) {
+                    let (moving_id, moving_metadata) = (piston.block, piston.metadata);
+                    self.remove_block_entity(head_pos);
+                    if self.is_block(pos, block::PISTON_MOVING) {
+                        self.set_block_notify(pos, moving_id, moving_metadata);
+                    }
+                }
+
+                // Now we replace the piston base by a moving piston block entity.
+                self.set_block(pos, block::PISTON_MOVING, metadata);
+                self.set_block_entity(pos, BlockEntity::Piston(PistonBlockEntity {
+                    block: id,
+                    metadata,
+                    face,
+                    progress: 0.0,
+                    extending: false,
+                }));
+
+                if sticky {
+
+                    let sticky_pos = head_pos + delta;
+                    let Some((mut sticky_id, mut sticky_metadata)) = self.get_block(sticky_pos) else {
+                        // We abort if the sticky block is in unloaded chunk.
+                        return;
+                    };
+
+                    // We can't retract a moving piston, we instantly place its block.
+                    // This is the mechanic that allows dropping block with sticky piston.
+                    let mut sticky_drop = false;
+                    if sticky_id == block::PISTON_MOVING {
+                        if let Some(BlockEntity::Piston(piston)) = self.get_block_entity_mut(sticky_pos) {
+                            if piston.extending && piston.face == face {
+                                sticky_id = piston.block;
+                                sticky_metadata = sticky_metadata;
+                                sticky_drop = true;
+                                self.remove_block_entity(head_pos);
+                                if self.is_block(pos, block::PISTON_MOVING) {
+                                    self.set_block_notify(pos, sticky_id, sticky_metadata);
+                                }
+                            }
+                        }
+                    }
+
+                    if sticky_drop || block::material::get_piston_policy(sticky_id, sticky_metadata) != PistonPolicy::PushPull {
+                        self.set_block(head_pos, block::AIR, 0);
+                    } else {
+                        self.set_block(sticky_pos, block::AIR, 0);
+                        self.set_block(head_pos, block::PISTON_MOVING, sticky_metadata);
+                        self.set_block_entity(head_pos, BlockEntity::Piston(PistonBlockEntity {
+                            block: sticky_id,
+                            metadata: sticky_metadata,
+                            face,
+                            progress: 0.0,
+                            extending: false,
+                        }));
+                    }
+
+                } else {
+                    self.set_block(head_pos, block::AIR, 0);
+                }
+
             }
 
             // Set the block metadata (no notification).
             let mut metadata = metadata;
             block::piston::set_base_extended(&mut metadata, powered);
             self.set_block(pos, id, metadata);
+
+            self.push_event(Event::Block { 
+                pos, 
+                inner: BlockEvent::Piston { 
+                    extending: powered,
+                    face,
+                }
+            });
             
+        } else if extended {
+
+            // If the piston has just been notified and is extended, we break it if its
+            // extension has been removed.
+            let head_pos = pos + delta;
+            if !self.is_block(head_pos, block::PISTON_EXT) {
+                self.break_block(pos);
+            }
+
         }
+
+    }
+
+    /// Notify a piston extension, removing it if no piston exists.
+    fn notify_piston_ext(&mut self, pos: IVec3, metadata: u8, origin_id: u8) {
+        
+        let Some(face) = block::piston::get_face(metadata) else { return };
+        
+        let base_pos = pos - face.delta();
+        if let Some((base_id, base_metadata)) = self.get_block(base_pos) {
+            if let block::PISTON | block::STICKY_PISTON = base_id {
+                // Just forward the notification to the piston.
+                self.notify_block_unchecked(base_pos, base_id, base_metadata, origin_id);
+                return;
+            }
+        }
+
+        self.set_block_notify(pos, block::AIR, 0);
 
     }
 

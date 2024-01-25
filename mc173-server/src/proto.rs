@@ -566,7 +566,18 @@ pub struct BlockActionPacket {
     pub x: i32,
     pub y: i16,
     pub z: i32,
+    /// For note block, instrument type:
+    /// - 0: Harp/Piano
+    /// - 1: Bass Drum
+    /// - 2: Snare Drum
+    /// - 3: Clicks and Sticks (Hihat)
+    /// - 4: Bass (String Bass)
+    /// For piston:
+    /// - 0: Extending
+    /// - 1: Retracting
     pub data0: i8,
+    /// For note block, note (0..=24)
+    /// For piston, facing (0..6)
     pub data1: i8,
 }
 
