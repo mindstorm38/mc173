@@ -195,8 +195,11 @@ impl ServerWorld {
                         self.handle_block_set(pos, id, metadata, prev_id, prev_metadata),
                     BlockEvent::Sound { id, metadata } =>
                         self.handle_block_sound(pos, id, metadata),
-                    BlockEvent::Piston { face, extending } => 
-                        self.handle_block_action(pos, (!extending) as i8, face as i8),
+                    BlockEvent::Piston { face, extending } => {
+                        if config::client_piston() {
+                            self.handle_block_action(pos, (!extending) as i8, face as i8);
+                        }
+                    }
                 }
                 Event::Entity { id, inner } => match inner {
                     EntityEvent::Spawn => 
