@@ -46,12 +46,15 @@ impl Server {
         Ok(Self {
             net: Network::bind(addr)?,
             clients: HashMap::new(),
-            worlds: vec![
-                ServerWorld::new("overworld"),
-            ],
+            worlds: vec![],
             offline_players: HashMap::new(),
         })
 
+    }
+
+    /// Register a world in this server.
+    pub fn register_world(&mut self, name: String, dimension: Dimension) {
+        self.worlds.push(ServerWorld::new(name, dimension));
     }
 
     /// Force save this server and block waiting for all resources to be saved.
@@ -85,8 +88,11 @@ impl Server {
     /// Run a single tick on the server network and worlds.
     pub fn tick(&mut self) -> io::Result<()> {
 
+        // Start by ticking the network, we receive and process all packets from clients.
+        // All client-world interactions happens here.
         self.tick_net()?;
 
+        // Then we tick each world.
         for world in &mut self.worlds {
             world.tick();
         }

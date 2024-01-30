@@ -56,6 +56,13 @@ it's called [PortableMC] and it has really good support for b1.7.3 and the game 
 really fast compared to the Mojang launcher. It also fixes in-game skin and some other
 legacy-related issues.
 
+> [!NOTE]
+> The logic crate is intentionally not designed to be modular and scale with the time,
+> one example of this is how every logic is hardcoded in its own module (redstone power,
+> block placing, breaking). This is intentional in order to be more efficient developing
+> and make the code clearer: you want to understand how redstone power works? Simply go
+> into power module.
+
 [RetroMCP]: https://github.com/MCPHackers/RetroMCP-Java
 [PortableMC]: https://github.com/mindstorm38/portablemc
 
@@ -114,5 +121,6 @@ on them. The priority of each feature is defined by its order in the list.
         - [x] Shift-click on items
     - [x] Entity tracking
         - [x] Client-side spawn
+    - [ ] Move world loading handling to the logic crate *(with something like AutoWorld)*
 - [x] Lighting engine
 - [x] World generation

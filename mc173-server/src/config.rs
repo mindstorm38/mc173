@@ -1,9 +1,10 @@
 //! The configuration for the server, given from environment variables and lazy 
 //! initialized when needed.
 
+use std::env;
+
 use once_cell::race::OnceBool;
 use glam::DVec3;
-use std::env;
 
 
 /// Return true if fast entity tracking is enabled on the server. 
@@ -20,7 +21,7 @@ pub fn fast_entity() -> bool {
 
 /// Return true if the client-side piston execution is enabled, when enabled (default)
 /// the piston extension/retraction animation is send to the client in order to have a
-/// client-side animation. This can be disabled in case of issues with 
+/// client-side animation. This can be disabled to debug pistons.
 /// 
 /// To disable this feature, set `MC173_CLIENT_PISTON=0`.
 pub fn client_piston() -> bool {
@@ -31,7 +32,6 @@ pub fn client_piston() -> bool {
             .unwrap_or(true)
     })
 }
-
 
 /// Server world seed is currently hardcoded.
 pub const SEED: i64 = 9999;

@@ -79,9 +79,9 @@ pub enum TickMode {
 impl ServerWorld {
 
     /// Internal function to create a server world.
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: String, dimension: Dimension) -> Self {
 
-        let mut inner = World::new(Dimension::Overworld);
+        let mut inner = World::new(dimension);
 
         // Make sure that the world initially have an empty events queue.
         inner.swap_events(Some(Vec::new()));

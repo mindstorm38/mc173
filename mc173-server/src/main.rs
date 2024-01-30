@@ -2,6 +2,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use mc173::world::Dimension;
+
 // The common configuration of the server.
 pub mod config;
 
@@ -33,6 +35,7 @@ pub fn main() {
     ctrlc::set_handler(|| RUNNING.store(false, Ordering::Relaxed)).unwrap();
 
     let mut server = server::Server::bind("127.0.0.1:25565".parse().unwrap()).unwrap();
+    server.register_world(format!("overworld"), Dimension::Overworld);
 
     while RUNNING.load(Ordering::Relaxed) {
         server.tick_padded().unwrap();
