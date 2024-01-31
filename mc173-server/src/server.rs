@@ -24,15 +24,15 @@ const TICK_DURATION: Duration = Duration::from_millis(50);
 
 
 /// This structure manages a whole server and its clients, dispatching incoming packets
-/// to correct handlers.
+/// to correct handlers. The server is responsible of associating clients
 pub struct Server {
     /// Packet server handle.
     net: Network,
     /// Clients of this server, these structures track the network state of each client.
     clients: HashMap<NetworkClient, ClientState>,
     /// Worlds list.
-    worlds: Vec<ServerWorld>,
-    /// Offline players
+    worlds: Vec<WorldState>,
+    /// Offline players database.
     offline_players: HashMap<String, OfflinePlayer>,
 }
 
@@ -54,14 +54,17 @@ impl Server {
 
     /// Register a world in this server.
     pub fn register_world(&mut self, name: String, dimension: Dimension) {
-        self.worlds.push(ServerWorld::new(name, dimension));
+        self.worlds.push(WorldState {
+            world: ServerWorld::new(name, dimension),
+            players: Vec::new(),
+        });
     }
 
     /// Force save this server and block waiting for all resources to be saved.
     pub fn stop(&mut self) {
 
-        for world in &mut self.worlds {
-            world.stop();
+        for state in &mut self.worlds {
+            state.world.stop();
         }
 
     }
@@ -93,8 +96,8 @@ impl Server {
         self.tick_net()?;
 
         // Then we tick each world.
-        for world in &mut self.worlds {
-            world.tick();
+        for state in &mut self.worlds {
+            state.world.tick(&mut state.players);
         }
 
         Ok(())
@@ -135,13 +138,16 @@ impl Server {
         
         if let ClientState::Playing { world_index, player_index } = state {
             // If the client was playing, remove it from its world.
-            let world = &mut self.worlds[world_index];
-            if let Some(swapped_player) = world.handle_player_leave(player_index, true) {
-                // If a player has been swapped in place of the removed one, update the 
-                // swapped one to point to its new index (and same world).
-                let state = self.clients.get_mut(&swapped_player.client)
-                    .expect("swapped player should be existing");
-                *state = ClientState::Playing { world_index, player_index };
+            let state = &mut self.worlds[world_index];
+            // Swap remove the player and tell the world.
+            let mut player = state.players.swap_remove(player_index);
+            state.world.handle_player_leave(&mut player, true);
+            // If a player has been swapped in place of this new one, redefine its state.
+            if let Some(swapped_player) = state.players.get(player_index) {
+                self.clients.insert(swapped_player.client, ClientState::Playing { 
+                    world_index, 
+                    player_index,
+                }).expect("swapped player should have a previous state");
             }
         }
 
@@ -156,9 +162,9 @@ impl Server {
                 self.handle_handshaking(client, packet);
             }
             ClientState::Playing { world_index, player_index } => {
-                let world = &mut self.worlds[world_index];
-                let player = &mut world.players[player_index];
-                player.handle(&mut world.world, &mut world.state, packet);
+                let state = &mut self.worlds[world_index];
+                let player = &mut state.players[player_index];
+                player.handle(&mut state.world, packet);
             }
         }
 
@@ -197,17 +203,17 @@ impl Server {
         // Get the offline player, if not existing we create a new one with the 
         let offline_player = self.offline_players.entry(packet.username.clone())
             .or_insert_with(|| {
-                let spawn_world = &self.worlds[0];
+                let state = &self.worlds[0];
                 OfflinePlayer {
-                    world: spawn_world.state.name.clone(),
+                    world: state.world.name.clone(),
                     pos: spawn_pos,
                     look: Vec2::ZERO,
                 }
             });
 
-        let (world_index, world) = self.worlds.iter_mut()
+        let (world_index, state) = self.worlds.iter_mut()
             .enumerate()
-            .filter(|(_, world)| world.state.name == offline_player.world)
+            .filter(|(_, state)| state.world.name == offline_player.world)
             .next()
             .expect("invalid offline player world name");
 
@@ -221,14 +227,14 @@ impl Server {
             player.username = packet.username.clone();
         });
 
-        let entity_id = world.world.spawn_entity(entity);
-        world.world.set_player_entity(entity_id, true);
+        let entity_id = state.world.world.spawn_entity(entity);
+        state.world.world.set_player_entity(entity_id, true);
 
         // Confirm the login by sending same packet in response.
         self.net.send(client, OutPacket::Login(proto::OutLoginPacket {
             entity_id,
-            random_seed: world.state.seed,
-            dimension: match world.world.get_dimension() {
+            random_seed: state.world.seed,
+            dimension: match state.world.world.get_dimension() {
                 Dimension::Overworld => 0,
                 Dimension::Nether => -1,
             },
@@ -249,18 +255,20 @@ impl Server {
 
         // Time must be sent once at login to conclude the login phase.
         self.net.send(client, OutPacket::UpdateTime(proto::UpdateTimePacket {
-            time: world.world.get_time(),
+            time: state.world.world.get_time(),
         }));
 
-        if world.world.get_weather() != Weather::Clear {
+        if state.world.world.get_weather() != Weather::Clear {
             self.net.send(client, OutPacket::Notification(proto::NotificationPacket {
                 reason: 1,
             }));
         }
 
         // Finally insert the player tracker.
-        let server_player = ServerPlayer::new(&self.net, client, entity_id, packet.username, &offline_player);
-        let player_index = world.handle_player_join(server_player);
+        let mut player = ServerPlayer::new(&self.net, client, entity_id, packet.username, &offline_player);
+        state.world.handle_player_join(&mut player);
+        let player_index = state.players.len();
+        state.players.push(player);
 
         // Replace the previous state with a playing state containing the world and 
         // player indices, used to get to the player instance.
@@ -297,4 +305,12 @@ enum ClientState {
         /// Index of the player within the server world.
         player_index: usize,
     }
+}
+
+/// A server world registered in the server, it is associated to a list of players.
+struct WorldState {
+    /// The inner server world.
+    world: ServerWorld,
+    /// The players currently in this world.
+    players: Vec<ServerPlayer>,
 }

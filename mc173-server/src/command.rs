@@ -5,12 +5,12 @@ use std::mem;
 use glam::IVec3;
 
 use mc173::entity::{BaseKind, Entity, EntityCategory, EntityKind};
-use mc173::world::{World, Event, Weather};
+use mc173::world::{Event, Weather};
 use mc173::item::{self, ItemStack};
 use mc173::path::PathFinder;
 use mc173::block;
 
-use crate::world::{ServerWorldState, TickMode};
+use crate::world::{ServerWorld, TickMode};
 use crate::proto::{OutPacket, self};
 use crate::player::ServerPlayer;
 
@@ -20,9 +20,7 @@ pub struct CommandContext<'a> {
     /// The command parts.
     pub parts: &'a [&'a str],
     /// The world to run the command in.
-    pub world: &'a mut World,
-    /// The server state associated to the world.
-    pub state: &'a mut ServerWorldState,
+    pub world: &'a mut ServerWorld,
     /// The dynamic reference to the command sender.
     pub player: &'a mut ServerPlayer,
 }
@@ -41,7 +39,6 @@ pub fn handle_command(ctx: CommandContext) {
             let res = (cmd.handler)(CommandContext { 
                 parts: &ctx.parts[1..], 
                 world: ctx.world, 
-                state: ctx.state, 
                 player: ctx.player,
             });
 
@@ -257,9 +254,9 @@ fn cmd_spawn(ctx: CommandContext) -> CommandResult {
     let mut entity = entity_kind.new_default(ctx.player.pos);
     entity.0.persistent = true;
 
-    entity.init_natural_spawn(ctx.world);
+    entity.init_natural_spawn(&mut ctx.world.world);
 
-    let entity_id = ctx.world.spawn_entity(entity);
+    let entity_id = ctx.world.world.spawn_entity(entity);
     ctx.player.send_chat(format!("§aEntity spawned:§r {entity_id}"));
 
     Ok(())
@@ -267,8 +264,8 @@ fn cmd_spawn(ctx: CommandContext) -> CommandResult {
 }
 
 fn cmd_time(ctx: CommandContext) -> CommandResult {
-    ctx.player.send_chat(format!("§aWorld time:§r {}", ctx.world.get_time()));
-    ctx.player.send_chat(format!("§aServer time:§r {}", ctx.state.time));
+    ctx.player.send_chat(format!("§aWorld time:§r {}", ctx.world.world.get_time()));
+    ctx.player.send_chat(format!("§aServer time:§r {}", ctx.world.time));
     Ok(())
 }
 
@@ -283,12 +280,12 @@ fn cmd_weather(ctx: CommandContext) -> CommandResult {
             _ => return Err(None)
         };
 
-        ctx.world.set_weather(weather);
+        ctx.world.world.set_weather(weather);
         ctx.player.send_chat(format!("§aWeather set to:§r {:?}", weather));
         Ok(())
 
     } else if ctx.parts.is_empty() {
-        ctx.player.send_chat(format!("§aWeather:§r {:?}", ctx.world.get_weather()));
+        ctx.player.send_chat(format!("§aWeather:§r {:?}", ctx.world.world.get_weather()));
         Ok(())
     } else {
         Err(None)
@@ -304,17 +301,17 @@ fn cmd_pos(ctx: CommandContext) -> CommandResult {
     ctx.player.send_chat(format!("§aReal:§r {}", ctx.player.pos));
     ctx.player.send_chat(format!("§aBlock:§r {}", block_pos));
 
-    if let Some(height) = ctx.world.get_height(block_pos) {
+    if let Some(height) = ctx.world.world.get_height(block_pos) {
         ctx.player.send_chat(format!("§aHeight:§r {}", height));
     }
 
-    let light = ctx.world.get_light(block_pos);
+    let light = ctx.world.world.get_light(block_pos);
     ctx.player.send_chat(format!("§aBlock light:§r {}", light.block));
     ctx.player.send_chat(format!("§aSky light:§r {}", light.sky));
     ctx.player.send_chat(format!("§aSky real light:§r {}", light.sky_real));
     ctx.player.send_chat(format!("§aBrightness:§r {}", light.brightness()));
 
-    if let Some(biome) = ctx.world.get_biome(block_pos) {
+    if let Some(biome) = ctx.world.world.get_biome(block_pos) {
         ctx.player.send_chat(format!("§aBiome:§r {biome:?}"));
     }
 
@@ -378,10 +375,10 @@ fn cmd_path(ctx: CommandContext) -> CommandResult {
         z: z_raw.parse::<i32>().map_err(|_| format!("§cError: invalid z:§r {z_raw}"))?,
     };
 
-    if let Some(path) = PathFinder::new(ctx.world).find_path(from, to, IVec3::ONE, 20.0) {
+    if let Some(path) = PathFinder::new(&mut ctx.world.world).find_path(from, to, IVec3::ONE, 20.0) {
         
         for pos in path {
-            ctx.world.set_block(pos, block::DEAD_BUSH, 0);
+            ctx.world.world.set_block(pos, block::DEAD_BUSH, 0);
         }
 
         Ok(())
@@ -396,17 +393,17 @@ fn cmd_tick(ctx: CommandContext) -> CommandResult {
     match ctx.parts {
         ["freeze"] => {
             ctx.player.send_chat(format!("§aWorld ticking:§r freeze"));
-            ctx.state.tick_mode = TickMode::Manual(0);
+            ctx.world.tick_mode = TickMode::Manual(0);
             Ok(())
         }
         ["auto"] => {
             ctx.player.send_chat(format!("§aWorld ticking:§r auto"));
-            ctx.state.tick_mode = TickMode::Auto;
+            ctx.world.tick_mode = TickMode::Auto;
             Ok(())
         }
         ["step"] => {
             ctx.player.send_chat(format!("§aWorld ticking:§r step"));
-            ctx.state.tick_mode = TickMode::Manual(1);
+            ctx.world.tick_mode = TickMode::Manual(1);
             Ok(())
         }
         ["step", step_count] => {
@@ -415,7 +412,7 @@ fn cmd_tick(ctx: CommandContext) -> CommandResult {
                 .map_err(|_| format!("§cError: invalid step count:§r {step_count}"))?;
 
             ctx.player.send_chat(format!("§aWorld ticking:§r {step_count} steps"));
-            ctx.state.tick_mode = TickMode::Manual(step_count);
+            ctx.world.tick_mode = TickMode::Manual(step_count);
             Ok(())
 
         }
@@ -425,11 +422,11 @@ fn cmd_tick(ctx: CommandContext) -> CommandResult {
 
 fn cmd_clean(ctx: CommandContext) -> CommandResult { 
 
-    let ids = ctx.world.iter_entities().map(|(id, _)| id).collect::<Vec<_>>();
+    let ids = ctx.world.world.iter_entities().map(|(id, _)| id).collect::<Vec<_>>();
     let mut removed_count = 0;
     for id in ids {
-        if !ctx.world.is_player_entity(id) {
-            assert!(ctx.world.remove_entity(id, "server clean command"));
+        if !ctx.world.world.is_player_entity(id) {
+            assert!(ctx.world.world.remove_entity(id, "server clean command"));
             removed_count += 1;
         }
     }
@@ -441,7 +438,7 @@ fn cmd_clean(ctx: CommandContext) -> CommandResult {
 
 fn cmd_explode(ctx: CommandContext) -> CommandResult { 
 
-    ctx.world.explode(ctx.player.pos, 4.0, false, Some(ctx.player.entity_id));
+    ctx.world.world.explode(ctx.player.pos, 4.0, false, Some(ctx.player.entity_id));
     ctx.player.send_chat(format!("§aExplode at:§r {}", ctx.player.pos));
     Ok(())
 
@@ -450,14 +447,14 @@ fn cmd_explode(ctx: CommandContext) -> CommandResult {
 fn cmd_perf(ctx: CommandContext) -> CommandResult { 
 
     ctx.player.send_chat(format!("§8====================================================="));
-    ctx.player.send_chat(format!("§aTick duration:§r {:.1} ms", ctx.state.tick_duration.get() * 1000.0));
-    ctx.player.send_chat(format!("§aTick interval:§r {:.1} ms", ctx.state.tick_interval.get() * 1000.0));
-    ctx.player.send_chat(format!("§aEvents:§r {:.1} ({:.1} kB)", ctx.state.events_count.get(), ctx.state.events_count.get() * mem::size_of::<Event>() as f32 / 1000.0));
+    ctx.player.send_chat(format!("§aTick duration:§r {:.1} ms", ctx.world.tick_duration.get() * 1000.0));
+    ctx.player.send_chat(format!("§aTick interval:§r {:.1} ms", ctx.world.tick_interval.get() * 1000.0));
+    ctx.player.send_chat(format!("§aEvents:§r {:.1} ({:.1} kB)", ctx.world.events_count.get(), ctx.world.events_count.get() * mem::size_of::<Event>() as f32 / 1000.0));
     
-    ctx.player.send_chat(format!("§aEntities:§r {} ({} players)", ctx.world.get_entity_count(), ctx.world.get_player_entity_count()));
+    ctx.player.send_chat(format!("§aEntities:§r {} ({} players)", ctx.world.world.get_entity_count(), ctx.world.world.get_player_entity_count()));
     
     let mut categories_count = [0usize; EntityCategory::ALL.len()];
-    for (_, entity) in ctx.world.iter_entities() {
+    for (_, entity) in ctx.world.world.iter_entities() {
         categories_count[entity.category() as usize] += 1;
     }
     
@@ -465,8 +462,8 @@ fn cmd_perf(ctx: CommandContext) -> CommandResult {
         ctx.player.send_chat(format!("  §a{category:?}s:§r {}", categories_count[category as usize]));
     }
 
-    ctx.player.send_chat(format!("§aBlock ticks:§r {}", ctx.world.get_block_tick_count()));
-    ctx.player.send_chat(format!("§aLight updates:§r {}", ctx.world.get_light_update_count()));
+    ctx.player.send_chat(format!("§aBlock ticks:§r {}", ctx.world.world.get_block_tick_count()));
+    ctx.player.send_chat(format!("§aLight updates:§r {}", ctx.world.world.get_light_update_count()));
 
     Ok(())
 
@@ -482,7 +479,7 @@ fn cmd_entity(ctx: CommandContext) -> CommandResult {
     let id = id_raw.parse::<u32>()
         .map_err(|_| format!("§cError: invalid entity id:§r {id_raw}"))?;
 
-    let Some(Entity(base, base_kind)) = ctx.world.get_entity(id) else {
+    let Some(Entity(base, base_kind)) = ctx.world.world.get_entity(id) else {
         return Err(Some(format!("§cError: unknown entity")));
     };
 

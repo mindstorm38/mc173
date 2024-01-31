@@ -7,7 +7,7 @@ use glam::{DVec3, Vec2, IVec3};
 use mc173::util::split_at_utf8_boundary;
 use tracing::warn;
 
-use mc173::world::{World, BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress, EntityEvent};
+use mc173::world::{BlockEntityStorage, BlockEntityEvent, Event, BlockEntityProgress, EntityEvent};
 use mc173::world::interact::Interaction;
 
 use mc173::entity::{self as e, Entity, Hurt, BaseKind, LivingKind};
@@ -22,8 +22,8 @@ use mc173::geom::Face;
 use crate::proto::{self, Network, NetworkClient, OutPacket, InPacket};
 use crate::command::{self, CommandContext};
 use crate::chunk::new_chunk_data_packet;
-use crate::world::ServerWorldState;
 use crate::offline::OfflinePlayer;
+use crate::world::ServerWorld;
 
 
 /// A server player is an actual 
@@ -173,7 +173,7 @@ impl ServerPlayer {
     }
 
     /// Handle an incoming packet from this player.
-    pub fn handle(&mut self, world: &mut World, state: &mut ServerWorldState, packet: InPacket) {
+    pub fn handle(&mut self, world: &mut ServerWorld, packet: InPacket) {
         
         match packet {
             InPacket::KeepAlive => {}
@@ -181,7 +181,7 @@ impl ServerPlayer {
             InPacket::Disconnect(_) =>
                 self.handle_disconnect(),
             InPacket::Chat(packet) =>
-                self.handle_chat(world, state, packet.message),
+                self.handle_chat(world, packet.message),
             InPacket::Position(packet) => 
                 self.handle_position(world, packet),
             InPacket::Look(packet) => 
@@ -217,36 +217,35 @@ impl ServerPlayer {
     }
 
     /// Handle a chat message packet.
-    fn handle_chat(&mut self, world: &mut World, state: &mut ServerWorldState, message: String) {
+    fn handle_chat(&mut self, sw: &mut ServerWorld, message: String) {
         if message.starts_with('/') {
             let parts = message[1..].split_whitespace().collect::<Vec<_>>();
             command::handle_command(CommandContext {
                 parts: &parts,
-                world,
-                state,
+                world: sw,
                 player: self,
             });
         }
     }
 
     /// Handle a position packet.
-    fn handle_position(&mut self, world: &mut World, packet: proto::PositionPacket) {
-        self.handle_position_look_inner(world, Some(packet.pos), None, packet.on_ground);
+    fn handle_position(&mut self, sw: &mut ServerWorld, packet: proto::PositionPacket) {
+        self.handle_position_look_inner(sw, Some(packet.pos), None, packet.on_ground);
     }
 
     /// Handle a look packet.
-    fn handle_look(&mut self, world: &mut World, packet: proto::LookPacket) {
-        self.handle_position_look_inner(world, None, Some(packet.look), packet.on_ground);
+    fn handle_look(&mut self, sw: &mut ServerWorld, packet: proto::LookPacket) {
+        self.handle_position_look_inner(sw, None, Some(packet.look), packet.on_ground);
     }
 
     /// Handle a position and look packet.
-    fn handle_position_look(&mut self, world: &mut World, packet: proto::PositionLookPacket) {
-        self.handle_position_look_inner(world, Some(packet.pos), Some(packet.look), packet.on_ground);
+    fn handle_position_look(&mut self, sw: &mut ServerWorld, packet: proto::PositionLookPacket) {
+        self.handle_position_look_inner(sw, Some(packet.pos), Some(packet.look), packet.on_ground);
     }
 
-    fn handle_position_look_inner(&mut self, world: &mut World, pos: Option<DVec3>, look: Option<Vec2>, on_ground: bool) {
+    fn handle_position_look_inner(&mut self, sw: &mut ServerWorld, pos: Option<DVec3>, look: Option<Vec2>, on_ground: bool) {
 
-        let entity = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
+        let entity = sw.world.get_entity_mut(self.entity_id).expect("incoherent player entity");
         entity.0.on_ground = on_ground;
 
         if let Some(pos) = pos {
@@ -260,18 +259,18 @@ impl ServerPlayer {
         }
 
         if pos.is_some() {
-            world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Position { pos: self.pos } });
-            self.update_chunks(world);
+            sw.world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Position { pos: self.pos } });
+            self.update_chunks(sw);
         }
 
         if look.is_some() {
-            world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Look { look: self.look } });
+            sw.world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Look { look: self.look } });
         }
 
     }
 
     /// Handle a break block packet.
-    fn handle_break_block(&mut self, world: &mut World, packet: proto::BreakBlockPacket) {
+    fn handle_break_block(&mut self, sw: &mut ServerWorld, packet: proto::BreakBlockPacket) {
         
         let face = match packet.face {
             0 => Face::NegY,
@@ -283,7 +282,7 @@ impl ServerPlayer {
             _ => return,
         };
 
-        let Some(entity) = world.get_entity_mut(self.entity_id) else { return };
+        let Some(entity) = sw.world.get_entity_mut(self.entity_id) else { return };
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
 
         // TODO: Use server time for breaking blocks.
@@ -295,31 +294,31 @@ impl ServerPlayer {
         if packet.status == 0 {
 
             // Special case to extinguish fire.
-            if world.is_block(pos + face.delta(), block::FIRE) {
-                world.set_block_notify(pos + face.delta(), block::AIR, 0);
+            if sw.world.is_block(pos + face.delta(), block::FIRE) {
+                sw.world.set_block_notify(pos + face.delta(), block::AIR, 0);
             }
 
             // We ignore any interaction result for the left click (break block) to
             // avoid opening an inventory when breaking a container.
             // NOTE: Interact before 'get_block': relevant for redstone_ore lit.
-            world.interact_block(pos, true);
+            sw.world.interact_block(pos, true);
 
             // Start breaking a block, ignore if the position is invalid.
-            if let Some((id, _)) = world.get_block(pos) {
+            if let Some((id, _)) = sw.world.get_block(pos) {
                 
                 let break_duration = if self.instant_break {
                     0.0 
                 } else { 
-                    world.get_break_duration(stack.id, id, in_water, on_ground)
+                    sw.world.get_break_duration(stack.id, id, in_water, on_ground)
                 };
 
                 if break_duration.is_infinite() {
                     // Do nothing, the block is unbreakable.
                 } else if break_duration == 0.0 {
-                    world.break_block(pos);
+                    sw.world.break_block(pos);
                 } else {
                     self.breaking_block = Some(BreakingBlock {
-                        start_time: world.get_time(), // + (break_duration * 0.7) as u64,
+                        start_time: sw.world.get_time(), // + (break_duration * 0.7) as u64,
                         pos,
                         id,
                     });
@@ -330,13 +329,13 @@ impl ServerPlayer {
         } else if packet.status == 2 {
             // Block breaking should be finished.
             if let Some(state) = self.breaking_block.take() {
-                if state.pos == pos && world.is_block(pos, state.id) {
-                    let break_duration = world.get_break_duration(stack.id, state.id, in_water, on_ground);
+                if state.pos == pos && sw.world.is_block(pos, state.id) {
+                    let break_duration = sw.world.get_break_duration(stack.id, state.id, in_water, on_ground);
                     let min_time = state.start_time + (break_duration * 0.7) as u64;
-                    if world.get_time() >= min_time {
-                        world.break_block(pos);
+                    if sw.world.get_time() >= min_time {
+                        sw.world.break_block(pos);
                     } else {
-                        warn!("from {}, incoherent break time, expected {min_time} but got {}", self.username, world.get_time());
+                        warn!("from {}, incoherent break time, expected {min_time} but got {}", self.username, sw.world.get_time());
                     }
                 } else {
                     warn!("from {}, incoherent break position, expected  {}, got {}", self.username, pos, state.pos);
@@ -356,7 +355,7 @@ impl ServerPlayer {
                     stack: stack.to_non_empty(),
                 }));
 
-                self.drop_stack(world, stack.with_size(1), false);
+                self.drop_stack(sw, stack.with_size(1), false);
 
             }
 
@@ -365,7 +364,7 @@ impl ServerPlayer {
     }
 
     /// Handle a place block packet.
-    fn handle_place_block(&mut self, world: &mut World, packet: proto::PlaceBlockPacket) {
+    fn handle_place_block(&mut self, sw: &mut ServerWorld, packet: proto::PlaceBlockPacket) {
         
         let face = match packet.direction {
             0 => Some(Face::NegY),
@@ -391,27 +390,27 @@ impl ServerPlayer {
         if face.is_none() || self.pos.distance_squared(pos.as_dvec3() + 0.5) < 64.0 {
             // The real action depends on 
             if let Some(face) = face {
-                match world.interact_block(pos, false) {
+                match sw.world.interact_block(pos, false) {
                     Interaction::None => {
                         // No interaction, use the item at that block.
-                        world.use_stack(&mut inv, inv_index, pos, face, self.entity_id);
+                        sw.world.use_stack(&mut inv, inv_index, pos, face, self.entity_id);
                     }
                     Interaction::CraftingTable { pos } => {
-                        return self.open_window(world, WindowKind::CraftingTable { pos });
+                        return self.open_window(sw, WindowKind::CraftingTable { pos });
                     }
                     Interaction::Chest { pos } => {
-                        return self.open_window(world, WindowKind::Chest { pos });
+                        return self.open_window(sw, WindowKind::Chest { pos });
                     }
                     Interaction::Furnace { pos } => {
-                        return self.open_window(world, WindowKind::Furnace { pos });
+                        return self.open_window(sw, WindowKind::Furnace { pos });
                     }
                     Interaction::Dispenser { pos } => {
-                        return self.open_window(world, WindowKind::Dispenser { pos });
+                        return self.open_window(sw, WindowKind::Dispenser { pos });
                     }
                     Interaction::Handled => {}
                 }
             } else {
-                world.use_raw_stack(&mut inv, inv_index, self.entity_id);
+                sw.world.use_raw_stack(&mut inv, inv_index, self.entity_id);
             }
         }
 
@@ -422,7 +421,7 @@ impl ServerPlayer {
     }
 
     /// Handle a hand slot packet.
-    fn handle_hand_slot(&mut self, world: &mut World, slot: i16) {
+    fn handle_hand_slot(&mut self, sw: &mut ServerWorld, slot: i16) {
         if slot >= 0 && slot < 9 {
 
             // If the previous item was a fishing rod, then we ensure that the bobber id
@@ -431,7 +430,7 @@ impl ServerPlayer {
             if prev_stack.size != 0 && prev_stack.id == item::FISHING_ROD {
                 if prev_stack.id == item::FISHING_ROD {
 
-                    let Entity(base, _) = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
+                    let Entity(base, _) = sw.world.get_entity_mut(self.entity_id).expect("incoherent player entity");
                     base.bobber_id = None;
                     
                 }
@@ -445,7 +444,7 @@ impl ServerPlayer {
     }
 
     /// Handle a window click packet.
-    fn handle_window_click(&mut self, world: &mut World, packet: proto::WindowClickPacket) {
+    fn handle_window_click(&mut self, sw: &mut ServerWorld, packet: proto::WindowClickPacket) {
 
         // Holding the target slot's item stack.
         let mut cursor_stack = self.cursor_stack;
@@ -469,7 +468,7 @@ impl ServerPlayer {
                 }
 
                 cursor_stack.size -= drop_stack.size;
-                self.drop_stack(world, drop_stack, false);
+                self.drop_stack(sw, drop_stack, false);
 
             }
         } else if packet.shift_click {
@@ -629,11 +628,11 @@ impl ServerPlayer {
                         let mut stack = slot_stack;
 
                         // Temporarily swap events out to avoid borrowing issues.
-                        let mut events = world.swap_events(None);
+                        let mut events = sw.world.swap_events(None);
 
                         // We try to insert 
                         for &pos in pos {
-                            if let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(pos) {
+                            if let Some(BlockEntity::Chest(chest)) = sw.world.get_block_entity_mut(pos) {
 
                                 let mut chest_inv = InventoryHandle::new(&mut chest.inv[..]);
                                 chest_inv.push_front(&mut stack);
@@ -661,7 +660,7 @@ impl ServerPlayer {
                         main_inv.set(main_index, stack);
 
                         // Swap events back in.
-                        world.swap_events(events);
+                        sw.world.swap_events(events);
                         // No notify because we handled the events for all chest entities.
                         slot_notify = SlotNotify::None;
 
@@ -670,7 +669,7 @@ impl ServerPlayer {
                         // From the chest to hotbar/inventory
 
                         let pos = pos[slot / 27];
-                        let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(pos) else { 
+                        let Some(BlockEntity::Chest(chest)) = sw.world.get_block_entity_mut(pos) else { 
                             return;
                         };
 
@@ -703,7 +702,7 @@ impl ServerPlayer {
                     } else {
 
                         // From furnace to inventory
-                        let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else { 
+                        let Some(BlockEntity::Furnace(furnace)) = sw.world.get_block_entity_mut(pos) else { 
                             return;
                         };
 
@@ -732,7 +731,7 @@ impl ServerPlayer {
                     // No shift click possible with dispenser, but we check coherency.
                     if let Some(main_index) = main_index {
                         slot_stack = main_inv.get(main_index);
-                    } else if let Some(BlockEntity::Dispenser(dispenser)) = world.get_block_entity_mut(pos) {
+                    } else if let Some(BlockEntity::Dispenser(dispenser)) = sw.world.get_block_entity_mut(pos) {
                         slot_stack = dispenser.inv[slot];
                     } else {
                         // No dispenser block entity??
@@ -746,7 +745,7 @@ impl ServerPlayer {
 
         } else {
 
-            let slot_handle = self.make_window_slot_handle(world, packet.slot);
+            let slot_handle = self.make_window_slot_handle(sw, packet.slot);
             let Some(mut slot_handle) = slot_handle else {
                 warn!("from {}, cannot find a handle for slot {} in window {}", self.username, packet.slot, packet.window_id);
                 return;
@@ -871,7 +870,7 @@ impl ServerPlayer {
                 storage, 
                 stack: Some(stack),
             } => {
-                world.push_event(Event::BlockEntity { 
+                sw.world.push_event(Event::BlockEntity { 
                     pos, 
                     inner: BlockEntityEvent::Storage { 
                         storage, 
@@ -915,22 +914,22 @@ impl ServerPlayer {
     }
 
     /// Handle a window close packet, it just forget the current window.
-    fn handle_window_close(&mut self, world: &mut World, packet: proto::WindowClosePacket) {
-        self.close_window(world, Some(packet.window_id), false);
+    fn handle_window_close(&mut self, sw: &mut ServerWorld, packet: proto::WindowClosePacket) {
+        self.close_window(sw, Some(packet.window_id), false);
     }
 
-    fn handle_animation(&mut self, _world: &mut World, _packet: proto::AnimationPacket) {
+    fn handle_animation(&mut self, _sw: &mut ServerWorld, _packet: proto::AnimationPacket) {
         // TODO: Send animation to other players.
     }
 
     /// Handle an entity interaction.
-    fn handle_interact(&mut self, world: &mut World, packet: proto::InteractPacket) {
+    fn handle_interact(&mut self, sw: &mut ServerWorld, packet: proto::InteractPacket) {
         
         if self.entity_id != packet.player_entity_id {
             warn!("from {}, incoherent interact entity: {}, expected: {}", self.username, packet.player_entity_id, self.entity_id);
         }
 
-        let Some(Entity(target_base, _)) = world.get_entity_mut(packet.target_entity_id) else {
+        let Some(Entity(target_base, _)) = sw.world.get_entity_mut(packet.target_entity_id) else {
             warn!("from {}, incoherent interact entity target: {}", self.username, packet.target_entity_id);
             return;
         };
@@ -959,7 +958,7 @@ impl ServerPlayer {
     }
 
     /// Handle an action packet from the player.
-    fn handle_action(&mut self, world: &mut World, packet: proto::ActionPacket) {
+    fn handle_action(&mut self, sw: &mut ServerWorld, packet: proto::ActionPacket) {
 
         if self.entity_id != packet.entity_id {
             warn!("from {}, incoherent player entity: {}, expected: {}", self.username, packet.entity_id, self.entity_id);
@@ -967,14 +966,14 @@ impl ServerPlayer {
 
         // A player action is only relevant on human entities, ignore if the player is 
         // bound to any other entity kind.
-        let Some(Entity(_, BaseKind::Living(_, LivingKind::Human(human)))) = world.get_entity_mut(self.entity_id) else {
+        let Some(Entity(_, BaseKind::Living(_, LivingKind::Human(human)))) = sw.world.get_entity_mut(self.entity_id) else {
             return;
         };
 
         match packet.state {
             1 | 2 => {
                 human.sneaking = packet.state == 1;
-                world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Metadata });
+                sw.world.push_event(Event::Entity { id: self.entity_id, inner: EntityEvent::Metadata });
             }
             3 => todo!("wake up..."),
             _ => warn!("from {}, invalid action state: {}", self.username, packet.state)
@@ -983,25 +982,25 @@ impl ServerPlayer {
     }
 
     /// Handle an update sign packet from the player.
-    fn handle_update_sign(&mut self, world: &mut World, packet: proto::UpdateSignPacket) {
+    fn handle_update_sign(&mut self, sw: &mut ServerWorld, packet: proto::UpdateSignPacket) {
 
         let pos = IVec3::new(packet.x, packet.y as i32, packet.z);
-        let Some(BlockEntity::Sign(sign)) = world.get_block_entity_mut(pos) else {
+        let Some(BlockEntity::Sign(sign)) = sw.world.get_block_entity_mut(pos) else {
             warn!("from {}, incoherent update sign, block entity not found at: {pos}", self.username);
             return;
         };
 
         sign.lines = packet.lines;
-        world.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Sign });
+        sw.world.push_event(Event::BlockEntity { pos, inner: BlockEntityEvent::Sign });
 
     }
 
     /// Open the given window kind on client-side by sending appropriate packet. A new
     /// window id is automatically associated to that window.
-    fn open_window(&mut self, world: &mut World, kind: WindowKind) {
+    fn open_window(&mut self, sw: &mut ServerWorld, kind: WindowKind) {
         
         // Close any already opened window.
-        self.close_window(world, None, true);
+        self.close_window(sw, None, true);
 
         // NOTE: We should never get a window id of 0 because it is the player inventory.
         let window_id = (self.window_count % 100 + 1) as u8;
@@ -1029,7 +1028,7 @@ impl ServerPlayer {
                 let mut stacks = Vec::new();
 
                 for &pos in pos {
-                    if let Some(BlockEntity::Chest(chest)) = world.get_block_entity(pos) {
+                    if let Some(BlockEntity::Chest(chest)) = sw.world.get_block_entity(pos) {
                         stacks.extend(chest.inv.iter().map(|stack| stack.to_non_empty()));
                     } else {
                         stacks.extend(std::iter::repeat(None).take(27));
@@ -1051,7 +1050,7 @@ impl ServerPlayer {
                     slots_count: 3,
                 }));
                 
-                if let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity(pos) {
+                if let Some(BlockEntity::Furnace(furnace)) = sw.world.get_block_entity(pos) {
 
                     self.send(OutPacket::WindowProgressBar(proto::WindowProgressBarPacket {
                         window_id,
@@ -1092,7 +1091,7 @@ impl ServerPlayer {
                     slots_count: 9,
                 }));
 
-                if let Some(BlockEntity::Dispenser(dispenser)) = world.get_block_entity(pos) {
+                if let Some(BlockEntity::Dispenser(dispenser)) = sw.world.get_block_entity(pos) {
                     self.send(OutPacket::WindowItems(proto::WindowItemsPacket {
                         window_id,
                         stacks: dispenser.inv.iter().map(|stack| stack.to_non_empty()).collect()
@@ -1110,7 +1109,7 @@ impl ServerPlayer {
     /// Close the current window opened by the player. If the window id argument is 
     /// provided, then this will only work if the current server-side window is matching.
     /// The send boolean indicates if a window close packet must also be sent.
-    fn close_window(&mut self, world: &mut World, window_id: Option<u8>, send: bool) {
+    fn close_window(&mut self, sw: &mut ServerWorld, window_id: Option<u8>, send: bool) {
     
         if let Some(window_id) = window_id {
             if self.window.id != window_id {
@@ -1126,7 +1125,7 @@ impl ServerPlayer {
         }
 
         for drop_stack in drop_stacks {
-            self.drop_stack(world, drop_stack, false);
+            self.drop_stack(sw, drop_stack, false);
         }
 
         // Closing the player inventory so we clear the crafting matrix.
@@ -1176,7 +1175,7 @@ impl ServerPlayer {
     /// Internal function to create a window slot handle. This handle is temporary and
     /// own two mutable reference to the player itself and the world, it can only work
     /// on the given slot.
-    fn make_window_slot_handle<'a>(&'a mut self, world: &'a mut World, slot: i16) -> Option<SlotHandle<'a>> {
+    fn make_window_slot_handle<'a>(&'a mut self, sw: &'a mut ServerWorld, slot: i16) -> Option<SlotHandle<'a>> {
 
         // This avoid temporary cast issues afterward, even if we keep the signed type.
         if slot < 0 {
@@ -1261,7 +1260,7 @@ impl ServerPlayer {
                     
                     // Get the chest tile entity corresponding to the clicked slot,
                     // if not found we just ignore.
-                    let Some(BlockEntity::Chest(chest)) = world.get_block_entity_mut(pos) else {
+                    let Some(BlockEntity::Chest(chest)) = sw.world.get_block_entity_mut(pos) else {
                         return None
                     };
 
@@ -1289,7 +1288,7 @@ impl ServerPlayer {
 
                 if slot <= 2 {
 
-                    let Some(BlockEntity::Furnace(furnace)) = world.get_block_entity_mut(pos) else {
+                    let Some(BlockEntity::Furnace(furnace)) = sw.world.get_block_entity_mut(pos) else {
                         return None
                     };
 
@@ -1322,7 +1321,7 @@ impl ServerPlayer {
 
                 if slot < 9 {
 
-                    let Some(BlockEntity::Dispenser(dispenser)) = world.get_block_entity_mut(pos) else {
+                    let Some(BlockEntity::Dispenser(dispenser)) = sw.world.get_block_entity_mut(pos) else {
                         return None
                     };
 
@@ -1366,9 +1365,9 @@ impl ServerPlayer {
 
     /// Drop an item from the player's entity, items are drop in front of the player, but
     /// the `on_ground` argument can be set to true in order to drop item on the ground.
-    pub fn drop_stack(&mut self, world: &mut World, stack: ItemStack, on_ground: bool) {
+    pub fn drop_stack(&mut self, sw: &mut ServerWorld, stack: ItemStack, on_ground: bool) {
 
-        let Entity(origin_base, _) = world.get_entity_mut(self.entity_id).expect("incoherent player entity");
+        let Entity(origin_base, _) = sw.world.get_entity_mut(self.entity_id).expect("incoherent player entity");
         
         let entity = e::Item::new_with(|base, item| {
 
@@ -1406,12 +1405,12 @@ impl ServerPlayer {
             
         });
         
-        world.spawn_entity(entity);
+        sw.world.spawn_entity(entity);
 
     }
 
     /// Update the chunks sent to this player.
-    pub fn update_chunks(&mut self, world: &World) {
+    pub fn update_chunks(&mut self, sw: &ServerWorld) {
 
         let (ocx, ocz) = chunk::calc_entity_chunk_pos(self.pos);
         let view_range = 3;
@@ -1419,7 +1418,7 @@ impl ServerPlayer {
         for cx in (ocx - view_range)..(ocx + view_range) {
             for cz in (ocz - view_range)..(ocz + view_range) {
 
-                if let Some(chunk) = world.get_chunk(cx, cz) {
+                if let Some(chunk) = sw.world.get_chunk(cx, cz) {
                     if self.tracked_chunks.insert((cx, cz)) {
 
                         self.send(OutPacket::ChunkState(proto::ChunkStatePacket {
@@ -1444,7 +1443,7 @@ impl ServerPlayer {
                 }
 
                 // Search signs block entities in chunk.
-                for (pos, block_entity) in world.iter_block_entities_in_chunk(cx, cz) {
+                for (pos, block_entity) in sw.world.iter_block_entities_in_chunk(cx, cz) {
                     if let BlockEntity::Sign(sign) = block_entity {
                         self.send(OutPacket::UpdateSign(proto::UpdateSignPacket {
                             x: pos.x,
@@ -1476,7 +1475,7 @@ impl ServerPlayer {
 
     /// For the given block position, close any window that may be linked to it. This is
     /// usually called when the block entity or crafting table is removed.
-    pub fn close_block_window(&mut self, world: &mut World, target_pos: IVec3) {
+    pub fn close_block_window(&mut self, sw: &mut ServerWorld, target_pos: IVec3) {
 
         let contains = match self.window.kind {
             WindowKind::Player => false,
@@ -1489,7 +1488,7 @@ impl ServerPlayer {
         };
 
         if contains {
-            self.close_window(world, None, true);
+            self.close_window(sw, None, true);
         }
 
     }

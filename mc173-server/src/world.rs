@@ -27,22 +27,13 @@ use crate::chunk::ChunkTrackers;
 use crate::config;
 
 
-/// A single world in the server, this structure keep tracks of players and entities
-/// tracked by players.
+/// A single world in the server, this structure extends the basic [`World`] structure for
+/// server-specific behaviors, such as name, tick mode or entity tracking.
 pub struct ServerWorld {
-    /// The inner world data structure.
-    pub world: World,
-    /// Players currently in the world.
-    pub players: Vec<ServerPlayer>,
-    /// The remaining world state, this is put is a separate struct in order to facilitate
-    /// borrowing when handling player packets.
-    pub state: ServerWorldState,
-}
-
-/// Represent the whole state of a world.
-pub struct ServerWorldState {
     /// World name.
     pub name: String,
+    /// The inner world data structure.
+    pub world: World,
     /// The seed of this world, this is sent to the client in order to 
     pub seed: i64,
     /// The server-side time, that is not necessarily in-sync with the world time in case
@@ -81,29 +72,26 @@ impl ServerWorld {
     /// Internal function to create a server world.
     pub fn new(name: String, dimension: Dimension) -> Self {
 
-        let mut inner = World::new(dimension);
+        let mut world = World::new(dimension);
 
         // Make sure that the world initially have an empty events queue.
-        inner.swap_events(Some(Vec::new()));
+        world.swap_events(Some(Vec::new()));
 
         let seed = config::SEED;
         
         Self {
-            world: inner,
-            players: Vec::new(),
-            state: ServerWorldState {
-                name: name.into(),
-                seed,
-                time: 0,
-                tick_mode: TickMode::Auto,
-                storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(seed), 4),
-                chunk_trackers: ChunkTrackers::new(),
-                entity_trackers: HashMap::new(),
-                tick_last: Instant::now(),
-                tick_duration: FadingAverage::default(),
-                tick_interval: FadingAverage::default(),
-                events_count: FadingAverage::default(),
-            },
+            name,
+            world,
+            seed,
+            time: 0,
+            tick_mode: TickMode::Auto,
+            storage: ChunkStorage::new("test_world/region/", OverworldGenerator::new(seed), 4),
+            chunk_trackers: ChunkTrackers::new(),
+            entity_trackers: HashMap::new(),
+            tick_last: Instant::now(),
+            tick_duration: FadingAverage::default(),
+            tick_interval: FadingAverage::default(),
+            events_count: FadingAverage::default(),
         }
 
     }
@@ -111,21 +99,21 @@ impl ServerWorld {
     /// Save this world's resources and block until all resources has been saved.
     pub fn stop(&mut self) {
 
-        info!("saving {}...", self.state.name);
+        info!("saving {}...", self.name);
 
-        for player in &self.players {
-            player.send_disconnect(format!("Server stopping..."));
-        }
+        // for player in &self.players {
+        //     player.send_disconnect(format!("Server stopping..."));
+        // }
 
-        for (cx, cz) in self.state.chunk_trackers.drain_save() {
+        for (cx, cz) in self.chunk_trackers.drain_save() {
             if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
-                debug!("saving {} chunk: {cx}/{cz}", self.state.name);
-                self.state.storage.request_save(snapshot);
+                debug!("saving {} chunk: {cx}/{cz}", self.name);
+                self.storage.request_save(snapshot);
             }
         }
 
-        while self.state.storage.request_save_count() != 0 {
-            if let Some(reply) = self.state.storage.poll() {
+        while self.storage.request_save_count() != 0 {
+            if let Some(reply) = self.storage.poll() {
                 match reply {
                     ChunkStorageReply::Save { cx, cz, res: Ok(()) } => {
                         debug!("saved chunk in storage: {cx}/{cz}");
@@ -141,20 +129,20 @@ impl ServerWorld {
     }
 
     /// Tick this world.
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, players: &mut [ServerPlayer]) {
 
         let start = Instant::now();
-        self.state.tick_interval.push((start - self.state.tick_last).as_secs_f32(), 0.02);
-        self.state.tick_last = start;
+        self.tick_interval.push((start - self.tick_last).as_secs_f32(), 0.02);
+        self.tick_last = start;
 
         // Get server-side time.
-        let time = self.state.time;
+        let time = self.time;
         if time == 0 {
-            self.init();
+            self.init(players);
         }
 
         // Poll all chunks to load in the world.
-        while let Some(reply) = self.state.storage.poll() {
+        while let Some(reply) = self.storage.poll() {
             match reply {
                 ChunkStorageReply::Load { cx, cz, res: Ok(snapshot) } => {
                     debug!("loaded chunk from storage: {cx}/{cz}");
@@ -173,7 +161,7 @@ impl ServerWorld {
         }
 
         // Only run if no tick freeze.
-        match self.state.tick_mode {
+        match self.tick_mode {
             TickMode::Auto => {
                 self.world.tick()
             }
@@ -186,28 +174,28 @@ impl ServerWorld {
 
         // Swap events out in order to proceed them.
         let mut events = self.world.swap_events(None).expect("events should be enabled");
-        self.state.events_count.push(events.len() as f32, 0.001);
+        self.events_count.push(events.len() as f32, 0.001);
 
         for event in events.drain(..) {
             match event {
                 Event::Block { pos, inner } => match inner {
                     BlockEvent::Set { id, metadata, prev_id, prev_metadata } =>
-                        self.handle_block_set(pos, id, metadata, prev_id, prev_metadata),
+                        self.handle_block_set(players, pos, id, metadata, prev_id, prev_metadata),
                     BlockEvent::Sound { id, metadata } =>
-                        self.handle_block_sound(pos, id, metadata),
+                        self.handle_block_sound(players, pos, id, metadata),
                     BlockEvent::Piston { face, extending } => {
                         if config::client_piston() {
-                            self.handle_block_action(pos, (!extending) as i8, face as i8);
+                            self.handle_block_action(players, pos, (!extending) as i8, face as i8);
                         }
                     }
                     BlockEvent::NoteBlock { instrument, note } =>
-                        self.handle_block_action(pos, instrument as i8, note as i8),
+                        self.handle_block_action(players, pos, instrument as i8, note as i8),
                 }
                 Event::Entity { id, inner } => match inner {
                     EntityEvent::Spawn => 
-                        self.handle_entity_spawn(id),
+                        self.handle_entity_spawn(players, id),
                     EntityEvent::Remove => 
-                        self.handle_entity_remove(id),
+                        self.handle_entity_remove(players, id),
                     EntityEvent::Position { pos } => 
                         self.handle_entity_position(id, pos),
                     EntityEvent::Look { look } => 
@@ -215,37 +203,37 @@ impl ServerWorld {
                     EntityEvent::Velocity { vel } => 
                         self.handle_entity_velocity(id, vel),
                     EntityEvent::Pickup { target_id } => 
-                        self.handle_entity_pickup(id, target_id),
+                        self.handle_entity_pickup(players, id, target_id),
                     EntityEvent::Damage => 
-                        self.handle_entity_damage(id),
+                        self.handle_entity_damage(players, id),
                     EntityEvent::Dead => 
-                        self.handle_entity_dead(id),
+                        self.handle_entity_dead(players, id),
                     EntityEvent::Metadata =>
-                        self.handle_entity_metadata(id),
+                        self.handle_entity_metadata(players, id),
                 }
                 Event::BlockEntity { pos, inner } => match inner {
                     BlockEntityEvent::Set =>
-                        self.handle_block_entity_set(pos),
+                        self.handle_block_entity_set(players, pos),
                     BlockEntityEvent::Remove =>
-                        self.handle_block_entity_remove(pos),
+                        self.handle_block_entity_remove(players, pos),
                     BlockEntityEvent::Storage { storage, stack } =>
-                        self.handle_block_entity_storage(pos, storage, stack),
+                        self.handle_block_entity_storage(players, pos, storage, stack),
                     BlockEntityEvent::Progress { progress, value } =>
-                        self.handle_block_entity_progress(pos, progress, value),
+                        self.handle_block_entity_progress(players, pos, progress, value),
                     BlockEntityEvent::Sign =>
-                        self.handle_block_entity_sign(pos),
+                        self.handle_block_entity_sign(players, pos),
                 }
                 Event::Chunk { cx, cz, inner } => match inner {
                     ChunkEvent::Set => {}
                     ChunkEvent::Remove => {}
-                    ChunkEvent::Dirty => self.state.chunk_trackers.set_dirty(cx, cz),
+                    ChunkEvent::Dirty => self.chunk_trackers.set_dirty(cx, cz),
                 }
                 Event::Weather { new, .. } =>
-                    self.handle_weather_change(new),
+                    self.handle_weather_change(players, new),
                 Event::Explode { center, radius } =>
-                    self.handle_explode(center, radius),
+                    self.handle_explode(players, center, radius),
                 Event::DebugParticle { pos, block } =>
-                    self.handle_debug_particle(pos, block),
+                    self.handle_debug_particle(players, pos, block),
             }
         }
 
@@ -255,7 +243,7 @@ impl ServerWorld {
         // Send time to every playing clients every second.
         if time % 20 == 0 {
             let world_time = self.world.get_time();
-            for player in &self.players {
+            for player in &mut players[..] {
                 player.send(OutPacket::UpdateTime(proto::UpdateTimePacket {
                     time: world_time,
                 }));
@@ -263,41 +251,41 @@ impl ServerWorld {
         }
 
         // After we collected every block change, update all players accordingly.
-        self.state.chunk_trackers.update_players(&self.players, &self.world);
+        self.chunk_trackers.update_players(players, &self.world);
 
         // After world events are processed, tick entity trackers.
-        for tracker in self.state.entity_trackers.values_mut() {
+        for tracker in self.entity_trackers.values_mut() {
             if time % 60 == 0 {
-                tracker.update_tracking_players(&mut self.players, &self.world);
+                tracker.update_tracking_players(players, &self.world);
             }
-            tracker.tick_and_update_players(&self.players);
+            tracker.tick_and_update_players(players);
         }
 
         // Drain dirty chunks coordinates and save them.
-        while let Some((cx, cz)) = self.state.chunk_trackers.next_save() {
+        while let Some((cx, cz)) = self.chunk_trackers.next_save() {
             if let Some(snapshot) = self.world.take_chunk_snapshot(cx, cz) {
-                self.state.storage.request_save(snapshot);
+                self.storage.request_save(snapshot);
             }
         }
 
         // Update tick duration metric.
         let tick_duration = start.elapsed();
-        self.state.tick_duration.push(tick_duration.as_secs_f32(), 0.02);
+        self.tick_duration.push(tick_duration.as_secs_f32(), 0.02);
 
         // Finally increase server-side tick time.
-        self.state.time += 1;
+        self.time += 1;
 
     }
     
     /// Initialize the world by ensuring that every entity is currently tracked. This
     /// method can be called multiple time and should be idempotent.
-    fn init(&mut self) {
+    fn init(&mut self, players: &mut [ServerPlayer]) {
 
         // Ensure that every entity has a tracker.
         for (id, entity) in self.world.iter_entities() {
-            self.state.entity_trackers.entry(id).or_insert_with(|| {
+            self.entity_trackers.entry(id).or_insert_with(|| {
                 let tracker = EntityTracker::new(id, entity);
-                tracker.update_tracking_players(&mut self.players, &self.world);
+                tracker.update_tracking_players(players, &self.world);
                 tracker
             });
         }
@@ -306,25 +294,26 @@ impl ServerWorld {
         let (center_cx, center_cz) = chunk::calc_entity_chunk_pos(config::SPAWN_POS);
         for cx in center_cx - 10..=center_cx + 10 {
             for cz in center_cz - 10..=center_cz + 10 {
-                self.state.storage.request_load(cx, cz);
+                self.storage.request_load(cx, cz);
             }
         }
 
     }
 
     /// Handle a player joining this world.
-    pub fn handle_player_join(&mut self, mut player: ServerPlayer) -> usize {
+    pub fn handle_player_join(&mut self, player: &mut ServerPlayer) {
 
         // Initial tracked entities.
-        for tracker in self.state.entity_trackers.values() {
-            tracker.update_tracking_player(&mut player, &self.world);
+        for tracker in self.entity_trackers.values() {
+            tracker.update_tracking_player(player, &self.world);
         }
 
-        player.update_chunks(&self.world);
+        player.update_chunks(self);
         
-        let player_index = self.players.len();
-        self.players.push(player);
-        player_index
+        // TODO: transfer to Server structure
+        // let player_index = self.players.len();
+        // self.players.push(player);
+        // player_index
 
     }
 
@@ -337,10 +326,10 @@ impl ServerWorld {
     /// world's list is moved to the given player index. So if it exists, you should 
     /// update all indices pointing to the swapped player. This method returns, if 
     /// existing, the player that was swapped.
-    pub fn handle_player_leave(&mut self, player_index: usize, lost: bool) -> Option<&ServerPlayer> {
+    pub fn handle_player_leave(&mut self, player: &mut ServerPlayer, lost: bool) {
 
-        // Remove the player tracker.
-        let mut player = self.players.swap_remove(player_index);
+        // // Remove the player tracker.
+        // let mut player = self.players.swap_remove(player_index);
         
         // Kill the entity associated to the player.
         self.world.remove_entity(player.entity_id, "server player leave");
@@ -354,36 +343,36 @@ impl ServerWorld {
 
             // Untrack all its entities.
             for entity_id in tracked_entities {
-                let tracker = self.state.entity_trackers.get(&entity_id).expect("incoherent tracked entity");
-                tracker.kill_entity(&mut player);
+                let tracker = self.entity_trackers.get(&entity_id).expect("incoherent tracked entity");
+                tracker.kill_entity(player);
             }
 
         }
 
-        self.players.get(player_index)
+        // self.players.get(player_index)
 
     }
 
     /// Handle a block change world event.
-    fn handle_block_set(&mut self, pos: IVec3, id: u8, metadata: u8, prev_id: u8, _prev_metadata: u8) {
+    fn handle_block_set(&mut self, players: &mut [ServerPlayer], pos: IVec3, id: u8, metadata: u8, prev_id: u8, _prev_metadata: u8) {
 
         // Notify the tracker of the block change, this is used to notify the player 
-        self.state.chunk_trackers.set_block(pos, id, metadata);
+        self.chunk_trackers.set_block(pos, id, metadata);
 
         // If the block was a crafting table, if any player has a crafting table
         // window referencing this block then we force close it.
         let break_crafting_table = id != prev_id && prev_id == block::CRAFTING_TABLE;
         if break_crafting_table {
-            for player in &mut self.players {
-                player.close_block_window(&mut self.world, pos);
+            for player in players {
+                player.close_block_window(self, pos);
             }
         }
 
     }
 
-    fn handle_block_sound(&mut self, pos: IVec3, _block: u8, _metadata: u8) {
+    fn handle_block_sound(&mut self, players: &mut [ServerPlayer], pos: IVec3, _block: u8, _metadata: u8) {
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
+        for player in players {
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
                     effect_id: 1003,
@@ -396,9 +385,9 @@ impl ServerWorld {
         }
     }
 
-    fn handle_block_action(&mut self, pos: IVec3, data0: i8, data1: i8) {
+    fn handle_block_action(&mut self, players: &mut [ServerPlayer], pos: IVec3, data0: i8, data1: i8) {
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
+        for player in players {
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::BlockAction(proto::BlockActionPacket {
                     x: pos.x,
@@ -411,9 +400,9 @@ impl ServerWorld {
         }
     }
 
-    fn handle_explode(&mut self, center: DVec3, radius: f32) {
+    fn handle_explode(&mut self, players: &mut [ServerPlayer], center: DVec3, radius: f32) {
         let (cx, cz) = chunk::calc_entity_chunk_pos(center);
-        for player in &self.players {
+        for player in players {
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::Explosion(proto::ExplosionPacket {
                     x: center.x,
@@ -427,51 +416,51 @@ impl ServerWorld {
     }
 
     /// Handle an entity spawn world event.
-    fn handle_entity_spawn(&mut self, id: u32) {
+    fn handle_entity_spawn(&mut self, players: &mut [ServerPlayer], id: u32) {
         // The entity may have already been removed.
         if let Some(entity) = self.world.get_entity(id) {
-            self.state.entity_trackers.entry(id).or_insert_with(|| {
+            self.entity_trackers.entry(id).or_insert_with(|| {
                 let tracker = EntityTracker::new(id, entity);
-                tracker.update_tracking_players(&mut self.players, &self.world);
+                tracker.update_tracking_players(players, &self.world);
                 tracker
             });
         }
     }
 
     /// Handle an entity kill world event.
-    fn handle_entity_remove(&mut self, id: u32) {
+    fn handle_entity_remove(&mut self, players: &mut [ServerPlayer], id: u32) {
         // The entity may not be spawned yet (read above).
-        if let Some(tracker) = self.state.entity_trackers.remove(&id) {
-            tracker.untrack_players(&mut self.players);
+        if let Some(tracker) = self.entity_trackers.remove(&id) {
+            tracker.untrack_players(players);
         };
     }
 
     /// Handle an entity position world event.
     fn handle_entity_position(&mut self, id: u32, pos: DVec3) {
-        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+        if let Some(tracker) = self.entity_trackers.get_mut(&id) {
             tracker.set_pos(pos);
         }
     }
 
     /// Handle an entity look world event.
     fn handle_entity_look(&mut self, id: u32, look: Vec2) {
-        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+        if let Some(tracker) = self.entity_trackers.get_mut(&id) {
             tracker.set_look(look);
         }
     }
 
     /// Handle an entity look world event.
     fn handle_entity_velocity(&mut self, id: u32, vel: DVec3) {
-        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
+        if let Some(tracker) = self.entity_trackers.get_mut(&id) {
             tracker.set_vel(vel);
         }
     }
 
     /// Handle an entity pickup world event.
-    fn handle_entity_pickup(&mut self, id: u32, target_id: u32) {
+    fn handle_entity_pickup(&mut self, players: &mut [ServerPlayer], id: u32, target_id: u32) {
 
         let Some(Entity(_, target_kind)) = self.world.get_entity_mut(target_id) else { return };
-        let Some(player) = self.players.iter_mut().find(|p| p.entity_id == id) else {
+        let Some(player) = players.iter_mut().find(|p| p.entity_id == id) else {
             // This works only on entities handled by players.
             return
         };
@@ -496,7 +485,7 @@ impl ServerWorld {
             self.world.remove_entity(target_id, "picked up");
         }
 
-        for player in &self.players {
+        for player in players {
             if player.tracked_entities.contains(&target_id) {
                 player.send(OutPacket::EntityPickup(proto::EntityPickupPacket {
                     entity_id: id,
@@ -508,12 +497,12 @@ impl ServerWorld {
     }
 
     /// Handle an entity damage event.
-    fn handle_entity_damage(&mut self, id: u32) {
+    fn handle_entity_damage(&mut self, players: &mut [ServerPlayer], id: u32) {
 
-        self.handle_entity_status(id, 2);
+        self.handle_entity_status(players, id, 2);
 
         // TODO: This is temporary code, we need to make a common method to update health.
-        for player in &self.players {
+        for player in players {
             if player.entity_id == id {
                 if let Entity(_, BaseKind::Living(living, _)) = self.world.get_entity(id).unwrap() {
                     player.send(OutPacket::UpdateHealth(proto::UpdateHealthPacket {
@@ -526,13 +515,13 @@ impl ServerWorld {
     }
 
     /// Handle an entity dead event (the entity is not yet removed).
-    fn handle_entity_dead(&mut self, id: u32) {
-        self.handle_entity_status(id, 3);
+    fn handle_entity_dead(&mut self, players: &mut [ServerPlayer], id: u32) {
+        self.handle_entity_status(players, id, 3);
     }
 
     /// Handle an entity damage/dead or other status for an entity.
-    fn handle_entity_status(&mut self, id: u32, status: u8) {
-        for player in &self.players {
+    fn handle_entity_status(&mut self, players: &mut [ServerPlayer], id: u32, status: u8) {
+        for player in players {
             if player.tracked_entities.contains(&id) || player.entity_id == id {
                 player.send(OutPacket::EntityStatus(proto::EntityStatusPacket {
                     entity_id: id,
@@ -542,9 +531,9 @@ impl ServerWorld {
         }
     }
 
-    fn handle_entity_metadata(&mut self, id: u32) {
-        if let Some(tracker) = self.state.entity_trackers.get_mut(&id) {
-            for player in &self.players {
+    fn handle_entity_metadata(&mut self, players: &mut [ServerPlayer], id: u32) {
+        if let Some(tracker) = self.entity_trackers.get_mut(&id) {
+            for player in players {
                 if player.tracked_entities.contains(&id) {
                     tracker.update_entity(player, &self.world);
                 }
@@ -553,49 +542,49 @@ impl ServerWorld {
     }
 
     /// Handle a block entity set event.
-    fn handle_block_entity_set(&mut self, _pos: IVec3) {
+    fn handle_block_entity_set(&mut self, _players: &mut [ServerPlayer], _pos: IVec3) {
         
     }
 
     /// Handle a block entity remove event.
-    fn handle_block_entity_remove(&mut self, pos: IVec3) {
+    fn handle_block_entity_remove(&mut self, players: &mut [ServerPlayer], pos: IVec3) {
 
         // Close the inventory of all entities that had a window opened for this block.
-        for player in &mut self.players {
-            player.close_block_window(&mut self.world, pos);
+        for player in players {
+            player.close_block_window(self, pos);
         }
 
     }
 
     /// Handle a storage event for a block entity.
-    fn handle_block_entity_storage(&mut self, pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
+    fn handle_block_entity_storage(&mut self, players: &mut [ServerPlayer], pos: IVec3, storage: BlockEntityStorage, stack: ItemStack) {
 
         // Update any player that have a window opened on that block entity.
-        for player in &mut self.players {
+        for player in players {
             player.update_block_window_storage(pos, storage, stack);
         }
 
     }
 
     /// Handle a progress event for a block entity.
-    fn handle_block_entity_progress(&mut self, pos: IVec3, progress: BlockEntityProgress, value: u16) {
+    fn handle_block_entity_progress(&mut self, players: &mut [ServerPlayer], pos: IVec3, progress: BlockEntityProgress, value: u16) {
 
         // Update any player that have a window opened on that block entity.
-        for player in &mut self.players {
+        for player in players {
             player.update_block_window_progress(pos, progress, value);
         }
 
     }
 
     /// Handle a sign edit event for a sign block entity.
-    fn handle_block_entity_sign(&mut self, pos: IVec3) {
+    fn handle_block_entity_sign(&mut self, players: &mut [ServerPlayer], pos: IVec3) {
 
         let Some(BlockEntity::Sign(sign)) = self.world.get_block_entity_mut(pos) else {
             return;
         };
 
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
+        for player in players {
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::UpdateSign(proto::UpdateSignPacket {
                     x: pos.x,
@@ -609,17 +598,17 @@ impl ServerWorld {
     }
 
     /// Handle weather change in the world.
-    fn handle_weather_change(&mut self, weather: Weather) {
-        for player in &self.players {
+    fn handle_weather_change(&mut self, players: &mut [ServerPlayer], weather: Weather) {
+        for player in players {
             player.send(OutPacket::Notification(proto::NotificationPacket {
                 reason: if weather == Weather::Clear { 2 } else { 1 },
             }));
         }
     }
 
-    fn handle_debug_particle(&mut self, pos: IVec3, block: u8) {
+    fn handle_debug_particle(&mut self, players: &mut [ServerPlayer], pos: IVec3, block: u8) {
         let (cx, cz) = chunk::calc_chunk_pos_unchecked(pos);
-        for player in &self.players {
+        for player in players {
             if player.tracked_chunks.contains(&(cx, cz)) {
                 player.send(OutPacket::EffectPlay(proto::EffectPlayPacket {
                     effect_id: 2001,

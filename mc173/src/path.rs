@@ -1,4 +1,6 @@
 //! Path finder utility for world.
+//! 
+//! TODO: Move it as a method of [`World`].
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;

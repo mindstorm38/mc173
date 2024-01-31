@@ -1,4 +1,6 @@
-//! Packet server for threaded decoding and encoding of packets.
+//! Packet server for threaded decoding and encoding of packets. This module is generic
+//! and could be used for any TCP and packet-based protocol. It is specialized in the
+//! [`proto`](crate::proto) crate.
 
 use std::io::{self, Read, Write, Cursor};
 use std::net::{SocketAddr, Shutdown};
@@ -28,7 +30,9 @@ pub trait OutPacket {
 }
 
 
-/// A packet server backed by a background thread that do all the hard processing.
+/// A packet server backed by a background thread that do all the hard processing. This
+/// network handle can be cloned as need, and every handle is able to both send and
+/// receive packets.
 /// 
 /// To kill the server, every handle of it should be dropped.
 #[derive(Debug, Clone)]
