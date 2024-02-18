@@ -5,13 +5,11 @@ pub mod rand;
 
 pub mod item;
 pub mod block;
-pub mod biome;
+pub mod entity;
 pub mod chunk;
 
-pub mod world;
-pub mod entity;
 
-
+/// Base plugin defining the 
 pub struct MinecraftPlugin {
     
 }
@@ -19,9 +17,7 @@ pub struct MinecraftPlugin {
 impl Plugin for MinecraftPlugin {
 
     fn build(&self, app: &mut App) {
-        
-        app.run()
-        
+        app.add_plugins(entity::EntityPlugin);
     }
 
 }

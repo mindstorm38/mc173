@@ -11,6 +11,7 @@ use crate::item::ItemStack;
 pub mod tick;
 
 
+/// The ECS plugin registering all the entity systems and required resources.
 pub struct EntityPlugin;
 
 impl Plugin for EntityPlugin {
