@@ -10,6 +10,9 @@ pub mod item;
 pub mod biome;
 pub mod entity;
 pub mod block_entity;
+
+pub mod dimension;
+
 pub mod feature;
 
 pub mod inventory;
