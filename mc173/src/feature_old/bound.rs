@@ -8,11 +8,9 @@ use crate::geom::{BoundingBox, Face};
 use crate::block_entity::BlockEntity;
 use crate::block;
 
-use super::World;
-
 
 /// Trait extension to world that provides various block boxes and ray tracing.
-pub trait WorldBound: World {
+pub trait Bound {
 
     /// Get the exclusion box of a block, this function doesn't take the block metadata.
     /// 
@@ -323,9 +321,6 @@ pub trait WorldBound: World {
 const PIXEL: f64 = 1.0 / 16.0;
 const PIXEL_2: f64 = 2.0 / 16.0;
 const PIXEL_3: f64 = 3.0 / 16.0;
-
-/// Standard implementation.
-impl<W: World> WorldBound for W { }
 
 /// Internal iterator implementation for bounding boxes of a block with metadata, we must
 /// use an iterator because some blocks have multiple bounding boxes.

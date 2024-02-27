@@ -1,5 +1,7 @@
 //! Abstract world access trait and features.
 
+use std::ops::Add;
+
 use glam::{DVec3, IVec3, Vec2};
 
 use crate::block_entity::BlockEntity;
@@ -9,20 +11,8 @@ use crate::item::ItemStack;
 use crate::entity::Entity;
 use crate::biome::Biome;
 
-pub mod material;
-pub mod bound;
-pub mod power;
-pub mod loot;
-pub mod interact;
-pub mod place;
-pub mod r#break;
-pub mod r#use;
-pub mod tick;
-pub mod notify;
-pub mod explode;
 
-
-/// Abstract trait to access a world.
+/// Abstract trait to access a single dimension.
 /// 
 /// For now, this trait is not object-safe.
 /// 
@@ -45,7 +35,7 @@ pub mod explode;
 /// Various suffixes can be added to methods, depending on the world area affected by the
 /// method, for example `_in`, `_in_chunk`, `_in_box` or `_colliding`.
 /// Any mutation prefix `_mut` should be placed at the very end.
-pub trait World: Sized {
+pub trait Dimension {
 
     // =================== //
     //         MISC        //
@@ -55,7 +45,7 @@ pub trait World: Sized {
     /// and also for celestial angle on the server side for sky light calculation. This
     /// has not direct relation with the actual world generation that is providing this
     /// world with chunks and entities.
-    fn get_dimension(&self) -> Dimension;
+    fn get_kind(&self) -> DimensionKind;
 
     /// Get the world time, in ticks.
     fn get_time(&self) -> u64;
@@ -130,7 +120,8 @@ pub trait World: Sized {
     /// 
     /// **This function is legal to call from ticking entities, but such entities will be
     /// ticked once in the same cycle as the currently ticking entity.**
-    fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32;
+    fn spawn_entity(&mut self, entity: impl Into<Box<Entity>>) -> u32
+    where Self: Sized;
 
     /// Remove an entity with given id, returning some boxed entity is successful. This
     /// returns true if the entity has been successfully removed removal, the entity's
@@ -178,7 +169,8 @@ pub trait World: Sized {
 
     /// Set the block entity at the given position. If a block entity was already at the
     /// position, it is removed silently.
-    fn set_block_entity(&mut self, pos: IVec3, block_entity: impl Into<Box<BlockEntity>>);
+    fn set_block_entity(&mut self, pos: IVec3, block_entity: impl Into<Box<BlockEntity>>)
+    where Self: Sized;
 
     /// Remove a block entity from a position. Returning true if successful, in this case
     /// the block entity storage is guaranteed to be freed, but the block entity footprint
@@ -215,53 +207,66 @@ pub trait World: Sized {
 
     /// Iterate over all blocks in the given area where max is excluded. Unloaded chunks
     /// are not yielded, so the iterator size cannot be known only from min and max.
-    fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_;
+    fn iter_blocks_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = (IVec3, u8, u8)> + '_
+    where Self: Sized;
 
     /// Iterate over all blocks in the chunk at given coordinates.
-    fn iter_blocks_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (IVec3, u8, u8)> + '_;
+    fn iter_blocks_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (IVec3, u8, u8)> + '_
+    where Self: Sized;
 
     /// Iterate over all block entities in a chunk.
-    fn iter_block_entities_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (IVec3, &'_ BlockEntity)> + '_;
+    fn iter_block_entities_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (IVec3, &'_ BlockEntity)> + '_
+    where Self: Sized;
 
     /// Iterate over all block entities in a chunk through mutable references.
-    fn iter_block_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> impl Iterator<Item = (IVec3, &'_ mut BlockEntity)> + '_;
+    fn iter_block_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> impl Iterator<Item = (IVec3, &'_ mut BlockEntity)> + '_
+    where Self: Sized;
 
     /// Iterate over all entities in the world.
     /// *This function can't return the current updated entity.*
-    fn iter_entities(&self) -> impl Iterator<Item = (u32, &'_ Entity)> + '_;
+    fn iter_entities(&self) -> impl Iterator<Item = (u32, &'_ Entity)> + '_
+    where Self: Sized;
 
     /// Iterator over all entities in the world through mutable references.
     /// *This function can't return the current updated entity.*
-    fn iter_entities_mut(&mut self) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_;
+    fn iter_entities_mut(&mut self) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_
+    where Self: Sized;
 
     /// Iterate over all player entities in the world.
     /// *This function can't return the current updated entity.*
-    fn iter_player_entities(&self) -> impl Iterator<Item = (u32, &'_ Entity)> + '_;
+    fn iter_player_entities(&self) -> impl Iterator<Item = (u32, &'_ Entity)> + '_
+    where Self: Sized;
 
     /// Iterate over all player entities in the world through mutable references.
     /// *This function can't return the current updated entity.*
-    fn iter_player_entities_mut(&mut self) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_;
+    fn iter_player_entities_mut(&mut self) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_
+    where Self: Sized;
 
     /// Iterate over all entities of the given chunk.
     /// *This function can't return the current updated entity.*
-    fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &'_ Entity)> + '_;
+    fn iter_entities_in_chunk(&self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &'_ Entity)> + '_
+    where Self: Sized;
 
     /// Iterate over all entities of the given chunk through mutable references.
     /// *This function can't return the current updated entity.*
-    fn iter_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_;
+    fn iter_entities_in_chunk_mut(&mut self, cx: i32, cz: i32) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_
+    where Self: Sized;
 
     /// Iterate over all entities colliding with the given bounding box.
     /// *This function can't return the current updated entity.*
-    fn iter_entities_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (u32, &'_ Entity)> + '_;
+    fn iter_entities_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = (u32, &'_ Entity)> + '_
+    where Self: Sized;
 
     /// Iterate over all entities colliding with the given bounding box through mut ref.
     /// *This function can't return the current updated entity.*
-    fn iter_entities_colliding_mut(&mut self, bb: BoundingBox) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_;
+    fn iter_entities_colliding_mut(&mut self, bb: BoundingBox) -> impl Iterator<Item = (u32, &'_ mut Entity)> + '_
+    where Self: Sized;
     
     /// Return true if any entity is colliding the given bounding box. The hard argument
     /// can be set to true in order to only check for "hard" entities, hard entities can
     /// prevent block placements and entity spawning.
-    fn has_entity_colliding(&self, bb: BoundingBox, hard: bool) -> bool {
+    fn has_entity_colliding(&self, bb: BoundingBox, hard: bool) -> bool
+    where Self: Sized {
         self.iter_entities_colliding(bb)
             .any(|(_, entity)| !hard || entity.kind().is_hard())
     }
@@ -271,7 +276,7 @@ pub trait World: Sized {
 
 /// Types of dimensions, used for ambient effects in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Dimension {
+pub enum DimensionKind {
     /// The overworld dimension with a blue sky and day cycles.
     Overworld,
     /// The creepy nether dimension.
@@ -529,3 +534,98 @@ pub enum ChunkEvent {
     /// chunk so it's marked dirty.
     Dirty,
 }
+
+
+/// Trait extension to world that provides various block boxes and ray tracing.
+pub trait Bound {
+
+    /// Get the exclusion box of a block, this function doesn't take the block metadata.
+    /// 
+    /// PARITY: The Notchian implementation is terrible because it uses the colliding box
+    /// for the exclusion box but with the metadata of the block currently at the 
+    /// position, so we fix this in this implementation by just returning a full block
+    /// for blocks that usually depends on metadata (such as doors, trapdoors).
+    fn get_block_exclusion_box(&self, pos: IVec3, id: u8) -> Option<BoundingBox>;
+
+    /// Get the overlay box of the block, this overlay is what should be shown client-side
+    /// around the block and where the player can click. Unlike colliding boxes, there is
+    /// only one overlay box per block.
+    /// 
+    /// **Note that** liquid blocks returns no box.
+    fn get_block_overlay_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox>;
+
+    /// Get the colliding boxes for a block, the colliding box will be offset to the 
+    /// block's position as needed. Not to confuse with overlay boxes, which are just used
+    /// to client side placement rendering, and used server-side to compute ray tracing 
+    /// when using items such as bucket.
+    fn iter_block_colliding_boxes(&self, pos: IVec3, id: u8, metadata: u8) -> impl Iterator<Item = BoundingBox> + '_
+    where Self: Sized;
+    
+    /// Get the colliding box for a block, this returns a single bounding box that is an
+    /// union between all boxes returned by [`iter_block_colliding_boxes`] iterator.
+    /// 
+    /// [`iter_block_colliding_boxes`]: Self::iter_block_colliding_boxes
+    fn get_block_colliding_box(&self, pos: IVec3, id: u8, metadata: u8) -> Option<BoundingBox>
+    where Self: Sized {
+        let mut iter = self.iter_block_colliding_boxes(pos, id, metadata);
+        let mut bb = iter.next()?;
+        while let Some(other) = iter.next() {
+            bb |= other;
+        }
+        Some(bb)
+    }
+
+    /// Iterate over all blocks that are in the bounding box area, this doesn't check for
+    /// actual collision with the block's bounding box, it just return all potential 
+    /// blocks in the bounding box' area.
+    fn iter_blocks_in_box(&self, bb: BoundingBox) -> impl Iterator<Item = (IVec3, u8, u8)> + '_
+    where Self: Sized;
+
+    /// Iterate over all bounding boxes in the given area.
+    /// *Min is inclusive and max is exclusive.*
+    fn iter_blocks_boxes_in(&self, min: IVec3, max: IVec3) -> impl Iterator<Item = BoundingBox> + '_
+    where Self: Sized;
+
+    /// Iterate over all bounding boxes in the given area that are colliding with the 
+    /// given one.
+    fn iter_blocks_boxes_colliding(&self, bb: BoundingBox) -> impl Iterator<Item = BoundingBox> + '_ 
+    where Self: Sized {
+        let min = bb.min.floor().as_ivec3();
+        let max = bb.max.add(1.0).floor().as_ivec3();
+        self.iter_blocks_boxes_in(min, max)
+            .filter(move |block_bb| block_bb.intersects(bb))
+    }
+
+    /// Ray trace from an origin point and return the first colliding blocks, either 
+    /// entity or block. The fluid argument is used to hit the fluid **source** blocks or
+    /// not. The overlay argument is used to select the block overlay box instead of the
+    /// block bound box.
+    fn ray_trace_blocks(&self, origin: DVec3, ray: DVec3, kind: RayTraceKind) -> Option<RayTraceHit>;
+
+}
+
+/// Describe the kind of ray tracing to make, this describe how blocks are collided.
+pub enum RayTraceKind {
+    /// The ray trace will be on block colliding boxes.
+    Colliding,
+    /// The ray trace will be on block overlay boxes.
+    Overlay,
+    /// The ray trace will be on block overlay boxes including fluid sources.
+    OverlayWithFluid,
+}
+
+/// Result of a ray trace that hit a block.
+#[derive(Debug, Clone)]
+pub struct RayTraceHit {
+    /// The ray vector that stop on the block.
+    pub ray: DVec3,
+    /// The position of the block.
+    pub pos: IVec3,
+    /// The block.
+    pub block: u8,
+    /// The block metadata.
+    pub metadata: u8,
+    /// The face of the block.
+    pub face: Face,
+}
+

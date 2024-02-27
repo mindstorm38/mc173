@@ -7,7 +7,7 @@ use glam::IVec3;
 use crate::block::material::PistonPolicy;
 use crate::block_entity::piston::PistonBlockEntity;
 use crate::block_entity::BlockEntity;
-use crate::feature::loot::WorldLoot;
+use crate::feature_old::loot::WorldLoot;
 use crate::geom::{Face, FaceSet};
 use crate::block;
 
