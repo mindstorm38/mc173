@@ -7,7 +7,6 @@ use tracing::trace;
 
 use crate::entity::{Fireball, Path, LookTarget};
 use crate::world::{World, Event, EntityEvent};
-use crate::path::PathFinder;
 
 use super::{Entity, BaseKind, LivingKind, EntityCategory};
 use super::common::{self, let_expect};
@@ -220,7 +219,7 @@ fn tick_ground_ai(world: &mut World, id: u32, entity: &mut Entity) {
 
         // trace!("entity #{id}, path finding: {}", target.pos);
 
-        let path = PathFinder::new(world)
+        let path = world
             .find_path_from_bounding_box(base.bb, target.pos, PATH_FINDER_MAX_DIST)
             .map(Path::from);
 

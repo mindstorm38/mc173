@@ -42,6 +42,7 @@ pub mod r#use;
 pub mod tick;
 pub mod notify;
 pub mod explode;
+pub mod path;
 
 
 // Various thread local vectors that are used to avoid frequent reallocation of 

@@ -14,7 +14,6 @@ pub mod biome;
 pub mod inventory;
 pub mod craft;
 pub mod smelt;
-pub mod path;
 
 pub mod chunk;
 pub mod world;

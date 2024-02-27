@@ -7,7 +7,6 @@ use glam::IVec3;
 use mc173::entity::{BaseKind, Entity, EntityCategory, EntityKind};
 use mc173::world::{Event, Weather};
 use mc173::item::{self, ItemStack};
-use mc173::path::PathFinder;
 use mc173::block;
 
 use crate::world::{ServerWorld, TickMode};
@@ -375,7 +374,7 @@ fn cmd_path(ctx: CommandContext) -> CommandResult {
         z: z_raw.parse::<i32>().map_err(|_| format!("§cError: invalid z:§r {z_raw}"))?,
     };
 
-    if let Some(path) = PathFinder::new(&mut ctx.world.world).find_path(from, to, IVec3::ONE, 20.0) {
+    if let Some(path) = ctx.world.world.find_path(from, to, IVec3::ONE, 20.0) {
         
         for pos in path {
             ctx.world.world.set_block(pos, block::DEAD_BUSH, 0);

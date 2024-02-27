@@ -1,21 +1,52 @@
-//! Path finder utility for world.
-//! 
-//! TODO: Move it as a method of [`World`].
+//! Path finding in worlds.
 
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::ops::{Sub, Add};
+use std::collections::{hash_map, HashMap};
+use std::ops::{Add, Sub};
 
-use glam::{IVec3, DVec3};
+use glam::{DVec3, IVec3};
 
+use crate::block;
 use crate::block::material::Material;
 use crate::geom::BoundingBox;
-use crate::world::World;
-use crate::block;
+
+use super::World;
+
+
+/// Methods related path finding in worlds.
+impl World {
+
+    /// Find a path in the world from on position to another, with a given maximum 
+    /// distance, if no path can be found none is returned. The result also depends on
+    /// the entity size, which will determine wether or not the entity can go through
+    /// a hole or not.
+    pub fn find_path(&mut self, from: IVec3, to: IVec3, entity_size: IVec3, dist: f32) -> Option<Vec<IVec3>> {
+        PathFinder::new(self).find_path(from, to, entity_size, dist)
+    }
+
+    /// A specialization or [`find_path`](Self::find_path) to find a path of a moving 
+    /// bounding box to a given position. The actual position of the bounding is its 
+    /// bottom center.
+    pub fn find_path_from_bounding_box(&mut self, from: BoundingBox, to: DVec3, dist: f32) -> Option<Vec<IVec3>> {
+        
+        // println!("== find_path_from_bounding_box: from {from}, to {to}, dist {dist}");
+
+        let size = from.size();
+        let from = from.min.floor().as_ivec3();
+        let to = to.sub(DVec3 {
+            x: size.x / 2.0,
+            y: 0.0,
+            z: size.z / 2.0,
+        }).floor().as_ivec3();
+
+        self.find_path(from, to, size.add(1.0).floor().as_ivec3(), dist)
+
+    }
+
+}
 
 
 /// A path finder on a world.
-pub struct PathFinder<'a> {
+struct PathFinder<'a> {
     /// Back-reference to the world.
     world: &'a World,
     /// The size of the entity (or whatever you want) that should go through the path.
@@ -67,11 +98,11 @@ impl<'a> PathFinder<'a> {
 
     fn ensure_point(&mut self, pos: IVec3) -> (usize, &mut PathPoint) {
         match self.points_map.entry(pos) {
-            Entry::Occupied(o) => {
+            hash_map::Entry::Occupied(o) => {
                 let index = *o.into_mut();
                 (index, &mut self.points[index])
             }
-            Entry::Vacant(v) => {
+            hash_map::Entry::Vacant(v) => {
                 let index = self.points.len();
                 v.insert(index);
                 self.points.push(PathPoint { pos, ..Default::default() });
@@ -211,7 +242,7 @@ impl<'a> PathFinder<'a> {
     /// distance, if no path can be found none is returned. The result also depends on
     /// the entity size, which will determine wether or not the entity can go through
     /// a hole or not.
-    pub fn find_path(&mut self, from: IVec3, to: IVec3, entity_size: IVec3, dist: f32) -> Option<Vec<IVec3>> {
+    fn find_path(&mut self, from: IVec3, to: IVec3, entity_size: IVec3, dist: f32) -> Option<Vec<IVec3>> {
         
         // println!("== find_path: from {from}, to {to}, entity_size {entity_size}, dist {dist}");
 
@@ -299,25 +330,6 @@ impl<'a> PathFinder<'a> {
             Some(ret)
 
         }
-
-    }
-
-    /// A specialization or [`find_path`](Self::find_path) to find a path of a moving 
-    /// bounding box to a given position. The actual position of the bounding is its 
-    /// bottom center.
-    pub fn find_path_from_bounding_box(&mut self, from: BoundingBox, to: DVec3, dist: f32) -> Option<Vec<IVec3>> {
-        
-        // println!("== find_path_from_bounding_box: from {from}, to {to}, dist {dist}");
-
-        let size = from.size();
-        let from = from.min.floor().as_ivec3();
-        let to = to.sub(DVec3 {
-            x: size.x / 2.0,
-            y: 0.0,
-            z: size.z / 2.0,
-        }).floor().as_ivec3();
-
-        self.find_path(from, to, size.add(1.0).floor().as_ivec3(), dist)
 
     }
 
