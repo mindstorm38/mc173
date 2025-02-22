@@ -525,10 +525,10 @@ impl FeatureGenerator for TreeGenerator {
 
     fn generate(&mut self, world: &mut World, pos: IVec3, rand: &mut JavaRandom) -> bool {
         match self {
-            TreeGenerator::Simple(gen) => gen.generate(world, pos, rand),
-            TreeGenerator::Big(gen) => gen.generate(world, pos, rand),
-            TreeGenerator::Spruce1(gen) => gen.generate(world, pos, rand),
-            TreeGenerator::Spruce2(gen) => gen.generate(world, pos, rand),
+            TreeGenerator::Simple(r#gen) => r#gen.generate(world, pos, rand),
+            TreeGenerator::Big(r#gen) => r#gen.generate(world, pos, rand),
+            TreeGenerator::Spruce1(r#gen) => r#gen.generate(world, pos, rand),
+            TreeGenerator::Spruce2(r#gen) => r#gen.generate(world, pos, rand),
         }
     }
 

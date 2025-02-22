@@ -19,4 +19,4 @@ pub mod chunk;
 pub mod world;
 pub mod storage;
 pub mod serde;
-pub mod gen;
+pub mod r#gen;

@@ -10,7 +10,7 @@ use tracing::{debug, info};
 
 use mc173::entity::{Entity, BaseKind, ProjectileKind};
 use mc173::storage::{ChunkStorage, ChunkStorageReply};
-use mc173::gen::OverworldGenerator;
+use mc173::r#gen::OverworldGenerator;
 use mc173::item::{ItemStack, self};
 use mc173::util::FadingAverage;
 use mc173::{chunk, block};

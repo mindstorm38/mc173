@@ -8,7 +8,7 @@ use crate::entity::{Item, FallingBlock};
 use crate::block::material::Material;
 use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
-use crate::gen::tree::TreeGenerator;
+use crate::r#gen::tree::TreeGenerator;
 use crate::geom::{Face, FaceSet};
 use crate::{block, item};
 
@@ -410,14 +410,14 @@ impl World {
         if self.get_light(pos + IVec3::Y).max_real() >= 9 && self.rand.next_int_bounded(30) == 0 {
             if block::sapling::is_growing(metadata) {
                 
-                let mut gen = match block::sapling::get_kind(metadata) {
+                let mut r#gen = match block::sapling::get_kind(metadata) {
                     TreeKind::Oak if self.rand.next_int_bounded(10) == 0 => TreeGenerator::new_big(),
                     TreeKind::Oak => TreeGenerator::new_oak(),
                     TreeKind::Birch => TreeGenerator::new_birch(),
                     TreeKind::Spruce => TreeGenerator::new_spruce2(),
                 };
 
-                gen.generate_from_sapling(self, pos);
+                r#gen.generate_from_sapling(self, pos);
 
             } else {
                 block::sapling::set_growing(&mut metadata, true);

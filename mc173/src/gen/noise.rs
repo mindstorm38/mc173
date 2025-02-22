@@ -353,8 +353,8 @@ impl PerlinOctaveNoise {
     pub fn gen_3d_point(&self, pos: DVec3) -> f64 {
         let mut ret = 0.0;
         let mut freq = 1.0;
-        for gen in &self.generators[..] {
-            ret += gen.gen_3d_point(pos * freq) / freq;
+        for r#gen in &self.generators[..] {
+            ret += r#gen.gen_3d_point(pos * freq) / freq;
             freq /= 2.0;
         }
         ret
@@ -364,8 +364,8 @@ impl PerlinOctaveNoise {
     pub fn gen_2d_point(&self, pos: DVec2) -> f64 {
         let mut ret = 0.0;
         let mut freq = 1.0;
-        for gen in &self.generators[..] {
-            ret += gen.gen_2d_point(pos * freq) / freq;
+        for r#gen in &self.generators[..] {
+            ret += r#gen.gen_2d_point(pos * freq) / freq;
             freq /= 2.0;
         }
         ret
@@ -379,8 +379,8 @@ impl PerlinOctaveNoise {
     ) {
         cube.fill(0.0);
         let mut freq = 1.0;
-        for gen in &self.generators[..] {
-            gen.gen_3d(cube, offset, scale * freq, 1.0 / freq);
+        for r#gen in &self.generators[..] {
+            r#gen.gen_3d(cube, offset, scale * freq, 1.0 / freq);
             freq /= 2.0;
         }
     }
@@ -393,8 +393,8 @@ impl PerlinOctaveNoise {
     ) {
         cube.fill(0.0);
         let mut freq = 1.0;
-        for gen in &self.generators[..] {
-            gen.gen_2d(cube, offset, scale * freq, 1.0 / freq);
+        for r#gen in &self.generators[..] {
+            r#gen.gen_2d(cube, offset, scale * freq, 1.0 / freq);
             freq /= 2.0;
         }
     }
@@ -414,8 +414,8 @@ impl PerlinOctaveNoise {
         let scale = scale / 1.5;
         let mut freq = 1.0;
         let mut amplitude = 0.55;
-        for gen in &self.generators[..] {
-            gen.gen_weird_2d(cube, offset, scale * freq, amplitude);
+        for r#gen in &self.generators[..] {
+            r#gen.gen_weird_2d(cube, offset, scale * freq, amplitude);
             freq *= freq_factor;
             amplitude *= 2.0;
         }

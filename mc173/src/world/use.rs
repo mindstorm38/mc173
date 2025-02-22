@@ -5,7 +5,7 @@ use glam::{IVec3, DVec3, Vec3};
 use crate::block_entity::BlockEntity;
 use crate::entity::{Arrow, BaseKind, Bobber, Entity, EntityKind, Item, Painting, PaintingArt, ProjectileKind, Snowball, Tnt};
 use crate::inventory::InventoryHandle;
-use crate::gen::tree::TreeGenerator;
+use crate::r#gen::tree::TreeGenerator;
 use crate::block::sapling::TreeKind;
 use crate::item::{ItemStack, self};
 use crate::util::default as def;
@@ -289,14 +289,14 @@ impl World {
 
         if block == block::SAPLING {
             
-            let mut gen = match block::sapling::get_kind(metadata) {
+            let mut r#gen = match block::sapling::get_kind(metadata) {
                 TreeKind::Oak if self.get_rand_mut().next_int_bounded(10) == 0 => TreeGenerator::new_big(),
                 TreeKind::Oak => TreeGenerator::new_oak(),
                 TreeKind::Birch => TreeGenerator::new_birch(),
                 TreeKind::Spruce => TreeGenerator::new_spruce2(),
             };
             
-            gen.generate_from_sapling(self, pos);
+            r#gen.generate_from_sapling(self, pos);
             true
 
         } else {

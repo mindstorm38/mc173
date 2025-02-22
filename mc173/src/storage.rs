@@ -21,7 +21,7 @@ use crate::serde::nbt::NbtError;
 use crate::serde::nbt::NbtParseError;
 use crate::serde::region::{RegionDir, RegionError};
 use crate::world::{ChunkSnapshot, World};
-use crate::gen::ChunkGenerator;
+use crate::r#gen::ChunkGenerator;
 use crate::world::Dimension;
 use crate::chunk::Chunk;
 

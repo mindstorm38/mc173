@@ -692,7 +692,7 @@ impl ChunkGenerator for OverworldGenerator {
 
                 pos.y = world.get_height(pos).unwrap();
 
-                let mut gen = match biome {
+                let mut r#gen = match biome {
                     Biome::Taiga => {
                         if rand.next_int_bounded(3) == 0 {
                             TreeGenerator::new_spruce1()
@@ -725,7 +725,7 @@ impl ChunkGenerator for OverworldGenerator {
                     }
                 };
 
-                gen.generate(world, pos, &mut rand);
+                r#gen.generate(world, pos, &mut rand);
                 
             }
         }
