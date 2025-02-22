@@ -1,28 +1,29 @@
 [package]
 name = "mc173-server"
-version = "0.2.0"
-edition = "2021"
 description = "Minecraft beta 1.7.3 protocol and server implementation compatible with Notchian client"
-readme = "../README.md"
-homepage = "https://github.com/mindstorm38/mc173"
-repository = "https://github.com/mindstorm38/mc173"
-license = "Apache-2.0"
 keywords = ["minecraft", "game", "server"]
-categories = ["games"]
+version.workspace = true
+edition.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+categories.workspace = true
 
 [dependencies]
-mc173 = { path = "../mc173", version = "0.2.0" }
+mc173.workspace = true
 
-mio = { version = "0.8", features = ["os-poll", "net"] }
-crossbeam-channel = "0.5"
-byteorder = "1.5"
-flate2 = "1.0"
-arcstr = "1.1"
-glam = "0.24"
+mio.workspace = true
 
-once_cell = "1.19"
+crossbeam-channel.workspace = true
+once_cell.workspace = true
 
-ctrlc = "3.4.1"
+byteorder.workspace = true
+flate2.workspace = true
+glam.workspace = true
+arcstr.workspace = true
 
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ctrlc.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
