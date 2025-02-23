@@ -10,10 +10,6 @@ pub mod entity;
 pub mod block_entity;
 pub mod biome;
 
-pub mod inventory;
-pub mod craft;
-pub mod smelt;
-
 pub mod chunk;
 pub mod world;
 pub mod storage;

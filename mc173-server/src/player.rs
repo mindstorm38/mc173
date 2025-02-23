@@ -12,11 +12,12 @@ use mc173::world::interact::Interaction;
 
 use mc173::entity::{self as e, Entity, Hurt, BaseKind, LivingKind};
 use mc173::block_entity::BlockEntity;
-use mc173::item::{self, ItemStack};
 use mc173::{block, chunk};
 
-use mc173::inventory::InventoryHandle;
-use mc173::craft::CraftTracker;
+use mc173::item::inv::InventoryHandle;
+use mc173::item::craft::CraftTracker;
+use mc173::item::{self, ItemStack};
+
 use mc173::geom::Face;
 
 use crate::proto::{self, Network, NetworkClient, OutPacket, InPacket};

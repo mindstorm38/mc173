@@ -4,7 +4,7 @@ use glam::IVec3;
 
 use crate::item::{self, ItemStack};
 use crate::world::{World, Event, BlockEntityEvent, BlockEntityStorage, BlockEntityProgress};
-use crate::{smelt, block};
+use crate::{item::smelt, block};
 
 
 #[derive(Debug, Clone, Default)]

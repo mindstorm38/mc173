@@ -3,6 +3,9 @@
 use crate::block;
 
 pub mod attack;
+pub mod craft;
+pub mod inv;
+pub mod smelt;
 
 
 /// Internal macro to easily define blocks registry.

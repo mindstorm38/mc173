@@ -2,10 +2,10 @@
 
 use glam::{IVec3, DVec3, Vec3};
 
-use crate::block_entity::BlockEntity;
 use crate::entity::{Arrow, BaseKind, Bobber, Entity, EntityKind, Item, Painting, PaintingArt, ProjectileKind, Snowball, Tnt};
-use crate::inventory::InventoryHandle;
+use crate::item::inv::InventoryHandle;
 use crate::r#gen::tree::TreeGenerator;
+use crate::block_entity::BlockEntity;
 use crate::block::sapling::TreeKind;
 use crate::item::{ItemStack, self};
 use crate::util::default as def;
