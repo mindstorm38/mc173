@@ -433,8 +433,8 @@ impl World {
             }
 
             new_stack = match id {
-                block::WATER_MOVING | block::WATER_STILL => ItemStack::new_single(item::WATER_BUCKET, 0),
-                block::LAVA_MOVING | block::LAVA_STILL => ItemStack::new_single(item::LAVA_BUCKET, 0),
+                block::WATER_MOVING | block::WATER_STILL => ItemStack::new(item::WATER_BUCKET, 0),
+                block::LAVA_MOVING | block::LAVA_STILL => ItemStack::new(item::LAVA_BUCKET, 0),
                 _ => return
             };
 
@@ -450,7 +450,7 @@ impl World {
                 // world.schedule_tick(pos, fluid_id, 5); // TODO: 30 for lava.
             }
 
-            new_stack = ItemStack::new_single(item::BUCKET, 0);
+            new_stack = ItemStack::new(item::BUCKET, 0);
 
         }
 
@@ -469,7 +469,7 @@ impl World {
     fn use_bow_stack(&mut self, inv: &mut InventoryHandle, _index: usize, entity_id: u32) {
         
         // Consume an arrow from the inventory.
-        if !inv.consume(ItemStack::new_single(item::ARROW, 0)) {
+        if !inv.consume(ItemStack::new(item::ARROW, 0)) {
             return;
         }
 
@@ -569,7 +569,7 @@ impl World {
                         item_base.persistent = true;
                         item_base.pos = bobber_pos;
                         item_base.vel = bobber_accel;
-                        item.stack = ItemStack::new_single(item::RAW_FISH, 0);
+                        item.stack = ItemStack::new(item::RAW_FISH, 0);
                     }));
 
                     item_damage = 1;

@@ -90,7 +90,7 @@ const TRAPDOOR_2: ItemStack = ItemStack::new_block_sized(block::TRAPDOOR, 0, 2);
 const WOOD_4: ItemStack = ItemStack::new_block_sized(block::WOOD, 0, 4);
 const STICK_4: ItemStack = ItemStack::new_sized(item::STICK, 0, 4);
 const TORCH_4: ItemStack = ItemStack::new_block_sized(block::TORCH, 0, 4);
-const CHARCOAL: ItemStack = ItemStack::new_single(item::COAL, 1);
+const CHARCOAL: ItemStack = ItemStack::new(item::COAL, 1);
 const BOWL_4: ItemStack = ItemStack::new_sized(item::BOWL, 0, 4);
 const RAIL_16: ItemStack = ItemStack::new_block_sized(block::RAIL, 0, 16);
 const POWERED_RAIL_6: ItemStack = ItemStack::new_block_sized(block::POWERED_RAIL, 0, 6);
@@ -98,9 +98,9 @@ const DETECTOR_RAIL_6: ItemStack = ItemStack::new_block_sized(block::DETECTOR_RA
 const WOOD_STAIR_4: ItemStack = ItemStack::new_block_sized(block::WOOD_STAIR, 0, 4);
 const COBBLESTONE_STAIR_4: ItemStack = ItemStack::new_block_sized(block::COBBLESTONE_STAIR, 0, 4);
 const ARROW_4: ItemStack = ItemStack::new_sized(item::ARROW, 0, 4);
-const LAPIS: ItemStack = ItemStack::new_single(item::DYE, 4);
+const LAPIS: ItemStack = ItemStack::new(item::DYE, 4);
 const COOKIE_8: ItemStack = ItemStack::new_sized(item::COOKIE, 0, 8);
-const COCOA: ItemStack = ItemStack::new_single(item::DYE, 3);
+const COCOA: ItemStack = ItemStack::new(item::DYE, 3);
 const YELLOW_DYE_2: ItemStack = ItemStack::new_sized(item::DYE, 11, 2);
 const RED_DYE_2: ItemStack = ItemStack::new_sized(item::DYE, 1, 2);
 const BONE_MEAL_2: ItemStack = ItemStack::new_sized(item::DYE, 15, 3);
@@ -191,34 +191,34 @@ const_stacks! {
 
 macro_rules! tool {
     ( pickaxe $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, $mat, $mat, EMPTY, STICK, EMPTY, EMPTY, STICK, EMPTY], 3)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, $mat, $mat, EMPTY, STICK, EMPTY, EMPTY, STICK, EMPTY], 3)
     };
     ( axe $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, $mat, STICK, $mat, STICK, EMPTY], 2)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, $mat, STICK, $mat, STICK, EMPTY], 2)
     };
     ( shovel $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, STICK, STICK], 1)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, STICK, STICK], 1)
     };
     ( hoe $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, $mat, STICK, EMPTY, STICK, EMPTY], 2)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, $mat, STICK, EMPTY, STICK, EMPTY], 2)
     };
     ( sword $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, $mat, STICK], 1)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, $mat, STICK], 1)
     };
 }
 
 macro_rules! armor {
     ( helmet $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, $mat, $mat, $mat, EMPTY, $mat], 3)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, $mat, $mat, $mat, EMPTY, $mat], 3)
     };
     ( chestplate $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, EMPTY, $mat, $mat, $mat, $mat, $mat, $mat, $mat], 3)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, EMPTY, $mat, $mat, $mat, $mat, $mat, $mat, $mat], 3)
     };
     ( leggings $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, $mat, $mat, $mat, EMPTY, $mat, $mat, EMPTY, $mat], 3)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, $mat, $mat, $mat, EMPTY, $mat, $mat, EMPTY, $mat], 3)
     };
     ( boots $result:expr, $mat:expr ) => {
-        Recipe::new_shaped(ItemStack::new_single($result, 0), &[$mat, EMPTY, $mat, $mat, EMPTY, $mat], 3)
+        Recipe::new_shaped(ItemStack::new($result, 0), &[$mat, EMPTY, $mat, $mat, EMPTY, $mat], 3)
     };
 }
 
@@ -233,7 +233,7 @@ macro_rules! ore_block {
 
 macro_rules! dye_mix {
     ( $meta:literal * $count:literal, [ $( $pattern_meta:literal ),+ ] ) => {
-        Recipe::new_shapeless(ItemStack::new_sized(item::DYE, $meta, $count), &[ $( ItemStack::new_single(item::DYE, $pattern_meta) ),+ ])
+        Recipe::new_shapeless(ItemStack::new_sized(item::DYE, $meta, $count), &[ $( ItemStack::new(item::DYE, $pattern_meta) ),+ ])
     };
 }
 

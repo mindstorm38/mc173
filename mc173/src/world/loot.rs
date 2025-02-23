@@ -99,22 +99,22 @@ impl World {
         match id {
             // Bed only drop if not head piece. 
             block::BED if block::bed::is_head(metadata) => ItemStack::EMPTY,
-            block::BED => ItemStack::new_single(item::BED, 0),
+            block::BED => ItemStack::new(item::BED, 0),
             // Cake.
             block::CAKE => ItemStack::EMPTY,
             // Clay.
-            block::CLAY => ItemStack::new_single(item::CLAY, 0),
+            block::CLAY => ItemStack::new(item::CLAY, 0),
             // Wheat, only drop if reached max stage.
             block::WHEAT if try_num == 0 && metadata != 7 => return ItemStack::EMPTY,
-            block::WHEAT if try_num == 0 => ItemStack::new_single(item::WHEAT, 0),
-            block::WHEAT => ItemStack::new_single(item::WHEAT_SEEDS, 0),
+            block::WHEAT if try_num == 0 => ItemStack::new(item::WHEAT, 0),
+            block::WHEAT => ItemStack::new(item::WHEAT_SEEDS, 0),
             // Dead bush.
             block::DEAD_BUSH => ItemStack::EMPTY,
             // Door only drop if lower part.
             block::WOOD_DOOR | 
             block::IRON_DOOR if block::door::is_upper(metadata) => ItemStack::EMPTY,
-            block::WOOD_DOOR => ItemStack::new_single(item::WOOD_DOOR, 0),
-            block::IRON_DOOR => ItemStack::new_single(item::IRON_DOOR, 0),
+            block::WOOD_DOOR => ItemStack::new(item::WOOD_DOOR, 0),
+            block::IRON_DOOR => ItemStack::new(item::IRON_DOOR, 0),
             // Farmland and grass.
             block::FARMLAND |
             block::GRASS => ItemStack::new_block(block::DIRT, 0),
@@ -127,46 +127,46 @@ impl World {
             block::FURNACE |
             block::FURNACE_LIT => ItemStack::new_block(block::FURNACE, 0),
             // Glowstone.
-            block::GLOWSTONE => ItemStack::new_single(item::GLOWSTONE_DUST, 0),
+            block::GLOWSTONE => ItemStack::new(item::GLOWSTONE_DUST, 0),
             // Gravel.
-            block::GRAVEL if self.rand.next_int_bounded(10) == 0 => ItemStack::new_single(item::FLINT, 0),
+            block::GRAVEL if self.rand.next_int_bounded(10) == 0 => ItemStack::new(item::FLINT, 0),
             // Leaves.
             block::LEAVES => ItemStack::new_block(block::SAPLING, metadata & 3),
             // Spawner.
             block::SPAWNER => ItemStack::EMPTY,
             // Ores.
-            block::COAL_ORE => ItemStack::new_single(item::COAL, 0),
-            block::DIAMOND_ORE => ItemStack::new_single(item::DIAMOND, 0),
+            block::COAL_ORE => ItemStack::new(item::COAL, 0),
+            block::DIAMOND_ORE => ItemStack::new(item::DIAMOND, 0),
             block::REDSTONE_ORE |
-            block::REDSTONE_ORE_LIT => ItemStack::new_single(item::REDSTONE, 0),
-            block::LAPIS_ORE => ItemStack::new_single(item::DYE, 4),
+            block::REDSTONE_ORE_LIT => ItemStack::new(item::REDSTONE, 0),
+            block::LAPIS_ORE => ItemStack::new(item::DYE, 4),
             // Piston.
             block::PISTON_EXT |
             block::PISTON_MOVING => ItemStack::EMPTY,
             // Redstone components.
-            block::REDSTONE => ItemStack::new_single(item::REDSTONE, 0),
+            block::REDSTONE => ItemStack::new(item::REDSTONE, 0),
             block::REPEATER |
-            block::REPEATER_LIT => ItemStack::new_single(item::REPEATER, 0),
+            block::REPEATER_LIT => ItemStack::new(item::REPEATER, 0),
             block::REDSTONE_TORCH |
             block::REDSTONE_TORCH_LIT => ItemStack::new_block(block::REDSTONE_TORCH_LIT, 0),
             // Sugar cane.
-            block::SUGAR_CANES => ItemStack::new_single(item::SUGAR_CANES, 0),
+            block::SUGAR_CANES => ItemStack::new(item::SUGAR_CANES, 0),
             // Signs.
             block::SIGN |
-            block::WALL_SIGN => ItemStack::new_single(item::SIGN, 0),
+            block::WALL_SIGN => ItemStack::new(item::SIGN, 0),
             // Snow.
             block::SNOW_BLOCK |
-            block::SNOW => ItemStack::new_single(item::SNOWBALL, 0),
+            block::SNOW => ItemStack::new(item::SNOWBALL, 0),
             // Double slab.
             block::SLAB |
             block::DOUBLE_SLAB => ItemStack::new_block(block::SLAB, metadata),
             // Stone.
             block::STONE => ItemStack::new_block(block::COBBLESTONE, 0),
             // Tall grass.
-            block::TALL_GRASS if self.rand.next_int_bounded(8) == 0 => ItemStack::new_single(item::WHEAT_SEEDS, 0),
+            block::TALL_GRASS if self.rand.next_int_bounded(8) == 0 => ItemStack::new(item::WHEAT_SEEDS, 0),
             block::TALL_GRASS => ItemStack::EMPTY,
             // Cobweb.
-            block::COBWEB => ItemStack::new_single(item::STRING, 0),
+            block::COBWEB => ItemStack::new(item::STRING, 0),
             // Log type.
             block::LOG => ItemStack::new_block(block::LOG, metadata),
             // Wool color.

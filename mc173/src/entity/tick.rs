@@ -210,7 +210,7 @@ fn tick_painting(world: &mut World, id: u32, entity: &mut Entity) {
 
     if let Some(drop_reason) = drop_reason {
         // PARITY: The loot spawned have a frozen time of 10 ticks, Notchian has 0.
-        world.spawn_loot(base.pos, ItemStack::new_single(item::PAINTING, 0), 0.0);
+        world.spawn_loot(base.pos, ItemStack::new(item::PAINTING, 0), 0.0);
         world.remove_entity(id, drop_reason);
     }
 

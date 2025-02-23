@@ -466,7 +466,7 @@ impl ServerWorld {
         };
 
         // Used only for picking arrow.
-        let mut arrow_stack = ItemStack::new_single(item::ARROW, 0);
+        let mut arrow_stack = ItemStack::new(item::ARROW, 0);
         
         let stack = match target_kind {
             BaseKind::Item(item) 

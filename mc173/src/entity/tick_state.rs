@@ -256,7 +256,7 @@ fn tick_state_living(world: &mut World, id: u32, entity: &mut Entity) {
                     
                     if let Some(Entity(_, BaseKind::Living(_, LivingKind::Skeleton(_)))) = world.get_entity(killer_id) {
                         let item = base.rand.next_choice(&[item::RECORD_13, item::RECORD_CAT]);
-                        let stack = ItemStack::new_single(item, 0);
+                        let stack = ItemStack::new(item, 0);
                         world.spawn_loot(base.pos, stack, 0.0);
                     }
 
@@ -279,37 +279,37 @@ fn spawn_living_loot(world: &mut World, base: &mut Base, _living: &mut Living, l
     
     let stack = match living_kind {
         LivingKind::Chicken(_) => 
-            ItemStack::new_single(item::FEATHER, 0),
+            ItemStack::new(item::FEATHER, 0),
         LivingKind::Cow(_) => 
-            ItemStack::new_single(item::LEATHER, 0),
+            ItemStack::new(item::LEATHER, 0),
         LivingKind::Creeper(_) => 
-            ItemStack::new_single(item::GUNPOWDER, 0),
+            ItemStack::new(item::GUNPOWDER, 0),
         LivingKind::Ghast(_) => 
-            ItemStack::new_single(item::GUNPOWDER, 0),
+            ItemStack::new(item::GUNPOWDER, 0),
         LivingKind::Pig(_) => {
             if base.fire_time == 0 {
-                ItemStack::new_single(item::RAW_PORKCHOP, 0)
+                ItemStack::new(item::RAW_PORKCHOP, 0)
             } else {
-                ItemStack::new_single(item::COOKED_PORKCHOP, 0)
+                ItemStack::new(item::COOKED_PORKCHOP, 0)
             }
         }
         LivingKind::PigZombie(_) => 
-            ItemStack::new_single(item::COOKED_PORKCHOP, 0),
+            ItemStack::new(item::COOKED_PORKCHOP, 0),
         LivingKind::Sheep(sheep) if !sheep.sheared => 
             ItemStack::new_block(block::WOOL, sheep.color),
         LivingKind::Skeleton(_) => {
-            spawn_many_loot(world, base.pos, ItemStack::new_single(item::ARROW, 0), base.rand.next_int_bounded(3) as usize);
-            spawn_many_loot(world, base.pos, ItemStack::new_single(item::BONE, 0), base.rand.next_int_bounded(3) as usize);
+            spawn_many_loot(world, base.pos, ItemStack::new(item::ARROW, 0), base.rand.next_int_bounded(3) as usize);
+            spawn_many_loot(world, base.pos, ItemStack::new(item::BONE, 0), base.rand.next_int_bounded(3) as usize);
             return;
         }
         LivingKind::Slime(slime) if slime.size == 0 => 
-            ItemStack::new_single(item::SLIMEBALL, 0),
+            ItemStack::new(item::SLIMEBALL, 0),
         LivingKind::Spider(_) => 
-            ItemStack::new_single(item::STRING, 0),
+            ItemStack::new(item::STRING, 0),
         LivingKind::Squid(_) => 
-            ItemStack::new_single(item::DYE, 0),
+            ItemStack::new(item::DYE, 0),
         LivingKind::Zombie(_) => 
-            ItemStack::new_single(item::FEATHER, 0),
+            ItemStack::new(item::FEATHER, 0),
         _ => return
     };
 

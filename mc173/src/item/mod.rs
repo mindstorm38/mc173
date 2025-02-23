@@ -216,7 +216,7 @@ impl ItemStack {
     pub const EMPTY: Self = Self { id: block::AIR as u16, size: 0, damage: 0 };
 
     /// Shortcut constructor for an item stack with single item.
-    pub const fn new_single(id: u16, damage: u16) -> Self {
+    pub const fn new(id: u16, damage: u16) -> Self {
         Self { id, size: 1, damage }
     }
     

@@ -28,23 +28,23 @@ impl DungeonGenerator {
 
     fn gen_chest_stack(&self, rand: &mut JavaRandom) -> ItemStack {
         match rand.next_int_bounded(11) {
-            0 => ItemStack::new_single(item::SADDLE, 0),
+            0 => ItemStack::new(item::SADDLE, 0),
             1 => ItemStack::new_sized(item::IRON_INGOT, 0, rand.next_int_bounded(4) as u16 + 1),
-            2 => ItemStack::new_single(item::BREAD, 0),
-            3 => ItemStack::new_single(item::BREAD, 0),
+            2 => ItemStack::new(item::BREAD, 0),
+            3 => ItemStack::new(item::BREAD, 0),
             4 => ItemStack::new_sized(item::GUNPOWDER, 0, rand.next_int_bounded(4) as u16 + 1),
             5 => ItemStack::new_sized(item::STRING, 0, rand.next_int_bounded(4) as u16 + 1),
-            6 => ItemStack::new_single(item::BUCKET, 0),
+            6 => ItemStack::new(item::BUCKET, 0),
             7 if rand.next_int_bounded(100) == 0 => 
-                ItemStack::new_single(item::GOLD_APPLE, 0),
+                ItemStack::new(item::GOLD_APPLE, 0),
             8 if rand.next_int_bounded(2) == 0 => 
                 ItemStack::new_sized(item::REDSTONE, 0, rand.next_int_bounded(4) as u16 + 1),
             9 if rand.next_int_bounded(10) == 0 => match rand.next_int_bounded(2) {
-                0 => ItemStack::new_single(item::RECORD_13, 0),
-                1 => ItemStack::new_single(item::RECORD_CAT, 0),
+                0 => ItemStack::new(item::RECORD_13, 0),
+                1 => ItemStack::new(item::RECORD_CAT, 0),
                 _ => unreachable!(),
             }
-            10 => ItemStack::new_single(item::DYE, 3),
+            10 => ItemStack::new(item::DYE, 3),
             _ => ItemStack::EMPTY,
         }
     }
