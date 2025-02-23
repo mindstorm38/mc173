@@ -683,7 +683,7 @@ impl World {
         let index = self.entities_id_map.remove(&id)?;
 
         // Also remove the entity from the player map, if it was.
-        self.player_entities_map.remove(&id);
+        self.player_entities_map.shift_remove(&id);
         
         let comp = self.entities.remove(index);
         let swapped_index = self.entities.len();
@@ -697,7 +697,7 @@ impl World {
             let removed_index = self.chunks.get_mut(&(cx, cz))
                 .expect("entity chunk is missing")
                 .entities
-                .remove(&id);
+                .shift_remove(&id);
             debug_assert_eq!(removed_index, Some(index), "entity is incoherent in its chunk");
         }
 
@@ -747,7 +747,7 @@ impl World {
         if player {
             self.player_entities_map.insert(id, index);
         } else {
-            self.player_entities_map.remove(&id);
+            self.player_entities_map.shift_remove(&id);
         }
         true
     }
@@ -1460,7 +1460,7 @@ impl World {
                     
                     let removed_index = self.chunks.get_mut(&(prev_cx, prev_cz))
                         .expect("entity previous chunk is missing")
-                        .entities.remove(&id);
+                        .entities.shift_remove(&id);
                     debug_assert_eq!(removed_index, Some(index), "entity is incoherent in its previous chunk");
 
                     // Update the world entity to its new chunk and orphan state.
