@@ -1,7 +1,5 @@
 //! Block enumeration and functions to query their metadata state.
 
-use crate::item::Item;
-
 // Block behaviors.
 pub mod material;
 
@@ -32,17 +30,6 @@ macro_rules! blocks {
         static NAMES: [&'static str; 256] = {
             let mut arr = [""; 256];
             $(arr[$id as usize] = $name;)*
-            arr
-        };
-
-        const ITEMS: [Item; 256] = {
-            let mut arr = [Item {
-                name: "",
-                block: true,
-                max_stack_size: 64,
-                max_damage: 0,
-            }; 256];
-            $(arr[$id as usize].name = $name;)*
             arr
         };
 
@@ -153,18 +140,13 @@ blocks! {
 
 /// Find a block name from its id.
 #[inline]
-pub fn name(id: u8) -> &'static str {
+pub const fn name(id: u8) -> &'static str {
     NAMES[id as usize]
 }
 
 /// Find a block id from its name.
 pub fn from_name(name: &str) -> Option<u8> {
-    NAMES.iter().position(|&n| n == name).map(|n| n as u8)
-}
-
-/// Find the item associated to the given block id. 
-/// TODO: This should be removed in the future when items module is reworked.
-#[inline]
-pub fn item(id: u8) -> &'static Item {
-    &ITEMS[id as usize]
+    NAMES.iter()
+        .position(|&n| n == name)
+        .map(|n| n as u8)
 }

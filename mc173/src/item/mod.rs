@@ -11,9 +11,18 @@ macro_rules! items {
         $($name:ident / $id:literal : $init:expr),* $(,)?
     ) => {
 
-        static ITEMS: [Item; 2002] = {
-            let mut arr = [Item::new(""); 2002];
-            $(arr[$id as usize] = $init;)*
+        static ITEMS: [Item; 256 + 2002] = {
+            let mut arr = [Item::new(""); 256 + 2002];
+            let mut i = 0usize;
+            while i < 256 {
+                arr[i] = Item {
+                    name: block::name(i as u8),
+                    max_stack_size: 64,
+                    max_damage: 0,
+                };
+                i += 1;
+            }
+            $(arr[256 + $id as usize] = $init;)*
             arr
         };
 
@@ -139,19 +148,16 @@ items! {
 
 
 /// Get an item from its numeric id.
-pub fn from_id(id: u16) -> &'static Item {
-    if id < 256 {
-        block::item(id as u8)
-    } else {
-        &ITEMS[(id - 256) as usize]
-    }
+pub const fn from_id(id: u16) -> &'static Item {
+    &ITEMS[id as usize]
 }
 
-/// Find an item id from its name. **Note that this will not find block items.
+/// Find an item id from its name.
 pub fn from_name(name: &str) -> Option<u16> {
-    ITEMS.iter().enumerate()
-        .find(|(_, item)| item.name == name)
-        .map(|(i, _)| (i + 256) as u16)
+    ITEMS.iter()
+        .map(|item| item.name)
+        .position(|n| n == name)
+        .map(|n| n as u16)
 }
 
 
@@ -160,8 +166,6 @@ pub fn from_name(name: &str) -> Option<u16> {
 pub struct Item {
     /// The name of the item, used for debug purpose.
     pub name: &'static str,
-    /// Set to true if this item is derived from a block.
-    pub block: bool,
     /// Maximum stack size for this item.
     pub max_stack_size: u16,
     /// Maximum possible damage for this item.
@@ -170,10 +174,9 @@ pub struct Item {
 
 impl Item {
 
-    pub const fn new(name: &'static str) -> Self {
+    const fn new(name: &'static str) -> Self {
         Self {
             name,
-            block: false,
             max_stack_size: 64,
             max_damage: 0,
         }

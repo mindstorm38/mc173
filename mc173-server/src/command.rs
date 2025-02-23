@@ -195,10 +195,8 @@ fn cmd_give(ctx: CommandContext) -> CommandResult {
     let id;
     if let Ok(direct_id) = id_raw.parse::<u16>() {
         id = direct_id;
-    } else if let Some(name_id) = item::from_name(id_raw.trim_start_matches("i/")) {
+    } else if let Some(name_id) = item::from_name(id_raw) {
         id = name_id;
-    } else if let Some(block_id) = block::from_name(id_raw.trim_start_matches("b/")) {
-        id = block_id as u16;
     } else {
         return Err(Some(format!("§cError: unknown item name or id:§r {id_raw}")));
     }
