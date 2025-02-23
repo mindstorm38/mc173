@@ -4,7 +4,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BE};
 use std::io::{self, Read, Write};
 
 
-/// Extension trait with Minecraft-specific packet read methods.
+/// Extension trait with Java read methods.
 pub trait ReadJavaExt: Read {
 
     #[inline]
@@ -78,7 +78,7 @@ pub trait ReadJavaExt: Read {
 
 }
 
-/// Extension trait with Minecraft-specific packet write methods.
+/// Extension trait with Java write methods.
 pub trait WriteJavaExt: Write {
 
     #[inline]

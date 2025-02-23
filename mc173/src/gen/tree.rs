@@ -2,7 +2,7 @@
 
 use glam::IVec3;
 
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 use crate::world::World;
 use crate::block;
 

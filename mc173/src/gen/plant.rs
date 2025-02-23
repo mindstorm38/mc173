@@ -3,7 +3,7 @@
 use glam::IVec3;
 
 use crate::block::material::Material;
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 use crate::world::World;
 use crate::geom::Face;
 use crate::block;

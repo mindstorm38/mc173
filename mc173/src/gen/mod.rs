@@ -8,7 +8,7 @@
 
 use glam::IVec3;
 
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 use crate::chunk::Chunk;
 use crate::world::World;
 

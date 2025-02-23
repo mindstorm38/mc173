@@ -5,7 +5,7 @@ use glam::{DVec3, IVec3};
 use tracing::trace;
 
 use crate::geom::BoundingBox;
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 
 use crate::world::bound::RayTraceKind;
 use crate::entity::{Entity, Hurt};

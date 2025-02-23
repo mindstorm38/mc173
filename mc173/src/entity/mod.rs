@@ -3,9 +3,9 @@
 use glam::{DVec3, Vec2, IVec3};
 
 use crate::block::material::Material;
-use crate::util::default as def;
 use crate::geom::{BoundingBox, Face};
-use crate::rand::JavaRandom;
+use crate::util::default as def;
+use crate::java::JavaRandom;
 use crate::item::ItemStack;
 use crate::world::World;
 use crate::block;

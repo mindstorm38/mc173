@@ -24,7 +24,7 @@ use glam::{DVec2, IVec3, Vec3Swizzles, DVec3};
 
 use crate::chunk::{Chunk, CHUNK_WIDTH, CHUNK_HEIGHT};
 use crate::block::material::Material;
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 use crate::biome::Biome;
 use crate::world::World;
 use crate::block;

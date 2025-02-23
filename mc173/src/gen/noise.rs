@@ -12,7 +12,7 @@ use std::fmt;
 
 use glam::{DVec3, DVec2, IVec3};
 
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 
 
 /// A cube of given size for storing noise values.

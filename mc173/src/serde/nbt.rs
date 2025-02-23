@@ -4,7 +4,7 @@ use std::io::{self, Read, Write};
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::io::{ReadJavaExt, WriteJavaExt};
+use crate::java::{ReadJavaExt, WriteJavaExt};
 
 
 const NBT_BYTE       : i8 = 1;

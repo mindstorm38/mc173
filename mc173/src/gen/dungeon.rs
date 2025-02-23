@@ -7,7 +7,7 @@ use crate::block_entity::chest::ChestBlockEntity;
 use crate::block_entity::BlockEntity;
 use crate::item::{ItemStack, self};
 use crate::entity::EntityKind;
-use crate::rand::JavaRandom;
+use crate::java::JavaRandom;
 use crate::world::World;
 use crate::geom::Face;
 use crate::block;
