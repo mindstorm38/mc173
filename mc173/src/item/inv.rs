@@ -1,5 +1,6 @@
 //! Inventory data structure storing item stacks.
 
+use std::iter::FusedIterator;
 use std::ops::Range;
 
 use crate::item::ItemStack;
@@ -177,6 +178,7 @@ pub struct ChangesIter {
     count: u8,
 }
 
+impl FusedIterator for ChangesIter {  }
 impl Iterator for ChangesIter {
 
     type Item = usize;

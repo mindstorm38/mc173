@@ -157,7 +157,7 @@ impl World {
 
     /// Notification of standard flower subclasses.
     fn notify_flower(&mut self, pos: IVec3, stay_blocks: &[u8]) {
-        if self.get_light(pos).max() >= 8 || false /* block can see sky */ {
+        if self.get_light(pos).max() >= 8 || false /* TODO: block can see sky */ {
             let (below_id, _) = self.get_block(pos - IVec3::Y).unwrap_or((0, 0));
             if stay_blocks.iter().any(|&id| id == below_id) {
                 return;
